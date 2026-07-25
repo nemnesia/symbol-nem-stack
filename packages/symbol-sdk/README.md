@@ -30,18 +30,18 @@ Node.js、ブラウザ、React Native いずれの環境でも利用可能です
 
 ```sh
 # npm
-npm install @nemnesia/symbol-sdk
+npm install symbol-sdk@npm:@nemnesia/symbol-sdk
 # pnpm
-pnpm add @nemnesia/symbol-sdk
+pnpm add symbol-sdk@npm:@nemnesia/symbol-sdk
 # yarn
-yarn add @nemnesia/symbol-sdk
+yarn add symbol-sdk@npm:@nemnesia/symbol-sdk
 ```
 
 ## クイックスタート
 
 ```js
-import { PrivateKey } from '@nemnesia/symbol-sdk';
-import { SymbolFacade } from '@nemnesia/symbol-sdk/symbol';
+import { PrivateKey } from 'symbol-sdk';
+import { SymbolFacade } from 'symbol-sdk/symbol';
 
 // ランダムな秘密鍵生成
 const privateKey = PrivateKey.random();
