@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `Uint8Array` のパスワード入力と、再暗号化の要否を判定する `needsReencryption` API を追加
+- KDF パラメータの明示的な許可リストを導入。将来の既定値強化時も、許可済みの旧形式を安全に復号可能にした
+
+### Changed
+
+- 空のパスワードを拒否するように変更
+- Legacy `{ salt, ciphertext }` 形式の復号を既定で拒否し、移行用の `{ allowLegacy: true }` を必須に変更（破壊的変更）
+
 ## [0.2.0] - 2026-07-23
 
 ### Added

@@ -1,8 +1,21 @@
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 function valueOf(character: string): number {
   return BASE64_ALPHABET.indexOf(character);
+}
+
+function hasValidBase64Shape(base64: string): boolean {
+  if (base64.length % 4 !== 0) return false;
+
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  const unpaddedLength = base64.length - padding;
+  for (let index = 0; index < unpaddedLength; index += 1) {
+    if (valueOf(base64[index]) === -1) return false;
+  }
+  for (let index = unpaddedLength; index < base64.length; index += 1) {
+    if (base64[index] !== '=') return false;
+  }
+  return true;
 }
 
 /**
@@ -35,7 +48,7 @@ export function toBase64(bytes: Uint8Array): string {
  * @throws {Error} 正規形式の Base64 ではない場合
  */
 export function fromBase64(base64: string): Uint8Array {
-  if (typeof base64 !== 'string' || !BASE64_PATTERN.test(base64)) {
+  if (typeof base64 !== 'string' || !hasValidBase64Shape(base64)) {
     throw new Error('Invalid base64');
   }
 

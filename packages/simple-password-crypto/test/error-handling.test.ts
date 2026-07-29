@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { decrypt } from '../src/index.js';
+import { decrypt, encrypt } from '../src/index.js';
 import type { EncryptedData } from '../src/index.js';
 
 describe('エラーハンドリング', () => {
@@ -22,8 +22,6 @@ describe('エラーハンドリング', () => {
       ])
     ).toString('base64'),
   };
-
-  // 新形式ではバージョン・KDF・cipherの検証は不要
 
   it('破損したbase64データでエラーを返す', async () => {
     const invalidData = {
@@ -48,6 +46,34 @@ describe('エラーハンドリング', () => {
     ).rejects.toThrow('Decryption failed');
     await expect(
       decrypt({ ...validEncryptedData, kdfParams: { memoryCost: 65536, timeCost: 2, parallelism: 1 } }, 'password')
+    ).rejects.toThrow('Decryption failed');
+    await expect(
+      decrypt({ ...validEncryptedData, kdf: 'other' } as unknown as EncryptedData, 'password')
+    ).rejects.toThrow('Decryption failed');
+    await expect(
+      decrypt({ ...validEncryptedData, cipher: 'other' } as unknown as EncryptedData, 'password')
+    ).rejects.toThrow('Decryption failed');
+  });
+
+  it('実際に暗号化したデータの salt、nonce、tag、ciphertext 改ざんを拒否する', async () => {
+    const encrypted = await encrypt(new TextEncoder().encode('authenticated value'), 'tamper-test-password');
+    const alter = (base64: string, index: number): string => {
+      const bytes = Buffer.from(base64, 'base64');
+      bytes[index] ^= 1;
+      return bytes.toString('base64');
+    };
+
+    await expect(decrypt({ ...encrypted, salt: alter(encrypted.salt, 0) }, 'tamper-test-password')).rejects.toThrow(
+      'Decryption failed'
+    );
+    await expect(
+      decrypt({ ...encrypted, ciphertext: alter(encrypted.ciphertext, 0) }, 'tamper-test-password')
+    ).rejects.toThrow('Decryption failed');
+    await expect(
+      decrypt({ ...encrypted, ciphertext: alter(encrypted.ciphertext, 12) }, 'tamper-test-password')
+    ).rejects.toThrow('Decryption failed');
+    await expect(
+      decrypt({ ...encrypted, ciphertext: alter(encrypted.ciphertext, 28) }, 'tamper-test-password')
     ).rejects.toThrow('Decryption failed');
   });
 

@@ -14,10 +14,24 @@ import {
   TAG_LENGTH,
   metadataToAad,
 } from './constants.js';
-import type { EncryptedData } from './types.js';
+import type { EncryptedData, Password } from './types.js';
 
-async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array> {
-  const passwordBytes = utf8ToBytes(password);
+function passwordToBytes(password: Password): Uint8Array {
+  if (typeof password === 'string') return utf8ToBytes(password);
+  if (password instanceof Uint8Array) return password;
+  throw new TypeError('password must be a string or Uint8Array');
+}
+
+function validatePassword(password: Password): void {
+  if (typeof password !== 'string' && !(password instanceof Uint8Array)) {
+    throw new TypeError('password must be a string or Uint8Array');
+  }
+  if (password.length === 0) throw new RangeError('password must not be empty');
+}
+
+async function deriveKey(password: Password, salt: Uint8Array): Promise<Uint8Array> {
+  const passwordBytes = passwordToBytes(password);
+  const shouldCleanPasswordBytes = typeof password === 'string';
   try {
     return await argon2idAsync(passwordBytes, salt, {
       m: ARGON2ID_PARAMS.memoryCost,
@@ -26,7 +40,8 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array
       dkLen: 32,
     });
   } finally {
-    clean(passwordBytes);
+    // The caller owns a Uint8Array password and may clear it after this promise settles.
+    if (shouldCleanPasswordBytes) clean(passwordBytes);
   }
 }
 
@@ -37,22 +52,22 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array
  * 暗号方式は追加認証データ（AAD）として認証されます。
  *
  * @param plaintext - 暗号化する 16 MiB 以下のバイト列
- * @param password - 鍵導出に使用するパスワード
+ * @param password - 鍵導出に使用する空でないパスワード。`Uint8Array` も指定可能
  * @returns JSON に安全に保存できる、バージョン付き暗号化データ
  * @throws {TypeError} 引数の型が不正な場合
  * @throws {RangeError} 平文が 16 MiB を超える場合
  */
-export async function encrypt(plaintext: Uint8Array, password: string): Promise<EncryptedData> {
+export async function encrypt(plaintext: Uint8Array, password: Password): Promise<EncryptedData> {
   if (!(plaintext instanceof Uint8Array)) throw new TypeError('plaintext must be a Uint8Array');
   if (plaintext.length > MAX_PLAINTEXT_LENGTH) throw new RangeError('plaintext is too large');
-  if (typeof password !== 'string') throw new TypeError('password must be a string');
+  validatePassword(password);
 
   const salt = randomBytes(SALT_LENGTH);
   const key = await deriveKey(password, salt);
   const nonce = randomBytes(NONCE_LENGTH);
   let ciphertextWithTag: Uint8Array;
   try {
-    ciphertextWithTag = gcm(key, nonce, metadataToAad()).encrypt(plaintext);
+    ciphertextWithTag = gcm(key, nonce, metadataToAad(ARGON2ID_PARAMS)).encrypt(plaintext);
   } finally {
     clean(key);
   }

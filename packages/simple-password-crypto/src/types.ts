@@ -13,6 +13,18 @@ export interface Argon2idParams {
   parallelism: number;
 }
 
+/** 鍵導出に使用するパスワード。`Uint8Array` を使うと、呼び出し側で利用後に消去できます。 */
+export type Password = string | Uint8Array;
+
+/** 復号時のオプション。 */
+export interface DecryptOptions {
+  /**
+   * v1 より前の `{ salt, ciphertext }` 形式を移行目的でのみ許可します。
+   * 既定値は `false` です。
+   */
+  allowLegacy?: boolean;
+}
+
 /**
  * バージョン付き暗号化データフォーマット。
  *

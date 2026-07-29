@@ -5,6 +5,9 @@
 
 パスワードベースでデータを暗号化・復号するライブラリです。Node.js と、Web Crypto (`crypto.getRandomValues`) を提供するブラウザ／React Native 環境に対応します。
 
+> [!WARNING]
+> このライブラリが提供できる保護強度の上限は、パスワードのエントロピーです。空のパスワードは拒否しますが、短い・推測可能なパスワードの強度判定はアプリケーションの責務です。ウォレット、ニーモニック、秘密鍵を扱う場合は、十分に強いパスフレーズのポリシーと OS のキーストアを併用してください。
+
 ## 特徴
 
 - **現代的な暗号化**: Argon2id + AES-256-GCM
@@ -69,18 +72,40 @@ import { decrypt, encrypt } from '@nemnesia/simple-password-crypto';
 
 ## API リファレンス
 
-### `async encrypt(plaintext: Uint8Array, password: string): Promise<EncryptedData>`
+### `async encrypt(plaintext: Uint8Array, password: Password): Promise<EncryptedData>`
 
 - `plaintext`: 暗号化するデータ（Uint8Array、Buffer、文字列は TextEncoder で変換）
-- `password`: パスワード文字列
-- 戻り値: `{ salt: string, ciphertext: string }`（Base64 エンコード）
+- `password`: 空でないパスワード文字列、またはパスワードを UTF-8 等でエンコードした `Uint8Array`
+- 戻り値: `{ version, kdf, kdfParams, cipher, salt, ciphertext }`
+- 空のパスワードは拒否されます。最小長や複雑性のポリシーは用途に応じて呼び出し側で適用してください。
 
-### `async decrypt(data: EncryptedData, password: string): Promise<Uint8Array>`
+### `async decrypt(data: EncryptedData, password: Password, options?: DecryptOptions): Promise<Uint8Array>`
 
 - `data`: 暗号化データオブジェクト
-- `password`: パスワード文字列
+- `password`: `encrypt` と同じ空でないパスワード
+- `options.allowLegacy`: 既定値は `false`。旧 `{ salt, ciphertext }` 形式を移行するときだけ `true` を指定
 - 戻り値: 復号された Uint8Array
 - パスワードやデータが不正な場合はエラーを throw
+
+### `needsReencryption(data: EncryptedData | LegacyEncryptedData): boolean`
+
+復号に成功したデータを、現在の既定 KDF パラメータで再暗号化すべきか判定します。旧形式は常に `true` です。認証前の入力に対する結果は信用せず、必ず復号成功後に利用してください。
+
+### パスワードのバイト列と消去
+
+JavaScript の文字列は GC 管理下のため、ライブラリから内容を確実に消去できません。より厳密な呼び出し元は `Uint8Array` を渡し、処理完了後に自ら消去できます。
+
+```typescript
+const password = new TextEncoder().encode(userSuppliedPassword);
+try {
+  const encrypted = await encrypt(secret, password);
+  // encrypted を保存する
+} finally {
+  password.fill(0);
+}
+```
+
+`Uint8Array` は呼び出し元が所有するバッファなので、ライブラリは自動消去しません。
 
 #### `EncryptedData` 型
 
@@ -123,7 +148,14 @@ interface EncryptedData {
 - `version`、`kdf`、`kdfParams`、`cipher`: 形式識別子。AES-GCM の AAD として認証される
 - `ciphertext`: AES-GCM のノンス（12 バイト）+ タグ（16 バイト）+ 暗号文の連結（Base64）
 
-復号は旧 `{ salt, ciphertext }` 形式も移行目的で読み取れます。ただし旧形式にはメタデータ認証がないため、復号後すぐに新形式で再暗号化してください。
+復号は旧 `{ salt, ciphertext }` 形式を既定では拒否します。移行専用の経路でのみ `{ allowLegacy: true }` を指定してください。旧形式にはメタデータ認証がないため、復号後すぐに新形式で再暗号化してください。
+
+```typescript
+const plaintext = await decrypt(legacyData, password, { allowLegacy: true });
+const migrated = await encrypt(plaintext, password);
+```
+
+KDF パラメータはデータごとに認証され、ライブラリが定義する許可済みセットだけが復号に使われます。既定値を将来強化しても、旧セットを許可リストに残すことで既存データを復号できます。`needsReencryption` が `true` のデータは、復号成功後に最新の既定値で再暗号化してください。
 
 ## 用途
 
@@ -144,6 +176,15 @@ interface EncryptedData {
 - 物理的攻撃（メモリダンプ、コールドブート攻撃）
 - TPM/HSM レベルのハードウェアセキュリティ
 - 弱いパスワードに対する保護
+- JavaScript 文字列に含まれるパスワードの確実なメモリ消去
+
+## 運用上の制約
+
+平文は最大 16 MiB です。ただし各操作で Argon2id が 32 MiB を使用し、暗号文・Base64・コピー用のメモリも別途必要です。これはローカルウォレット、ブラウザ拡張、モバイルアプリなど、信頼されたユーザー操作を主な対象とする設計です。
+
+未認証の外部入力をサーバーで並列・大量に復号する用途には、そのまま使用しないでください。キュー、同時実行数の制限、レート制限、リクエストサイズ制限をアプリケーション側で実装してください。
+
+React Native では CSPRNG を提供する安全な polyfill またはランタイム設定が必要です。対応を掲げる配布対象（Hermes、Expo managed workflow、Web Worker、各ブラウザ）は、実際のアプリ構成と対象端末で CI を含めて検証してください。
 
 ## パフォーマンス
 
