@@ -1,15 +1,42 @@
 import { describe, expect, test } from 'vitest';
 
-import { nemSymbolNodePicker, symbolCache } from '../src/nemSymbolNodePicker.js';
+import { nemSymbolNodePicker, nodewatchMainnetUrls, symbolCache } from '../src/nemSymbolNodePicker.js';
 
 // 実際のAPIにアクセスするため、タイムアウトは長めに設定
-const E2E_TIMEOUT = 45000; // 45秒
+const E2E_TIMEOUT = 60000; // 60秒
+const NODEWATCH_AVAILABILITY_TIMEOUT = 10000; // 10秒
+const E2E_REQUEST_TIMEOUT = 45000; // フェイルオーバーを含むリクエスト全体の待機時間
 
-describe('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
+async function hasAvailableNodeWatch(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), NODEWATCH_AVAILABILITY_TIMEOUT);
+
+  try {
+    await Promise.any(
+      nodewatchMainnetUrls.map(async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/symbol/height`, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`NodeWatch returned HTTP ${response.status}`);
+        }
+      })
+    );
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+    controller.abort();
+  }
+}
+
+// 外部依存のため、すべてのNodeWatchが利用不能な環境ではE2Eをスキップする。
+const describeWithNodeWatch = (await hasAvailableNodeWatch()) ? describe : describe.skip;
+
+describeWithNodeWatch('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
   test(
-    'デフォルトパラメータで1つ取得できる',
+    'Symbol mainnet から1つ取得できる',
     async () => {
-      const result = await nemSymbolNodePicker();
+      const result = await nemSymbolNodePicker({ timeoutMs: E2E_REQUEST_TIMEOUT });
       expect(Array.isArray(result)).toBe(true);
       expect(result.length).toBeGreaterThanOrEqual(1);
       expect(typeof result[0]).toBe('string');
@@ -22,7 +49,12 @@ describe('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
   test(
     'symbol mainnet から複数ノードを取得できる',
     async () => {
-      const result = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 3 });
+      const result = await nemSymbolNodePicker({
+        chainName: 'symbol',
+        network: 'mainnet',
+        count: 3,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
       expect(Array.isArray(result)).toBe(true);
       expect(result.length).toBeGreaterThan(0);
       expect(result.length).toBeLessThanOrEqual(3);
@@ -36,7 +68,12 @@ describe('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
   test(
     'nem mainnet を取得できる',
     async () => {
-      const result = await nemSymbolNodePicker({ chainName: 'nem', network: 'mainnet', count: 1 });
+      const result = await nemSymbolNodePicker({
+        chainName: 'nem',
+        network: 'mainnet',
+        count: 1,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
       expect(Array.isArray(result)).toBe(true);
       expect(result.length).toBeGreaterThanOrEqual(1);
       expect(result[0]).toMatch(/^https?:\/\//);
@@ -48,7 +85,13 @@ describe('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
   test(
     'SSL オンでHTTPS のみ返す',
     async () => {
-      const result = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 5, isSsl: true });
+      const result = await nemSymbolNodePicker({
+        chainName: 'symbol',
+        network: 'mainnet',
+        count: 5,
+        isSsl: true,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
       expect(Array.isArray(result)).toBe(true);
       result.forEach((ep) => expect(ep).toMatch(/^https:\/\//));
       console.log('取得したノード:', result);
@@ -63,11 +106,21 @@ describe('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
       symbolCache.clear();
 
       const t1 = Date.now();
-      const r1 = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1 });
+      const r1 = await nemSymbolNodePicker({
+        chainName: 'symbol',
+        network: 'mainnet',
+        count: 1,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
       const d1 = Date.now() - t1;
 
       const t2 = Date.now();
-      const r2 = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1 });
+      const r2 = await nemSymbolNodePicker({
+        chainName: 'symbol',
+        network: 'mainnet',
+        count: 1,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
       const d2 = Date.now() - t2;
 
       expect(r1.length).toBeGreaterThanOrEqual(1);
@@ -81,7 +134,12 @@ describe('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
   test(
     '大量要求（上限を超える）でも有効な結果を返す',
     async () => {
-      const result = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1000 });
+      const result = await nemSymbolNodePicker({
+        chainName: 'symbol',
+        network: 'mainnet',
+        count: 1000,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
       expect(Array.isArray(result)).toBe(true);
       expect(result.length).toBeGreaterThanOrEqual(1);
       expect(result.length).toBeLessThanOrEqual(1000);
@@ -93,7 +151,12 @@ describe('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
   test(
     '取得したエンドポイントに対する簡易ヘルスチェック（成功は保証されない）',
     async () => {
-      const result = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1 });
+      const result = await nemSymbolNodePicker({
+        chainName: 'symbol',
+        network: 'mainnet',
+        count: 1,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
       console.log('取得したノード:', result);
       if (!result || result.length === 0) {
         // ノードが取得できない場合はスキップ扱い

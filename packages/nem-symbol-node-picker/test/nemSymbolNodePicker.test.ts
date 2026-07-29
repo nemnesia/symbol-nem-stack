@@ -108,6 +108,30 @@ describe('nemSymbolNodePicker - モックテスト', () => {
     );
   });
 
+  it('並列リクエストごとに独立したフェイルオーバーAPIを使用する', async () => {
+    const createSymbolNodeWatchApi = vi
+      .fn()
+      .mockReturnValueOnce({
+        getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
+      })
+      .mockReturnValueOnce({
+        getSymbolPeerNodes: () => Promise.resolve([{ height: 100, endpoint: 'https://symbol', isSslEnabled: true }]),
+      });
+    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+      createSymbolNodeWatchApi,
+      createNemNodeWatchApi: vi.fn(),
+    }));
+    vi.resetModules();
+    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
+    symbolCache.clear();
+    nemCache.clear();
+
+    await expect(nemSymbolNodePicker()).resolves.toEqual(['https://symbol']);
+    expect(createSymbolNodeWatchApi).toHaveBeenCalledTimes(2);
+    expect(createSymbolNodeWatchApi).toHaveBeenNthCalledWith(1, true);
+    expect(createSymbolNodeWatchApi).toHaveBeenNthCalledWith(2, true);
+  });
+
   it('キャッシュヒット時はAPIを呼ばない', async () => {
     // モジュールをインポート
     const { nemSymbolNodePicker, symbolCache: importedCache } = await import('../src/nemSymbolNodePicker.js');
@@ -315,10 +339,18 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('APIがタイムアウトした場合はエラーを投げる', async () => {
+    let heightSignal: AbortSignal | undefined;
+    let nodesSignal: AbortSignal | undefined;
     vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
       createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => new Promise(() => {}), // 永遠に解決しない
-        getSymbolPeerNodes: () => new Promise(() => {}), // 永遠に解決しない
+        getSymbolHeight: (init?: RequestInit) => {
+          heightSignal = init?.signal ?? undefined;
+          return new Promise(() => {}); // 永遠に解決しない
+        },
+        getSymbolPeerNodes: (_params?: unknown, init?: RequestInit) => {
+          nodesSignal = init?.signal ?? undefined;
+          return new Promise(() => {}); // 永遠に解決しない
+        },
       }),
       createNemNodeWatchApi: () => ({
         getNemHeight: () => new Promise(() => {}),
@@ -330,7 +362,29 @@ describe('nemSymbolNodePicker - モックテスト', () => {
     symbolCache.clear();
     nemCache.clear();
     await expect(
-      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, timeoutMs: 1000 })
+      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, timeoutMs: 10 })
     ).rejects.toThrow('No available NodeWatch found.');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heightSignal?.aborted).toBe(true);
+    expect(nodesSignal?.aborted).toBe(true);
+  });
+
+  it('条件に合うノードがない場合はエラーを投げる', async () => {
+    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+      createSymbolNodeWatchApi: () => ({
+        getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
+        getSymbolPeerNodes: () => Promise.resolve([{ height: 99, endpoint: 'https://old', isSslEnabled: true }]),
+      }),
+      createNemNodeWatchApi: () => ({
+        getNemHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
+        getNemNodes: () => Promise.resolve([]),
+      }),
+    }));
+    vi.resetModules();
+    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
+    symbolCache.clear();
+    nemCache.clear();
+
+    await expect(nemSymbolNodePicker()).rejects.toThrow('No nodes match the requested criteria');
   });
 });
