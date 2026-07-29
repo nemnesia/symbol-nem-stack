@@ -103,7 +103,7 @@ async function getNodes() {
 **例外 / Throws:**
 
 - `Error`: NodeWatchインスタンスが利用できない場合 / When no NodeWatch instances are available
-- `Error`: 条件に合うノードがない場合 / When no nodes meet the criteria
+- `Error`: 条件に合うノードがない場合（`No nodes match the requested criteria`） / When no nodes meet the criteria
 - `Error`: リクエストタイムアウトが発生した場合 / When request timeout occurs
 
 ## 使用例 / Examples

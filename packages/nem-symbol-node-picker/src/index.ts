@@ -1,1 +1,1 @@
-export { nemSymbolNodePicker } from './nemSymbolNodePicker.js';
+export { nemSymbolNodePicker, type ChainName, type NetworkName, type PickerOptions } from './nemSymbolNodePicker.js';

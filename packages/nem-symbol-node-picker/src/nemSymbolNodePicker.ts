@@ -1,5 +1,5 @@
 import { createNemNodeWatchApi, createSymbolNodeWatchApi } from '@nemnesia/nodewatch-openapi-provider';
-import { HeightInfo } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
+import type { HeightInfo, Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 
 /** NodeWatch メインネット用URLリスト */
 export const nodewatchMainnetUrls = ['https://sse.nemnesia.com', 'https://sse2.nemnesia.com'];
@@ -7,11 +7,11 @@ export const nodewatchMainnetUrls = ['https://sse.nemnesia.com', 'https://sse2.n
 export const nodewatchTestnetUrls = ['https://testnet.sse.nemnesia.com', 'https://testnet.sse2.nemnesia.com'];
 
 /** チェーン名の型定義 */
-type ChainName = 'nem' | 'symbol';
+export type ChainName = 'nem' | 'symbol';
 /** ネットワークの型定義 */
-type NetworkName = 'mainnet' | 'testnet' | string;
+export type NetworkName = 'mainnet' | 'testnet';
 /** ピッカーオプションのインターフェース */
-interface PickerOptions {
+export interface PickerOptions {
   chainName?: ChainName;
   network?: NetworkName;
   count?: number;
@@ -20,11 +20,7 @@ interface PickerOptions {
 }
 
 /** ノードエントリのインターフェース */
-interface NodeEntry {
-  height: number;
-  endpoint: string;
-  isSslEnabled: boolean | null;
-}
+type NodeEntry = Pick<Node, 'height' | 'endpoint' | 'isSslEnabled'>;
 
 /** キャッシュエントリのインターフェース */
 interface CacheEntry {
@@ -41,23 +37,24 @@ export const nemCache = new Map<string, CacheEntry>(); // NEMノード用キャ�
 const CACHE_DURATION = 60000; // 1分間キャッシュ
 
 /**
- * タイムアウト機能付きのリクエスト関数（クリーンアップ対応）
- * @param promise リクエストのPromise
+ * タイムアウト時にリクエストを中断する関数
+ * @param request AbortSignalを受け取るリクエスト関数
  * @param timeoutMs timeout時間（ミリ秒）
  */
-async function _fetchWithTimeout(promise: Promise<any>, timeoutMs: number): Promise<any> {
+async function _fetchWithTimeout<T>(request: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<T> {
+  const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error('Request timeout')), timeoutMs);
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error('Request timeout'));
+    }, timeoutMs);
   });
 
   try {
-    const result = await Promise.race([promise, timeoutPromise]);
-    if (timeoutId) clearTimeout(timeoutId); // タイムアウトをクリア
-    return result;
-  } catch (error) {
-    if (timeoutId) clearTimeout(timeoutId); // エラー時もタイムアウトをクリア
-    throw error;
+    return await Promise.race([Promise.resolve().then(() => request(controller.signal)), timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 
@@ -70,7 +67,7 @@ async function _fetchWithTimeout(promise: Promise<any>, timeoutMs: number): Prom
  * @returns ノードのエンドポイント配列
  */
 async function _symbolNodePicker(
-  network: 'mainnet' | 'testnet' | string,
+  network: NetworkName,
   count: number,
   isSsl: boolean,
   timeoutMs: number
@@ -80,16 +77,18 @@ async function _symbolNodePicker(
   const cachedEntry = symbolCache.get(cacheKey);
 
   let heightInfo: HeightInfo;
-  let nodes: any[];
+  let nodes: NodeEntry[];
   if (cachedEntry && Date.now() - cachedEntry.timestamp < CACHE_DURATION) {
     ({ heightInfo, nodes } = cachedEntry);
   } else {
     const isMainnet = network === 'mainnet';
-    const openApi = createSymbolNodeWatchApi(isMainnet);
+    // FailoverApiは切替先の状態を保持するため、並列リクエスト間で共有しない。
+    const heightApi = createSymbolNodeWatchApi(isMainnet);
+    const nodesApi = createSymbolNodeWatchApi(isMainnet);
     try {
       const [height, nodeList] = await Promise.all([
-        _fetchWithTimeout(openApi.getSymbolHeight(), timeoutMs),
-        _fetchWithTimeout(openApi.getSymbolPeerNodes(), timeoutMs),
+        _fetchWithTimeout((signal) => heightApi.getSymbolHeight({ signal }), timeoutMs),
+        _fetchWithTimeout((signal) => nodesApi.getSymbolPeerNodes({}, { signal }), timeoutMs),
       ]);
       heightInfo = height;
       nodes = nodeList;
@@ -100,7 +99,9 @@ async function _symbolNodePicker(
         baseUrl: '',
       });
     } catch (error) {
-      throw new Error('No available NodeWatch found. ' + (error instanceof Error ? error.message : String(error)));
+      throw new Error('No available NodeWatch found. ' + (error instanceof Error ? error.message : String(error)), {
+        cause: error,
+      });
     }
   }
   // フィルタリング
@@ -124,7 +125,7 @@ async function _symbolNodePicker(
  * @returns ノードのエンドポイント配列
  */
 async function _nemNodePicker(
-  network: 'mainnet' | 'testnet' | string,
+  network: NetworkName,
   count: number,
   isSsl: boolean,
   timeoutMs: number
@@ -134,16 +135,18 @@ async function _nemNodePicker(
   const cachedEntry = nemCache.get(cacheKey);
 
   let heightInfo: HeightInfo;
-  let nodes: any[];
+  let nodes: NodeEntry[];
   if (cachedEntry && Date.now() - cachedEntry.timestamp < CACHE_DURATION) {
     ({ heightInfo, nodes } = cachedEntry);
   } else {
     const isMainnet = network === 'mainnet';
-    const openApi = createNemNodeWatchApi(isMainnet);
+    // FailoverApiは切替先の状態を保持するため、並列リクエスト間で共有しない。
+    const heightApi = createNemNodeWatchApi(isMainnet);
+    const nodesApi = createNemNodeWatchApi(isMainnet);
     try {
       const [height, nodeList] = await Promise.all([
-        _fetchWithTimeout(openApi.getNemHeight(), timeoutMs),
-        _fetchWithTimeout(openApi.getNemNodes(), timeoutMs),
+        _fetchWithTimeout((signal) => heightApi.getNemHeight({ signal }), timeoutMs),
+        _fetchWithTimeout((signal) => nodesApi.getNemNodes({ signal }), timeoutMs),
       ]);
       heightInfo = height;
       nodes = nodeList;
@@ -154,7 +157,9 @@ async function _nemNodePicker(
         baseUrl: '',
       });
     } catch (error) {
-      throw new Error('No available NodeWatch found. ' + (error instanceof Error ? error.message : String(error)));
+      throw new Error('No available NodeWatch found. ' + (error instanceof Error ? error.message : String(error)), {
+        cause: error,
+      });
     }
   }
   // フィルタリング
@@ -207,12 +212,13 @@ export async function nemSymbolNodePicker({
     throw new Error('timeoutMs must be a positive integer (ms)');
   }
 
-  let result: string[];
+  const result =
+    chainName === 'symbol'
+      ? await _symbolNodePicker(network, count, isSsl, timeoutMs)
+      : await _nemNodePicker(network, count, isSsl, timeoutMs);
 
-  if (chainName === 'symbol') {
-    result = await _symbolNodePicker(network, count, isSsl, timeoutMs);
-  } else {
-    result = await _nemNodePicker(network, count, isSsl, timeoutMs);
+  if (result.length === 0) {
+    throw new Error('No nodes match the requested criteria');
   }
 
   return result;
