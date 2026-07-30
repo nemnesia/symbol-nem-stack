@@ -1,1 +1,7 @@
-export { nemSymbolNodePicker, type ChainName, type NetworkName, type PickerOptions } from './nemSymbolNodePicker.js';
+export {
+  fetchSymbolPeerNodesFromNodeWatch,
+  nemSymbolNodePicker,
+  type ChainName,
+  type NetworkName,
+  type PickerOptions,
+} from './nemSymbolNodePicker.js';
