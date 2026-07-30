@@ -6,11 +6,11 @@ import {
   FinalizationProofDTO,
   FinalizationRoutesApi,
 } from '@nemnesia/symbol-openapi-typescript-fetch-client';
-import { nemSymbolNodePicker } from 'nem-symbol-node-picker';
+import { type NetworkName, nemSymbolNodePicker } from 'nem-symbol-node-picker';
 
 export const findAccountByPublicKey = async (
   publicKey: string,
-  networkName: string = 'testnet'
+  networkName: NetworkName = 'testnet'
 ): Promise<AccountInfoDTO> => {
   // 利用可能なSymbolノードを取得
   const symbolNodes = await nemSymbolNodePicker({
@@ -29,7 +29,7 @@ export const findAccountByPublicKey = async (
 
 export const searchAccountsByPublicKeys = async (
   publicKeys: string[],
-  networkName: string = 'testnet'
+  networkName: NetworkName = 'testnet'
 ): Promise<AccountInfoDTO[]> => {
   // 利用可能なSymbolノードを取得
   const symbolNodes = await nemSymbolNodePicker({
@@ -51,7 +51,7 @@ export const searchAccountsByPublicKeys = async (
   return accountInfos;
 };
 
-export const findChainInfo = async (networkName: string = 'testnet') => {
+export const findChainInfo = async (networkName: NetworkName = 'testnet') => {
   // 利用可能なSymbolノードを取得
   const symbolNodes = await nemSymbolNodePicker({
     chainName: 'symbol',
@@ -69,7 +69,7 @@ export const findChainInfo = async (networkName: string = 'testnet') => {
 
 export const findFinalizationProofAtEpoch = async (
   currentEpoch: number,
-  networkName: string = 'testnet'
+  networkName: NetworkName = 'testnet'
 ): Promise<FinalizationProofDTO> => {
   // 利用可能なSymbolノードを取得
   const symbolNodes = await nemSymbolNodePicker({

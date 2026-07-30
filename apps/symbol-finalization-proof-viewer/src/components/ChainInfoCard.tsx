@@ -1,15 +1,12 @@
 import { Card, CardContent, Grid, Typography } from '@mui/material';
-import {
-  ChainRoutesApi,
-  Configuration,
-} from '@nemnesia/symbol-openapi-typescript-fetch-client';
-import { nemSymbolNodePicker } from 'nem-symbol-node-picker';
+import { ChainRoutesApi, Configuration } from '@nemnesia/symbol-openapi-typescript-fetch-client';
+import { type NetworkName, nemSymbolNodePicker } from 'nem-symbol-node-picker';
 import { useEffect, useState } from 'react';
 
 import { formatStringNumber } from '../utils/numberFormat';
 
 type ChainInfoCardProps = {
-  networkName: string;
+  networkName: NetworkName;
   onHeightChange?: (height: string) => void; // ブロック高が更新されたときに親へ通知
 };
 
@@ -21,6 +18,7 @@ const ChainInfoCard: React.FC<ChainInfoCardProps> = ({ networkName, onHeightChan
   const [finalizationEpoch, setFinalizationEpoch] = useState('0'); // ファイナライゼーションエポック
 
   useEffect(() => {
+    let isActive = true;
 
     const fetchData = async () => {
       // 利用可能なSymbolノードを取得
@@ -35,6 +33,8 @@ const ChainInfoCard: React.FC<ChainInfoCardProps> = ({ networkName, onHeightChan
       const chainRoutesApi = new ChainRoutesApi(new Configuration({ basePath: symbolNodes[0] }));
       const chainInfo = await chainRoutesApi.getChainInfo();
 
+      if (!isActive) return;
+
       // 取得したチェーン情報を状態に設定
       const initialHeight = formatStringNumber(chainInfo.height.toString());
       setHeight(initialHeight);
@@ -44,7 +44,13 @@ const ChainInfoCard: React.FC<ChainInfoCardProps> = ({ networkName, onHeightChan
       setFinalizationEpoch(formatStringNumber(chainInfo.latestFinalizedBlock.finalizationEpoch.toString()));
       setFinalizationPoint(formatStringNumber(chainInfo.latestFinalizedBlock.finalizationPoint.toString()));
     };
-    fetchData();
+    void fetchData().catch((error) => {
+      if (isActive) console.error('Failed to fetch chain info:', error);
+    });
+
+    return () => {
+      isActive = false;
+    };
   }, [networkName]);
 
   return (
