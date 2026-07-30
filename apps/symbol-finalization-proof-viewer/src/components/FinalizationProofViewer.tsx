@@ -1,6 +1,6 @@
 import { Box } from '@mui/material';
-import { createSymbolNodeWatchApi } from '@nemnesia/nodewatch-openapi-provider';
 import { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
+import { type NetworkName, fetchSymbolPeerNodesFromNodeWatch } from 'nem-symbol-node-picker';
 import { useEffect, useState } from 'react';
 
 import '../App.css';
@@ -91,6 +91,7 @@ const fetchPasomiMainnetNode = async (): Promise<Node | null> => {
 function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'testnet' }) {
   const [, setHeight] = useState('0');
   const [votingNodes, setVotingNodes] = useState<Node[]>([]);
+  const [votingNodesNetwork, setVotingNodesNetwork] = useState<NetworkName | null>(null);
 
   // URLからフィルターパラメータを取得
   const urlParams = new URLSearchParams(window.location.search);
@@ -111,12 +112,18 @@ function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'te
    * Voting Nodes情報取得
    */
   useEffect(() => {
+    let isActive = true;
+
     const fetchVotingNodes = async () => {
       try {
         const isMainNet = networkName === 'mainnet';
-        const symbolNodeWatchApi = createSymbolNodeWatchApi(isMainNet);
-        const nodes = await symbolNodeWatchApi.getSymbolPeerNodes();
-        let votingNodes: Node[] = nodes.filter((node) => (node.roles ?? 0) & 4);
+        const nodes = await fetchSymbolPeerNodesFromNodeWatch(networkName);
+        const votingNodes: Node[] = nodes.filter((node) => (node.roles ?? 0) & 4);
+
+        if (!isActive) return;
+
+        // Pasomiノードの補完は一覧表示を待たせず、取得できた時点で追加する。
+        setVotingNodes(votingNodes);
 
         if (isMainNet) {
           const hasPasomi = votingNodes.some((node) => {
@@ -125,22 +132,28 @@ function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'te
           });
 
           if (!hasPasomi) {
-            const pasomiNode = await fetchPasomiMainnetNode();
-            if (pasomiNode) {
-              votingNodes = [...votingNodes, pasomiNode];
-            }
+            void fetchPasomiMainnetNode().then((pasomiNode) => {
+              if (!isActive || !pasomiNode) return;
+              setVotingNodes((currentNodes) => {
+                const alreadyAdded = currentNodes.some((node) => node.mainPublicKey === pasomiNode.mainPublicKey);
+                return alreadyAdded ? currentNodes : [...currentNodes, pasomiNode];
+              });
+            });
           }
         }
-
-        setVotingNodes(votingNodes);
       } catch (error) {
         console.error('Failed to fetch voting nodes:', error);
-        setVotingNodes([]);
+        if (isActive) setVotingNodes([]);
       }
     };
 
+    setVotingNodesNetwork(networkName);
     setVotingNodes([]);
     fetchVotingNodes();
+
+    return () => {
+      isActive = false;
+    };
   }, [networkName]);
 
   return (
@@ -150,7 +163,12 @@ function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'te
       </Box>
 
       <Box sx={{ m: 1 }}>
-        <VotingNodeList votingNodes={votingNodes} urlFilter={urlFilter} networkName={networkName} />
+        <VotingNodeList
+          key={networkName}
+          votingNodes={votingNodesNetwork === networkName ? votingNodes : []}
+          urlFilter={urlFilter}
+          networkName={networkName}
+        />
       </Box>
     </Box>
   );

@@ -1,4 +1,5 @@
 import { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
+import type { NetworkName } from 'nem-symbol-node-picker';
 import { useEffect, useState } from 'react';
 
 import { VotingNodeInfoData } from '../types/votingNode';
@@ -10,7 +11,7 @@ import VotingNodeCard from './VotingNodeCard';
 interface VotingNodeListProps {
   votingNodes: Node[];
   urlFilter: string | null;
-  networkName: string;
+  networkName: NetworkName;
   onHeightChange?: (height: string) => void;
   onFinalizationEpochChange?: (epoch: string) => void;
   onStage0HeightChange?: (height: string) => void;
@@ -32,6 +33,8 @@ function VotingNodeList({
   const [stage1Height, setStage1Height] = useState('0');
 
   useEffect(() => {
+    let isActive = true;
+
     const fetchData = async () => {
       // フィルタ(エンドポイント or メイン公開鍵)に一致するノードのみ抽出
       let filteredVotingNodes = votingNodes;
@@ -44,8 +47,12 @@ function VotingNodeList({
       // 初期化
       setVotingNodeInfos([]);
 
+      // 初回（Voting Nodes取得中）やフィルタ不一致時は、チェーン・アカウント情報を取得しない。
+      if (filteredVotingNodes.length === 0) return;
+
       // ブロック高情報取得
       const chainInfo = await findChainInfo(networkName);
+      if (!isActive) return;
       const epoch = chainInfo.latestFinalizedBlock.finalizationEpoch;
 
       // Stateにセット & 親に通知
@@ -56,8 +63,20 @@ function VotingNodeList({
       setFinalizationEpoch(epochStr);
       onFinalizationEpochChange?.(epochStr);
 
+      // プルーフ取得中にアカウント情報も取得しておき、カード表示までの待ち時間を短縮する。
+      const accountInfoPromises = new Map(
+        filteredVotingNodes.map((votingNode) => [
+          votingNode.mainPublicKey,
+          findAccountByPublicKey(votingNode.mainPublicKey, networkName).catch((error) => {
+            console.warn(`Failed to fetch account info for ${votingNode.mainPublicKey}:`, error);
+            return null;
+          }),
+        ])
+      );
+
       // ファイナライゼーションプルーフは1回だけ取得
       const finalizationProof = await findFinalizationProofAtEpoch(epoch, networkName);
+      if (!isActive) return;
 
       const s0Height = formatStringNumber(finalizationProof.messageGroups[1].height);
       const s1Height = formatStringNumber(finalizationProof.messageGroups[0].height);
@@ -102,7 +121,8 @@ function VotingNodeList({
         };
 
         // アカウント情報検索
-        const accountInfo = await findAccountByPublicKey(votingNode.mainPublicKey, networkName);
+        const accountInfo = await accountInfoPromises.get(votingNode.mainPublicKey)!;
+        if (!isActive) return;
         if (!accountInfo) {
           setVotingNodeInfos((prev) => sortNodeInfos([...prev, votingNodeInfoData]));
           return;
@@ -183,7 +203,13 @@ function VotingNodeList({
       });
     };
 
-    fetchData();
+    void fetchData().catch((error) => {
+      if (isActive) console.error('Failed to fetch voting node data:', error);
+    });
+
+    return () => {
+      isActive = false;
+    };
   }, [
     votingNodes,
     urlFilter,
