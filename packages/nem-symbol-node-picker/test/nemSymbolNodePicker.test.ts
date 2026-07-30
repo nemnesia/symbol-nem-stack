@@ -86,7 +86,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
 
   it('APIエラー時に適切にエラーを処理する', async () => {
     // モックを正しく設定
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: () => Promise.reject(new Error('Network error')),
         getSymbolPeerNodes: () => Promise.reject(new Error('Network error')),
@@ -108,16 +108,23 @@ describe('nemSymbolNodePicker - モックテスト', () => {
     );
   });
 
-  it('並列リクエストごとに独立したフェイルオーバーAPIを使用する', async () => {
-    const createSymbolNodeWatchApi = vi
-      .fn()
-      .mockReturnValueOnce({
-        getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-      })
-      .mockReturnValueOnce({
-        getSymbolPeerNodes: () => Promise.resolve([{ height: 100, endpoint: 'https://symbol', isSslEnabled: true }]),
+  it('NodeWatch候補へ並列にアクセスし、最初の成功結果を採用する', async () => {
+    const waitForAbort = (signal?: AbortSignal) =>
+      new Promise<never>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
       });
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    const createSymbolNodeWatchApi = vi.fn((baseUrl: string) => {
+      const isSlowNode = baseUrl === 'https://sse.nemnesia.com';
+      return {
+        getSymbolHeight: (init?: RequestInit) =>
+          isSlowNode ? waitForAbort(init?.signal) : Promise.resolve({ height: 100, finalizedHeight: 100 }),
+        getSymbolPeerNodes: (_params?: unknown, init?: RequestInit) =>
+          isSlowNode
+            ? waitForAbort(init?.signal)
+            : Promise.resolve([{ height: 100, endpoint: 'https://symbol', isSslEnabled: true }]),
+      };
+    });
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi,
       createNemNodeWatchApi: vi.fn(),
     }));
@@ -128,8 +135,8 @@ describe('nemSymbolNodePicker - モックテスト', () => {
 
     await expect(nemSymbolNodePicker()).resolves.toEqual(['https://symbol']);
     expect(createSymbolNodeWatchApi).toHaveBeenCalledTimes(2);
-    expect(createSymbolNodeWatchApi).toHaveBeenNthCalledWith(1, true);
-    expect(createSymbolNodeWatchApi).toHaveBeenNthCalledWith(2, true);
+    expect(createSymbolNodeWatchApi).toHaveBeenCalledWith('https://sse.nemnesia.com');
+    expect(createSymbolNodeWatchApi).toHaveBeenCalledWith('https://sse2.nemnesia.com');
   });
 
   it('キャッシュヒット時はAPIを呼ばない', async () => {
@@ -158,7 +165,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('SSLフィルタが有効な場合のみhttpsを返す', async () => {
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
         getSymbolPeerNodes: () =>
@@ -199,7 +206,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('NEMチェーン分岐も正常に動作する', async () => {
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
         getSymbolPeerNodes: () => Promise.resolve([]),
@@ -228,7 +235,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('Symbolチェーン testnet 正常系', async () => {
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: () => Promise.resolve({ height: 200, finalizedHeight: 200 }),
         getSymbolPeerNodes: () =>
@@ -256,7 +263,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('NEMチェーン testnet 正常系', async () => {
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: () => Promise.resolve({ height: 200, finalizedHeight: 200 }),
         getSymbolPeerNodes: () => Promise.resolve([]),
@@ -284,7 +291,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('NEMチェーンでキャッシュヒット時はAPIを呼ばない', async () => {
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: vi.fn(() => ({
         getSymbolHeight: vi.fn(),
         getSymbolPeerNodes: vi.fn(),
@@ -319,7 +326,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('NEMチェーンでPromise.any失敗時はエラー', async () => {
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
         getSymbolPeerNodes: () => Promise.resolve([]),
@@ -341,7 +348,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   it('APIがタイムアウトした場合はエラーを投げる', async () => {
     let heightSignal: AbortSignal | undefined;
     let nodesSignal: AbortSignal | undefined;
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: (init?: RequestInit) => {
           heightSignal = init?.signal ?? undefined;
@@ -370,7 +377,7 @@ describe('nemSymbolNodePicker - モックテスト', () => {
   });
 
   it('条件に合うノードがない場合はエラーを投げる', async () => {
-    vi.doMock('@nemnesia/nodewatch-openapi-provider', () => ({
+    vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi: () => ({
         getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
         getSymbolPeerNodes: () => Promise.resolve([{ height: 99, endpoint: 'https://old', isSslEnabled: true }]),
