@@ -62,7 +62,7 @@
   "dependencies": {
     "@noble/ciphers": "^2.1.1",
     "@noble/hashes": "^2.0.1",
-    "@nemnesia/simple-password-crypto": "workspace:^0.2.0"
+    "@nemnesia/simple-password-crypto": "workspace:*"
   },
   "peerDependencies": {
     "symbol-sdk": "^3.3.0"
