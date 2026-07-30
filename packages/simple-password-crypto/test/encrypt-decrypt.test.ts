@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { MAX_PLAINTEXT_LENGTH } from '../src/constants.js';
 import { decrypt, encrypt } from '../src/index.js';
 
 describe('encrypt/decrypt', () => {
@@ -56,6 +57,32 @@ describe('encrypt/decrypt', () => {
     const decrypted = await decrypt(encrypted, password);
 
     expect(decrypted).toEqual(emptyData);
+  });
+
+  it('空のパスワードを拒否する', async () => {
+    await expect(encrypt(plaintext, '')).rejects.toThrow('password must not be empty');
+    const encrypted = await encrypt(plaintext, password);
+    await expect(decrypt(encrypted, '')).rejects.toThrow('Decryption failed');
+  });
+
+  it('呼び出し元が所有するパスワードのバイト列を利用できる', async () => {
+    const passwordBytes = new TextEncoder().encode(password);
+    const encrypted = await encrypt(plaintext, passwordBytes);
+    await expect(decrypt(encrypted, passwordBytes)).resolves.toEqual(plaintext);
+    passwordBytes.fill(0);
+  });
+
+  it('最大長を超える平文を KDF 実行前に拒否する', async () => {
+    await expect(encrypt(new Uint8Array(MAX_PLAINTEXT_LENGTH + 1), password)).rejects.toThrow('plaintext is too large');
+  });
+
+  it('最大長の平文を暗号化できる', { timeout: 30000 }, async () => {
+    const maximumData = new Uint8Array(MAX_PLAINTEXT_LENGTH);
+    maximumData[0] = 1;
+    maximumData[maximumData.length - 1] = 255;
+
+    const encrypted = await encrypt(maximumData, password);
+    expect(encrypted.ciphertext).toHaveLength(4 * Math.ceil((MAX_PLAINTEXT_LENGTH + 28) / 3));
   });
 
   it('大きなデータを暗号化・復号できる', { timeout: 15000 }, async () => {

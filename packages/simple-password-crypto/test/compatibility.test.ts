@@ -1,9 +1,6 @@
-import { gcm } from '@noble/ciphers/aes.js';
-import { argon2idAsync } from '@noble/hashes/argon2.js';
-import { randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { describe, expect, it } from 'vitest';
 
-import { decrypt, encrypt } from '../src/index.js';
+import { decrypt, encrypt, needsReencryption } from '../src/index.js';
 
 describe('互換性テスト', () => {
   it('文字列データを正しく処理できる', async () => {
@@ -94,27 +91,32 @@ describe('互換性テスト', () => {
     expect(result).toBe(multilineText);
   });
 
-  it('v1 より前の形式を移行目的で復号できる', async () => {
-    const salt = randomBytes(16);
-    const nonce = randomBytes(12);
-    const legacyPlaintext = new TextEncoder().encode('legacy encrypted value');
-    const legacyPassword = 'legacy-password';
-    const key = await argon2idAsync(utf8ToBytes(legacyPassword), salt, {
-      m: 32768,
-      t: 2,
-      p: 1,
-      dkLen: 32,
-    });
-    const ciphertextWithTag = gcm(key, nonce).encrypt(legacyPlaintext);
-    const combined = new Uint8Array(nonce.length + ciphertextWithTag.length);
-    combined.set(nonce);
-    combined.set(ciphertextWithTag.slice(-16), nonce.length);
-    combined.set(ciphertextWithTag.slice(0, -16), nonce.length + 16);
+  it('固定された v1 テストベクトルを復号できる', async () => {
+    const encrypted = {
+      version: 1 as const,
+      kdf: 'argon2id' as const,
+      kdfParams: { memoryCost: 32768, timeCost: 2, parallelism: 1 },
+      cipher: 'aes-256-gcm' as const,
+      salt: 'AAECAwQFBgcICQoLDA0ODw==',
+      ciphertext: 'EBESExQVFhcYGRobcbvUQ4gv5fKvFHvo0P1IsaHlBHDGZfB/kiRHwGuzJKuG/25bC+I=',
+    };
 
-    const decrypted = await decrypt(
-      { salt: Buffer.from(salt).toString('base64'), ciphertext: Buffer.from(combined).toString('base64') },
-      legacyPassword
+    await expect(decrypt(encrypted, 'fixed-vector-password')).resolves.toEqual(
+      new TextEncoder().encode('fixed versioned vector')
     );
-    expect(decrypted).toEqual(legacyPlaintext);
+    expect(needsReencryption(encrypted)).toBe(false);
+  });
+
+  it('Legacy 形式は明示的な移行オプションでのみ復号できる', async () => {
+    const legacy = {
+      salt: 'AAECAwQFBgcICQoLDA0ODw==',
+      ciphertext: 'EBESExQVFhcYGRobyTGOun70xsfQssK7Nw/b66HlBHDGZep/hzZN1iWgJeiE9X8=',
+    };
+
+    await expect(decrypt(legacy, 'fixed-vector-password')).rejects.toThrow('Decryption failed');
+    await expect(decrypt(legacy, 'fixed-vector-password', { allowLegacy: true })).resolves.toEqual(
+      new TextEncoder().encode('fixed legacy vector')
+    );
+    expect(needsReencryption(legacy)).toBe(true);
   });
 });

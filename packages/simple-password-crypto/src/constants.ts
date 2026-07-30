@@ -14,6 +14,14 @@ export const ARGON2ID_PARAMS: Readonly<Argon2idParams> = {
   parallelism: 1,
 };
 
+/**
+ * 復号を許可する Argon2id パラメータの明示的なホワイトリストです。
+ *
+ * 新しい既定値へ移行する際は、`ARGON2ID_PARAMS` を更新し、以前の値をこの配列に
+ * 残してください。復号はこの配列以外の、攻撃者が指定した任意のコストを使用しません。
+ */
+export const SUPPORTED_ARGON2ID_PARAMS: readonly Readonly<Argon2idParams>[] = [ARGON2ID_PARAMS];
+
 export const SALT_LENGTH = 16;
 export const NONCE_LENGTH = 12;
 export const TAG_LENGTH = 16;
@@ -22,10 +30,11 @@ export const TAG_LENGTH = 16;
 export const MAX_PLAINTEXT_LENGTH = 16 * 1024 * 1024;
 export const MAX_COMBINED_LENGTH = NONCE_LENGTH + TAG_LENGTH + MAX_PLAINTEXT_LENGTH;
 export const MAX_CIPHERTEXT_BASE64_LENGTH = 4 * Math.ceil(MAX_COMBINED_LENGTH / 3);
+export const MAX_SALT_BASE64_LENGTH = 4 * Math.ceil(SALT_LENGTH / 3);
 
-export function metadataToAad(): Uint8Array {
+export function metadataToAad(params: Readonly<Argon2idParams>): Uint8Array {
   // The byte representation is deliberately fixed rather than derived from object key order.
   return utf8ToBytes(
-    `simple-password-crypto:v${ENCRYPTED_DATA_VERSION};kdf=${KDF};m=${ARGON2ID_PARAMS.memoryCost};t=${ARGON2ID_PARAMS.timeCost};p=${ARGON2ID_PARAMS.parallelism};cipher=${CIPHER}`
+    `simple-password-crypto:v${ENCRYPTED_DATA_VERSION};kdf=${KDF};m=${params.memoryCost};t=${params.timeCost};p=${params.parallelism};cipher=${CIPHER}`
   );
 }
