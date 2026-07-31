@@ -13,6 +13,9 @@ export type SymbolWebSocketErrorType = 'connection' | 'timeout' | 'parse' | 'net
  */
 export type SymbolWebSocketErrorSeverity = 'fatal' | 'recoverable';
 
+/** イベントリスナーまたは購読を解除する関数。何度呼び出しても安全です。 */
+export type SymbolWebSocketUnsubscribe = () => void;
+
 /**
  * エラーコールバックへ渡される接続コンテキスト付きのエラー情報。
  */
@@ -56,7 +59,7 @@ export interface SymbolWebSocketError {
  */
 export interface SymbolWebSocketOptions {
   /**
-   * 接続先のホスト名または IP アドレス。プロトコル・ポート・パスは含めません。
+   * 接続先のホスト名または IP アドレス。プロトコル・ポート・パスは含めません。IPv6 は角括弧で囲みます。
    *
    * SSL 有効時は `wss://{host}:3001/ws`、無効時は `ws://{host}:3000/ws` に接続します。
    */
