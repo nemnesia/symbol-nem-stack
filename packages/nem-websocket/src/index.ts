@@ -5,5 +5,6 @@ export type {
   NemWebSocketError,
   NemWebSocketErrorSeverity,
   NemWebSocketErrorType,
+  NemWebSocketUnsubscribe,
 } from './nem.types.js';
-export type { NemChannel } from './nemChannelPaths.js';
+export type { NemAddressChannel, NemChannel, NemGlobalChannel } from './nemChannelPaths.js';

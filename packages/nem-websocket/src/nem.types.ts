@@ -14,6 +14,9 @@ export type NemWebSocketErrorType = 'connection' | 'timeout' | 'parse' | 'networ
  */
 export type NemWebSocketErrorSeverity = 'fatal' | 'recoverable';
 
+/** イベントリスナーまたは購読を解除する関数。何度呼び出しても安全です。 */
+export type NemWebSocketUnsubscribe = () => void;
+
 /**
  * コンテキスト付きエラー情報
  */

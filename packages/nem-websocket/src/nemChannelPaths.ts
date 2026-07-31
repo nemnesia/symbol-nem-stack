@@ -21,6 +21,12 @@ export type NemChannel =
   | 'transactions'
   | 'recenttransactions';
 
+/** アドレスを指定せずに購読する NEM チャネル。 */
+export type NemGlobalChannel = 'newBlock' | 'blocks';
+
+/** アドレスを指定して購読する NEM チャネル。 */
+export type NemAddressChannel = Exclude<NemChannel, NemGlobalChannel>;
+
 /**
  * NEM チャネルの STOMP 購読先定義。
  *

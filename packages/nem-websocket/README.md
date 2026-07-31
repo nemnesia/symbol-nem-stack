@@ -41,6 +41,12 @@ ws.on('blocks', (message) => {
   console.log('New block:', message);
 });
 
+// 個別に解除する場合
+const stopBlocks = ws.on('blocks', (message) => {
+  console.log('Another block listener:', message);
+});
+stopBlocks();
+
 // エラーイベントの登録
 ws.onError((err) => {
   console.error('WebSocket error:', err.message);
@@ -73,6 +79,7 @@ new NemWebSocket(options: NemWebSocketOptions);
 
 - `options`: 接続設定。
   - `host`: 接続先ホスト。
+    プロトコル、ポート、パスは含めません。IPv6 は `[2001:db8::1]` の形式で指定します。
   - `ssl`: SSL を使用するかどうか（デフォルト: `false`）。
   - `timeout`: 接続タイムアウト（ミリ秒、デフォルト: `5000`）。
   - `autoReconnect`: 自動再接続を有効にするか（デフォルト: `true`）。
@@ -88,24 +95,28 @@ new NemWebSocket(options: NemWebSocketOptions);
 - `client: Client`
   - 内部のSTOMPクライアントインスタンス。
 
+### 解除関数
+
+`NemWebSocketUnsubscribe` は `() => void` 型です。`on` と各イベント登録メソッドの返り値を呼び出すと、登録した callback だけを解除できます。
+
 ### メソッド
 
-- `on(channel: NemChannel, callback: (message: string) => void): void`
-  - 指定したチャネルにサブスクライブします。
-- `on(channel: NemChannel, address: string, callback: (message: string) => void): void`
-  - アドレスを指定してチャネルにサブスクライブします。
+- `on(channel: NemChannel, callback: (message: string) => void): NemWebSocketUnsubscribe`
+  - 指定したチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
+- `on(channel: NemChannel, address: string, callback: (message: string) => void): NemWebSocketUnsubscribe`
+  - アドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
 - `off(channel: NemChannel): void`
   - 指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
 - `off(channel: NemChannel, address: string): void`
   - アドレスを指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
-- `onConnect(callback: (uid: string) => void): void`
+- `onConnect(callback: (uid: string) => void): NemWebSocketUnsubscribe`
   - WebSocket 接続完了時のコールバックを登録します。
-- `onReconnect(callback: (attemptCount: number) => void): void`
+- `onReconnect(callback: (attemptCount: number) => void): NemWebSocketUnsubscribe`
   - 再接続試行時のコールバックを登録します。
-- `onError(callback: (err: NemWebSocketError) => void): void`
+- `onError(callback: (err: NemWebSocketError) => void): NemWebSocketUnsubscribe`
   - エラーイベントのコールバックを登録します（構造化エラー情報を提供）。
-- `onClose(callback: (event: WebSocket.CloseEvent) => void): void`
-  - クローズイベントのコールバックを登録します。
+- `onClose(callback: (event: WebSocket.CloseEvent) => void): NemWebSocketUnsubscribe`
+  - クローズイベントのコールバックを登録します。複数登録できます。
 - `disconnect(): void`
   - WebSocket 接続を切断します。
 - `close(): void`
@@ -143,6 +154,7 @@ interface NemWebSocketError {
 - **reconnectAttempts**: 現在の再接続試行回数
 
 **注意**: エラーコールバックが登録されていない場合、エラーは`console.warn`に出力されます。
+利用者が登録した callback が例外を送出した場合は、ライブラリが `console.error` に記録して接続管理を継続します。
 
 ## 注意点
 
@@ -150,6 +162,7 @@ interface NemWebSocketError {
 - 再接続時は既存のサブスクリプションが自動的に復元されます。
 - 接続が切断されると、`isConnected` は `false`、`uid` は `null` になります。
 - `autoReconnect: false`を設定することで自動再接続を無効化できます。
+- `host`、タイムアウト、再接続設定、アドレスは実行時にも検証されます。不正な値は接続前に例外になります。
 
 ## ライセンス
 

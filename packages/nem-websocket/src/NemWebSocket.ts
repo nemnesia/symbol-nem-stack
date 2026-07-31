@@ -6,9 +6,10 @@ import {
   NemWebSocketErrorSeverity,
   NemWebSocketErrorType,
   NemWebSocketOptions,
+  NemWebSocketUnsubscribe,
 } from './nem.types.js';
 import { nemChannelPaths } from './nemChannelPaths.js';
-import type { NemChannel } from './nemChannelPaths.js';
+import type { NemAddressChannel, NemChannel, NemGlobalChannel } from './nemChannelPaths.js';
 
 /**
  * NEM NIS1 ノードの STOMP WebSocket クライアント。
@@ -21,13 +22,13 @@ export class NemWebSocket {
   private _isConnected = false;
   private _uid: string | null = null;
   private subscriptions: Map<string, Map<(message: string) => void, StompSubscription>> = new Map();
-  private errorCallbacks: ((err: NemWebSocketError) => void)[] = [];
-  private onCloseCallback: (event: WebSocket.CloseEvent) => void = () => {};
-  private connectCallbacks: ((uid: string) => void)[] = [];
-  private reconnectCallbacks: ((attemptCount: number) => void)[] = [];
+  private errorCallbacks = new Set<(err: NemWebSocketError) => void>();
+  private closeCallbacks = new Set<(event: WebSocket.CloseEvent) => void>();
+  private connectCallbacks = new Set<(uid: string) => void>();
+  private reconnectCallbacks = new Set<(attemptCount: number) => void>();
 
   // 再接続関連のプロパティ
-  private options: NemWebSocketOptions;
+  private options: Required<NemWebSocketOptions>;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isManualDisconnect = false;
@@ -39,14 +40,65 @@ export class NemWebSocket {
    * @param options 接続先と再接続動作を指定するオプション
    */
   constructor(options: NemWebSocketOptions) {
-    this.options = {
+    this.options = this.validateOptions({
+      timeout: 5000,
+      ssl: false,
       autoReconnect: true,
       maxReconnectAttempts: Infinity,
       reconnectInterval: 3000,
       ...options,
-    };
+    });
 
     this.createConnection();
+  }
+
+  private validateOptions(options: NemWebSocketOptions): Required<NemWebSocketOptions> {
+    if (typeof options.host !== 'string' || options.host.trim() === '') {
+      throw new TypeError('host must be a non-empty hostname or IP address');
+    }
+    if (/[\s/?#]/.test(options.host) || options.host.includes('://')) {
+      throw new TypeError('host must not include a protocol, path, or port');
+    }
+    if (options.host.includes(':') && !(options.host.startsWith('[') && options.host.endsWith(']'))) {
+      throw new TypeError('IPv6 hosts must be enclosed in brackets and ports are not supported');
+    }
+    if (options.ssl !== undefined && typeof options.ssl !== 'boolean') {
+      throw new TypeError('ssl must be a boolean');
+    }
+    if (options.autoReconnect !== undefined && typeof options.autoReconnect !== 'boolean') {
+      throw new TypeError('autoReconnect must be a boolean');
+    }
+    if (!Number.isFinite(options.timeout) || (options.timeout ?? 0) <= 0) {
+      throw new RangeError('timeout must be a positive finite number');
+    }
+    if (
+      options.maxReconnectAttempts !== Infinity &&
+      (!Number.isInteger(options.maxReconnectAttempts) || (options.maxReconnectAttempts ?? -1) < 0)
+    ) {
+      throw new RangeError('maxReconnectAttempts must be a non-negative integer or Infinity');
+    }
+    if (!Number.isFinite(options.reconnectInterval) || (options.reconnectInterval ?? -1) < 0) {
+      throw new RangeError('reconnectInterval must be a non-negative finite number');
+    }
+
+    return {
+      host: options.host,
+      timeout: options.timeout ?? 5000,
+      ssl: options.ssl ?? false,
+      autoReconnect: options.autoReconnect ?? true,
+      maxReconnectAttempts: options.maxReconnectAttempts ?? Infinity,
+      reconnectInterval: options.reconnectInterval ?? 3000,
+    };
+  }
+
+  private notify<T>(callbacks: ReadonlySet<(value: T) => void>, value: T, eventName: string): void {
+    callbacks.forEach((callback) => {
+      try {
+        callback(value);
+      } catch (error) {
+        console.error(`[NemWebSocket] ${eventName} callback failed`, error);
+      }
+    });
   }
 
   /**
@@ -79,8 +131,8 @@ export class NemWebSocket {
         event,
         (event as WebSocket.ErrorEvent).message || 'WebSocket network error'
       );
-      if (this.errorCallbacks.length > 0) {
-        this.errorCallbacks.forEach((cb) => cb(contextualError));
+      if (this.errorCallbacks.size > 0) {
+        this.notify(this.errorCallbacks, contextualError, 'error');
       } else {
         console.warn('[NemWebSocket]', contextualError);
       }
@@ -94,9 +146,8 @@ export class NemWebSocket {
       this._isConnected = false;
       this._uid = null;
       this.subscriptions.clear();
-      this.onCloseCallback(event);
+      this.notify(this.closeCallbacks, event, 'close');
 
-      // 手動切断でない場合は再接続を試みる
       if (!this.isManualDisconnect && this.options.autoReconnect) {
         this.attemptReconnect();
       }
@@ -114,14 +165,15 @@ export class NemWebSocket {
       const connectionId = frame?.headers?.session ?? frame?.headers?.server ?? `${endPointHost}:${endPointPort}`;
       this._uid = connectionId;
 
-      // 接続コールバックを呼び出す
-      this.connectCallbacks.forEach((cb) => cb(this._uid!));
-
       // 再接続時は既存のサブスクリプションを復元
       this.subscriptions.clear();
       this.activeSubscriptions.forEach((callbacks, subscribePath) => {
         callbacks.forEach((callback) => this.subscribe(subscribePath, callback));
       });
+
+      // 接続コールバックを呼び出す。購読の復元後に呼ぶことで、callback 内で `on` を
+      // 呼んでも既存 callback が二重にサブスクライブされない。
+      this.notify(this.connectCallbacks, this._uid, 'connect');
     };
 
     // クライアント切断時の処理
@@ -163,7 +215,13 @@ export class NemWebSocket {
    * STOMPサブスクリプションを作成して追跡する
    */
   private subscribe(subscribePath: string, callback: (message: string) => void): void {
-    const subscription = this._client.subscribe(subscribePath, (message) => callback(message.body));
+    const subscription = this._client.subscribe(subscribePath, (message) => {
+      try {
+        callback(message.body);
+      } catch (error) {
+        console.error('[NemWebSocket] subscription callback failed', error);
+      }
+    });
     let subscriptions = this.subscriptions.get(subscribePath);
     if (!subscriptions) {
       subscriptions = new Map();
@@ -210,7 +268,7 @@ export class NemWebSocket {
     this.reconnectAttempts++;
 
     // 再接続コールバックを呼び出す
-    this.reconnectCallbacks.forEach((cb) => cb(this.reconnectAttempts));
+    this.notify(this.reconnectCallbacks, this.reconnectAttempts, 'reconnect');
 
     const interval = this.options.reconnectInterval ?? 3000;
     this.reconnectTimer = setTimeout(() => {
@@ -255,12 +313,13 @@ export class NemWebSocket {
    *
    * @param callback 接続識別子を受け取るコールバック
    */
-  public onConnect(callback: (uid: string) => void): void {
-    this.connectCallbacks.push(callback);
+  public onConnect(callback: (uid: string) => void): NemWebSocketUnsubscribe {
+    this.connectCallbacks.add(callback);
     // すでに接続済みなら即時呼び出し
     if (this._isConnected) {
-      callback(this._uid ?? this.options.host);
+      this.notify(new Set([callback]), this._uid ?? this.options.host, 'connect');
     }
+    return () => this.connectCallbacks.delete(callback);
   }
 
   /**
@@ -270,8 +329,9 @@ export class NemWebSocket {
    *
    * @param callback 1 始まりの再接続試行回数を受け取るコールバック
    */
-  public onReconnect(callback: (attemptCount: number) => void): void {
-    this.reconnectCallbacks.push(callback);
+  public onReconnect(callback: (attemptCount: number) => void): NemWebSocketUnsubscribe {
+    this.reconnectCallbacks.add(callback);
+    return () => this.reconnectCallbacks.delete(callback);
   }
 
   /**
@@ -282,7 +342,7 @@ export class NemWebSocket {
    * @param channel アドレスを必要としないチャネル名
    * @param callback メッセージ本文を受け取るコールバック
    */
-  on(channel: NemChannel, callback: (message: string) => void): void;
+  on(channel: NemGlobalChannel, callback: (message: string) => void): NemWebSocketUnsubscribe;
 
   /**
    * チャネルサブスクメソッド
@@ -293,7 +353,7 @@ export class NemWebSocket {
    * @param address NEM アドレス
    * @param callback メッセージ本文を受け取るコールバック
    */
-  on(channel: NemChannel, address: string, callback: (message: string) => void): void;
+  on(channel: NemAddressChannel, address: string, callback: (message: string) => void): NemWebSocketUnsubscribe;
 
   /**
    * チャネルサブスクメソッド実装
@@ -306,16 +366,25 @@ export class NemWebSocket {
     channel: NemChannel,
     addressOrCallback: string | ((message: string) => void),
     callback?: (message: string) => void
-  ): void {
+  ): NemWebSocketUnsubscribe {
     // 引数を解析
     const address = typeof addressOrCallback === 'string' ? addressOrCallback : undefined;
     const actualCallback = typeof addressOrCallback === 'function' ? addressOrCallback : callback!;
 
     const channelPath = nemChannelPaths[channel];
+    if (!channelPath) {
+      throw new TypeError(`Unknown channel: ${channel}`);
+    }
+    if (typeof actualCallback !== 'function') {
+      throw new TypeError('callback must be a function');
+    }
 
     // アドレスが必要なチャネルでアドレスが提供されていない場合、エラーをスロー
     if (typeof channelPath.subscribe === 'function' && !address) {
       throw new Error(`Address parameter is required for channel: ${channel}`);
+    }
+    if (address && /[\s/?#]/.test(address)) {
+      throw new TypeError('address must not include whitespace or URL separators');
     }
 
     // サブスクライブパスを決定
@@ -326,12 +395,12 @@ export class NemWebSocket {
     }
 
     if (!this.addActiveSubscription(subscribePath, actualCallback)) {
-      return;
+      return () => this.removeSubscription(subscribePath, actualCallback);
     }
 
     // 接続されていない場合、接続時にアクティブな購読を復元する
     if (!this._isConnected) {
-      return;
+      return () => this.removeSubscription(subscribePath, actualCallback);
     }
 
     // サブスクライブを実行
@@ -345,6 +414,7 @@ export class NemWebSocket {
       }
       throw error;
     }
+    return () => this.removeSubscription(subscribePath, actualCallback);
   }
 
   /**
@@ -354,19 +424,21 @@ export class NemWebSocket {
    *
    * @param callback 構造化エラーを受け取るコールバック
    */
-  public onError(callback: (err: NemWebSocketError) => void): void {
-    this.errorCallbacks.push(callback);
+  public onError(callback: (err: NemWebSocketError) => void): NemWebSocketUnsubscribe {
+    this.errorCallbacks.add(callback);
+    return () => this.errorCallbacks.delete(callback);
   }
 
   /**
    * WebSocketクローズイベント登録
    *
-   * WebSocket が閉じたときに callback を呼び出します。最後に登録した callback だけが保持されます。
+   * WebSocket が閉じたときに callback を呼び出します。複数の callback を登録できます。
    *
    * @param callback クローズイベントを受け取るコールバック
    */
-  public onClose(callback: (event: WebSocket.CloseEvent) => void): void {
-    this.onCloseCallback = callback;
+  public onClose(callback: (event: WebSocket.CloseEvent) => void): NemWebSocketUnsubscribe {
+    this.closeCallbacks.add(callback);
+    return () => this.closeCallbacks.delete(callback);
   }
 
   /**
@@ -376,7 +448,7 @@ export class NemWebSocket {
    *
    * @param channel アドレスを必要としないチャネル名
    */
-  off(channel: NemChannel): void;
+  off(channel: NemGlobalChannel): void;
 
   /**
    * チャネルアンサブスクメソッド
@@ -386,7 +458,7 @@ export class NemWebSocket {
    * @param channel アドレスを必要とするチャネル名
    * @param address NEM アドレス
    */
-  off(channel: NemChannel, address: string): void;
+  off(channel: NemAddressChannel, address: string): void;
 
   /**
    * チャネルアンサブスクメソッド実装
@@ -396,9 +468,15 @@ export class NemWebSocket {
    */
   off(channel: NemChannel, address?: string): void {
     const channelPath = nemChannelPaths[channel];
+    if (!channelPath) {
+      throw new TypeError(`Unknown channel: ${channel}`);
+    }
 
     if (typeof channelPath.subscribe === 'function' && !address) {
       throw new Error(`Address parameter is required for channel: ${channel}`);
+    }
+    if (address && /[\s/?#]/.test(address)) {
+      throw new TypeError('address must not include whitespace or URL separators');
     }
 
     // サブスクライブパスを決定
@@ -409,13 +487,20 @@ export class NemWebSocket {
     }
 
     // アンサブスクライブを実行
+    [...(this.activeSubscriptions.get(subscribePath) ?? [])].forEach((callback) =>
+      this.removeSubscription(subscribePath, callback)
+    );
+  }
+
+  private removeSubscription(subscribePath: string, callback: (message: string) => void): void {
     const subscriptions = this.subscriptions.get(subscribePath);
-    if (subscriptions) {
-      subscriptions.forEach((subscription) => subscription.unsubscribe());
-      this.subscriptions.delete(subscribePath);
-    }
-    // activeSubscriptionsからも削除
-    this.activeSubscriptions.delete(subscribePath);
+    subscriptions?.get(callback)?.unsubscribe();
+    subscriptions?.delete(callback);
+    if (subscriptions?.size === 0) this.subscriptions.delete(subscribePath);
+
+    const callbacks = this.activeSubscriptions.get(subscribePath);
+    callbacks?.delete(callback);
+    if (callbacks?.size === 0) this.activeSubscriptions.delete(subscribePath);
   }
 
   /**
@@ -439,9 +524,10 @@ export class NemWebSocket {
     this.activeSubscriptions.clear();
 
     // すべてのコールバックをクリーンアップ
-    this.errorCallbacks = [];
-    this.connectCallbacks = [];
-    this.reconnectCallbacks = [];
+    this.errorCallbacks.clear();
+    this.closeCallbacks.clear();
+    this.connectCallbacks.clear();
+    this.reconnectCallbacks.clear();
 
     // クライアントを非アクティブ化
     this._client.deactivate();
