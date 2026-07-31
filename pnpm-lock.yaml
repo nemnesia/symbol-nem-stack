@@ -202,7 +202,7 @@ importers:
   packages/symbol-qr-library:
     dependencies:
       '@nemnesia/simple-password-crypto':
-        specifier: workspace:^0.2.0
+        specifier: workspace:*
         version: link:../simple-password-crypto
       '@noble/ciphers':
         specifier: ^2.1.1

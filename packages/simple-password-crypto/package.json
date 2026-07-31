@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/simple-password-crypto",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Secure password-based encryption/decryption using Argon2id + AES-256-GCM",
   "type": "module",
   "main": "./dist/index.js",
