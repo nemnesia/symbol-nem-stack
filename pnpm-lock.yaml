@@ -188,8 +188,8 @@ importers:
   packages/symbol-announcer:
     dependencies:
       '@nemnesia/symbol-websocket':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.2
+        version: 0.2.2
 
   packages/symbol-event-stream:
     dependencies:
@@ -835,10 +835,6 @@ packages:
 
   '@nemnesia/nodewatch-openapi-typescript-fetch-client@1.0.1':
     resolution: {integrity: sha512-/ZKoYX9b5ouzjOjd3iRvkicouuHFetBHguDw4Fk8gFR4jegZ3MpFkvmNMjxsIVuxjaRJylz2wuUudBxuSSR/Zw==}
-
-  '@nemnesia/symbol-websocket@0.1.0':
-    resolution: {integrity: sha512-q8AgaRpDBPhx3ZIR21A754pS8H+qcnnKV0fPtKxgPj1AzLAvVavUPRfBOjBcd+csj9dG7I3IM4QK7HY69VaIuQ==}
-    engines: {node: '>=20.0.0'}
 
   '@nemnesia/symbol-websocket@0.2.2':
     resolution: {integrity: sha512-TZfvqFnt/SUlvo8/lGSFfkhNfQ6EOQcwPBBJQvwvI7/XflcP4tFokqQ8bWdQY4J/5pRPHvCzEgxC6Wbuj1R4XQ==}
@@ -3740,15 +3736,6 @@ snapshots:
       '@nemnesia/nodewatch-openapi-typescript-fetch-client': 1.0.1
 
   '@nemnesia/nodewatch-openapi-typescript-fetch-client@1.0.1': {}
-
-  '@nemnesia/symbol-websocket@0.1.0':
-    dependencies:
-      '@stomp/stompjs': 7.3.0
-      isomorphic-ws: 5.0.0(ws@8.21.1)
-      ws: 8.21.1
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   '@nemnesia/symbol-websocket@0.2.2':
     dependencies:

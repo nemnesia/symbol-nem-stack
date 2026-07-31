@@ -1,117 +1,154 @@
 import { SymbolWebSocket } from '@nemnesia/symbol-websocket';
 import { EventEmitter } from 'events';
 
-/**
- * SymbolAnnouncerが発行するイベント型
- */
+/** Symbol Gateway から受信する、トランザクションに関連する通知。 */
+export interface SymbolAnnouncerNotification {
+  data?: {
+    meta?: { hash?: string };
+    hash?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/** SymbolAnnouncer が発行するイベント型。 */
 export type SymbolAnnouncerEvents = {
-  /** WebSocket接続時 */
+  /** WebSocket 接続時。 */
   connected: () => void;
-  /** トランザクション承認時 */
-  confirmedAdded: (message: any) => void;
-  /** ステータスイベント受信時 */
-  status: (message: any) => void;
-  /** トランザクションアナウンス完了時 */
-  announced: (data: any) => void;
-  /** エラー発生時 */
+  /** 指定したトランザクションが承認された時。 */
+  confirmedAdded: (message: SymbolAnnouncerNotification) => void;
+  /** 指定したトランザクションのステータスを受信した時。 */
+  status: (message: SymbolAnnouncerNotification) => void;
+  /** REST API がアナウンス要求を受理した時。 */
+  announced: (data: unknown) => void;
+  /** 接続またはアナウンスでエラーが発生した時。 */
   error: (error: Error) => void;
 };
 
 /**
- * Symbolブロックチェーンへのトランザクションアナウンスと監視を行うクラス
+ * Symbol ノードへのトランザクションアナウンスと、結果の WebSocket 監視を行うクラス。
+ *
+ * @remarks インスタンス生成時に WebSocket 接続を開始します。`announce()` は接続完了後に
+ * トランザクションを送信し、承認・ステータス通知を同じ署名者アドレスで監視します。
  */
 export class SymbolAnnouncer extends EventEmitter {
-  /** WebSocket監視インスタンス */
-  private monitor: SymbolWebSocket;
-  /** ノードURL */
-  private nodeUrl: string;
+  private readonly monitor: SymbolWebSocket;
+  private readonly nodeUrl: string;
 
   /**
-   * コンストラクタ
-   * 
-   * @param nodeUrl ノードのURL
+   * @param nodeUrl Symbol REST ノードの URL。`http:` または `https:` を指定します。
    */
-  constructor(nodeUrl: string ) {
+  constructor(nodeUrl: string) {
     super();
-    this.nodeUrl = nodeUrl;
 
-    const url = new URL(nodeUrl);
+    let url: URL;
+    try {
+      url = new URL(nodeUrl);
+    } catch {
+      throw new TypeError('nodeUrl must be a valid HTTP(S) URL');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) {
+      throw new TypeError('nodeUrl must be a valid HTTP(S) URL');
+    }
+
+    this.nodeUrl = url.origin;
     this.monitor = new SymbolWebSocket({
       host: url.hostname,
       ssl: url.protocol === 'https:',
       timeout: 5000,
     });
+    this.monitor.onError((error) => this.emitError(new Error(error.message)));
   }
 
   /**
-   * トランザクションをノードへアナウンスし、WebSocketで承認・ステータスを監視する
-   * 
-   * @param signerAddress 署名者のアドレス
-   * @param transaction トランザクションペイロードデータ
-   * @param transactionHash トランザクションハッシュ
+   * トランザクションをアナウンスし、承認・ステータス通知を監視します。
+   *
+   * @param signerAddress 署名者の Symbol アドレス。
+   * @param transaction REST API に渡す JSON 形式のトランザクションペイロード。
+   * @param transactionHash 監視対象のトランザクションハッシュ。
    */
   public announce(signerAddress: string, transaction: string, transactionHash: string): void {
-    this.monitor.onConnect(async () => {
-      this.emit('connected');
+    this.validateAnnouncement(signerAddress, transaction, transactionHash);
 
-      // チャネルにサブスクライブ
+    let requestStarted = false;
+    this.monitor.onConnect(() => {
+      if (requestStarted) return;
+      requestStarted = true;
+
+      this.emit('connected');
       this.monitor.on('confirmedAdded', signerAddress, (message) => {
-        if ((message.data as any).meta.hash === transactionHash) {
-          this.emit('confirmedAdded', message);
+        const notification = message as unknown as SymbolAnnouncerNotification;
+        if (notification.data?.meta?.hash === transactionHash) {
+          this.emit('confirmedAdded', notification);
         }
       });
       this.monitor.on('status', signerAddress, (message) => {
-        if ((message.data as any).hash === transactionHash) {
-          this.emit('status', message);
+        const notification = message as unknown as SymbolAnnouncerNotification;
+        if (notification.data?.hash === transactionHash) {
+          this.emit('status', notification);
         }
       });
 
-      try {
-        // アナウンス
-        const response = await fetch(new URL('/transactions', this.nodeUrl).toString(), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: transaction,
-        });
-        const data = await response.json();
-        this.emit('announced', data);
-      } catch (error) {
-        this.emit('error', error as Error);
-      }
+      void this.sendAnnouncement(transaction);
     });
   }
 
-  /**
-   * WebSocket接続を切断する
-   */
+  /** WebSocket 接続を切断します。 */
   public disconnect(): void {
     this.monitor.disconnect();
   }
 
-  /**
-   * 型安全なイベントリスナー登録
-   * @param event イベント名
-   * @param listener リスナー関数
-   */
   public on<K extends keyof SymbolAnnouncerEvents>(event: K, listener: SymbolAnnouncerEvents[K]): this {
     return super.on(event, listener);
   }
 
-  /**
-   * 型安全な一度限りのイベントリスナー登録
-   * @param event イベント名
-   * @param listener リスナー関数
-   */
   public once<K extends keyof SymbolAnnouncerEvents>(event: K, listener: SymbolAnnouncerEvents[K]): this {
     return super.once(event, listener);
   }
 
-  /**
-   * 型安全なイベント発火
-   * @param event イベント名
-   * @param args イベント引数
-   */
   public emit<K extends keyof SymbolAnnouncerEvents>(event: K, ...args: Parameters<SymbolAnnouncerEvents[K]>): boolean {
     return super.emit(event, ...args);
+  }
+
+  private validateAnnouncement(signerAddress: string, transaction: string, transactionHash: string): void {
+    if (typeof signerAddress !== 'string' || signerAddress.trim() === '' || /[\s/?#]/.test(signerAddress)) {
+      throw new TypeError('signerAddress must be a non-empty address without URL separators');
+    }
+    if (typeof transaction !== 'string' || transaction.trim() === '') {
+      throw new TypeError('transaction must be a non-empty JSON string');
+    }
+    try {
+      JSON.parse(transaction);
+    } catch {
+      throw new TypeError('transaction must be a valid JSON string');
+    }
+    if (typeof transactionHash !== 'string' || transactionHash.trim() === '') {
+      throw new TypeError('transactionHash must be a non-empty string');
+    }
+  }
+
+  private async sendAnnouncement(transaction: string): Promise<void> {
+    try {
+      const response = await fetch(new URL('/transactions', this.nodeUrl).toString(), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: transaction,
+      });
+      const data = await response.json();
+      if (response.ok === false) {
+        throw new Error(`Transaction announcement failed with HTTP ${response.status}`);
+      }
+      this.emit('announced', data);
+    } catch (error) {
+      this.emitError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private emitError(error: Error): void {
+    if (this.listenerCount('error') > 0) {
+      this.emit('error', error);
+    } else {
+      console.error('[SymbolAnnouncer]', error);
+    }
   }
 }

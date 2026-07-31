@@ -1,315 +1,138 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { SymbolAnnouncer } from '../src/SymbolAnnouncer.js';
 
-// グローバルfetchのモック
-global.fetch = vi.fn();
-
-// WebSocketモニターインスタンスのモック
-const mockMonitorInstance = {
-  onConnect: vi.fn(),
-  on: vi.fn(),
+const monitor = {
   disconnect: vi.fn(),
+  on: vi.fn(),
+  onConnect: vi.fn(),
+  onError: vi.fn(),
 };
 
-// SymbolWebSocketMonitorのモック
-vi.mock('@nemnesia/symbol-websocket', () => {
-  return {
-    SymbolWebSocketMonitor: vi.fn(function (this: any) {
-      Object.assign(this, mockMonitorInstance);
-    }),
-  };
-});
+vi.mock('@nemnesia/symbol-websocket', () => ({
+  SymbolWebSocket: vi.fn(function SymbolWebSocketMock() {
+    return monitor;
+  }),
+}));
 
 describe('SymbolAnnouncer', () => {
-  const mockNodeUrl = 'https://example.com:3000';
-  const mockSignerAddress = 'TABC1234567890ABCDEF';
-  const mockTransaction = '{"payload": "test"}';
-  const mockTransactionHash = 'ABC123DEF456';
+  const nodeUrl = 'https://example.com:3000';
+  const signerAddress = 'TABC1234567890ABCDEF';
+  const transaction = '{"payload":"test"}';
+  const transactionHash = 'ABC123DEF456';
 
   let announcer: SymbolAnnouncer;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // デフォルトのfetchモックを設定
-    (global.fetch as any).mockResolvedValue({
-      json: async () => ({}),
-    });
-    // モックインスタンスをリセット
-    mockMonitorInstance.onConnect = vi.fn();
-    mockMonitorInstance.on = vi.fn();
-    mockMonitorInstance.disconnect = vi.fn();
-    announcer = new SymbolAnnouncer(mockNodeUrl, mockSignerAddress, mockTransaction, mockTransactionHash);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: 'accepted' }) })
+    );
+    announcer = new SymbolAnnouncer(nodeUrl);
   });
 
-  afterEach(() => {
-    if (announcer) {
-      announcer.disconnect();
-    }
+  const connect = (): void => {
+    const callback = monitor.onConnect.mock.calls[0]?.[0];
+    callback?.('gateway-uid');
+  };
+
+  it('HTTP(S) URLからWebSocket接続設定を作成するべきである', async () => {
+    const { SymbolWebSocket } = await import('@nemnesia/symbol-websocket');
+
+    expect(announcer).toBeInstanceOf(SymbolAnnouncer);
+    expect(SymbolWebSocket).toHaveBeenCalledWith({ host: 'example.com', ssl: true, timeout: 5000 });
+    expect(monitor.onError).toHaveBeenCalledTimes(1);
   });
 
-  describe('constructor', () => {
-    it('インスタンスが正しく作成されるべきである / should create instance correctly', () => {
-      expect(announcer).toBeInstanceOf(SymbolAnnouncer);
-    });
-
-    it('プロパティが正しく設定されるべきである / should set properties correctly', () => {
-      // @ts-ignore - プライベートプロパティへのアクセス
-      expect(announcer.nodeUrl).toBe(mockNodeUrl);
-      // @ts-ignore - プライベートプロパティへのアクセス
-      expect(announcer.signerAddress).toBe(mockSignerAddress);
-      // @ts-ignore - プライベートプロパティへのアクセス
-      expect(announcer.transaction).toBe(mockTransaction);
-      // @ts-ignore - プライベートプロパティへのアクセス
-      expect(announcer.transactionHash).toBe(mockTransactionHash);
-    });
+  it('不正なノードURLを拒否するべきである', () => {
+    expect(() => new SymbolAnnouncer('not a url')).toThrow('nodeUrl must be a valid HTTP(S) URL');
+    expect(() => new SymbolAnnouncer('ftp://example.com')).toThrow('nodeUrl must be a valid HTTP(S) URL');
   });
 
-  describe('announce', () => {
-    it('connectedイベントが発火されるべきである / should emit connected event', async () => {
-      const connectedSpy = vi.fn();
-      announcer.on('connected', connectedSpy);
+  it('接続後に購読を登録してトランザクションをアナウンスするべきである', async () => {
+    const announced = vi.fn();
+    announcer.on('announced', announced);
 
-      // onConnectのコールバックを取得して実行
-      mockMonitorInstance.onConnect.mockImplementation((callback) => {
-        callback();
-      });
+    announcer.announce(signerAddress, transaction, transactionHash);
+    connect();
+    await vi.waitFor(() => expect(announced).toHaveBeenCalledWith({ message: 'accepted' }));
 
-      announcer.announce();
-
-      expect(mockMonitorInstance.onConnect).toHaveBeenCalled();
-      expect(connectedSpy).toHaveBeenCalled();
-    });
-
-    it('トランザクションがアナウンスされ、announcedイベントが発火されるべきである / should announce transaction and emit announced event', async () => {
-      const mockResponse = { message: 'success' };
-      (global.fetch as any).mockResolvedValueOnce({
-        json: async () => mockResponse,
-      });
-
-      const announcedSpy = vi.fn();
-      announcer.on('announced', announcedSpy);
-
-      // onConnectのコールバックを取得して実行
-      mockMonitorInstance.onConnect.mockImplementation((callback) => {
-        callback();
-      });
-
-      announcer.announce();
-
-      // 非同期処理を待つ
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        'https://example.com:3000/transactions',
-        expect.objectContaining({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: mockTransaction,
-        })
-      );
-      expect(announcedSpy).toHaveBeenCalledWith(mockResponse);
-    });
-
-    it('fetchエラー時にerrorイベントが発火されるべきである / should emit error event on fetch error', async () => {
-      const mockError = new Error('Network error');
-      (global.fetch as any).mockRejectedValueOnce(mockError);
-
-      const errorSpy = vi.fn();
-      announcer.on('error', errorSpy);
-
-      // onConnectのコールバックを取得して実行
-      mockMonitorInstance.onConnect.mockImplementation((callback) => {
-        callback();
-      });
-
-      announcer.announce();
-
-      // 非同期処理を待つ
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      expect(errorSpy).toHaveBeenCalledWith(mockError);
-    });
+    expect(monitor.on).toHaveBeenCalledWith('confirmedAdded', signerAddress, expect.any(Function));
+    expect(monitor.on).toHaveBeenCalledWith('status', signerAddress, expect.any(Function));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch).mock.calls[0]).toEqual([
+      'https://example.com:3000/transactions',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: transaction },
+    ]);
   });
 
-  describe('confirmedAdded event', () => {
-    it('トランザクションハッシュが一致する場合、confirmedAddedイベントが発火されるべきである / should emit confirmedAdded event when hash matches', () => {
-      const mockMessage = {
-        data: {
-          meta: {
-            hash: mockTransactionHash,
-          },
-        },
-      };
-
-      const confirmedAddedSpy = vi.fn();
-      announcer.on('confirmedAdded', confirmedAddedSpy);
-
-      // onConnectのコールバックを取得して実行
-      mockMonitorInstance.onConnect.mockImplementation((callback) => {
-        callback();
-      });
-
-      announcer.announce();
-
-      // monitor.onの呼び出しからコールバックを取得
-      const confirmedAddedCall = mockMonitorInstance.on.mock.calls.find(
-        (call: any[]) => call[0] === 'confirmedAdded'
-      );
-      const confirmedAddedCallback = confirmedAddedCall?.[2];
-
-      if (confirmedAddedCallback) {
-        confirmedAddedCallback(mockMessage);
-      }
-
-      expect(confirmedAddedSpy).toHaveBeenCalledWith(mockMessage);
-    });
-
-    it('トランザクションハッシュが一致しない場合、confirmedAddedイベントが発火されないべきである / should not emit confirmedAdded event when hash does not match', () => {
-      const mockMessage = {
-        data: {
-          meta: {
-            hash: 'DIFFERENT_HASH',
-          },
-        },
-      };
-
-      const confirmedAddedSpy = vi.fn();
-      const disconnectSpy = vi.spyOn(announcer, 'disconnect');
-      announcer.on('confirmedAdded', confirmedAddedSpy);
-
-      // onConnectのコールバックを取得して実行
-      mockMonitorInstance.onConnect.mockImplementation((callback) => {
-        callback();
-      });
-
-      announcer.announce();
-
-      // monitor.onの呼び出しからコールバックを取得
-      const confirmedAddedCall = mockMonitorInstance.on.mock.calls.find(
-        (call: any[]) => call[0] === 'confirmedAdded'
-      );
-      const confirmedAddedCallback = confirmedAddedCall?.[2];
-
-      if (confirmedAddedCallback) {
-        confirmedAddedCallback(mockMessage);
-      }
-
-      expect(confirmedAddedSpy).not.toHaveBeenCalled();
-      expect(disconnectSpy).not.toHaveBeenCalled();
-    });
+  it('再接続時に同じアナウンス要求を送信しないべきである', async () => {
+    announcer.announce(signerAddress, transaction, transactionHash);
+    connect();
+    connect();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
   });
 
-  describe('status event', () => {
-    it('トランザクションハッシュが一致する場合、statusイベントが発火されるべきである / should emit status event when hash matches', () => {
-      const mockMessage = {
-        data: {
-          hash: mockTransactionHash,
-        },
-      };
+  it('一致する承認通知だけを発火するべきである', () => {
+    const confirmed = vi.fn();
+    announcer.on('confirmedAdded', confirmed);
+    announcer.announce(signerAddress, transaction, transactionHash);
+    connect();
 
-      const statusSpy = vi.fn();
-      announcer.on('status', statusSpy);
+    const callback = monitor.on.mock.calls.find(([event]) => event === 'confirmedAdded')?.[2];
+    callback({ data: { meta: { hash: transactionHash } } });
+    callback({ data: { meta: { hash: 'different' } } });
 
-      // onConnectのコールバックを取得して実行
-      mockMonitorInstance.onConnect.mockImplementation((callback) => {
-        callback();
-      });
-
-      announcer.announce();
-
-      // monitor.onの呼び出しからコールバックを取得
-      const statusCall = mockMonitorInstance.on.mock.calls.find((call: any[]) => call[0] === 'status');
-      const statusCallback = statusCall?.[2];
-
-      if (statusCallback) {
-        statusCallback(mockMessage);
-      }
-
-      expect(statusSpy).toHaveBeenCalledWith(mockMessage);
-    });
-
-    it('トランザクションハッシュが一致しない場合、statusイベントが発火されないべきである / should not emit status event when hash does not match', () => {
-      const mockMessage = {
-        data: {
-          hash: 'DIFFERENT_HASH',
-        },
-      };
-
-      const statusSpy = vi.fn();
-      const disconnectSpy = vi.spyOn(announcer, 'disconnect');
-      announcer.on('status', statusSpy);
-
-      // onConnectのコールバックを取得して実行
-      mockMonitorInstance.onConnect.mockImplementation((callback) => {
-        callback();
-      });
-
-      announcer.announce();
-
-      // monitor.onの呼び出しからコールバックを取得
-      const statusCall = mockMonitorInstance.on.mock.calls.find((call: any[]) => call[0] === 'status');
-      const statusCallback = statusCall?.[2];
-
-      if (statusCallback) {
-        statusCallback(mockMessage);
-      }
-
-      expect(statusSpy).not.toHaveBeenCalled();
-      expect(disconnectSpy).not.toHaveBeenCalled();
-    });
+    expect(confirmed).toHaveBeenCalledTimes(1);
   });
 
-  describe('disconnect', () => {
-    it('モニターのdisconnectメソッドが呼ばれるべきである / should call monitor disconnect method', () => {
-      announcer.disconnect();
+  it('一致するステータス通知だけを発火するべきである', () => {
+    const status = vi.fn();
+    announcer.on('status', status);
+    announcer.announce(signerAddress, transaction, transactionHash);
+    connect();
 
-      expect(mockMonitorInstance.disconnect).toHaveBeenCalled();
-    });
+    const callback = monitor.on.mock.calls.find(([event]) => event === 'status')?.[2];
+    callback({ data: { hash: transactionHash } });
+    callback({ data: { hash: 'different' } });
+
+    expect(status).toHaveBeenCalledTimes(1);
   });
 
-  describe('型安全なイベントメソッド / Type-safe event methods', () => {
-    it('onメソッドでイベントリスナーを登録できるべきである / should register event listener with on method', () => {
-      const listener = vi.fn();
-      const result = announcer.on('connected', listener);
+  it('入力値を検証するべきである', () => {
+    expect(() => announcer.announce('', transaction, transactionHash)).toThrow('signerAddress must be a non-empty address');
+    expect(() => announcer.announce(signerAddress, 'invalid', transactionHash)).toThrow(
+      'transaction must be a valid JSON string'
+    );
+    expect(() => announcer.announce(signerAddress, transaction, '')).toThrow('transactionHash must be a non-empty string');
+  });
 
-      expect(result).toBe(announcer);
-    });
+  it('REST APIの失敗をerrorイベントで通知するべきである', async () => {
+    const error = vi.fn();
+    announcer.on('error', error);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 400, json: async () => ({}) } as Response);
 
-    it('onceメソッドでイベントリスナーを登録できるべきである / should register event listener with once method', () => {
-      const listener = vi.fn();
-      const result = announcer.once('connected', listener);
+    announcer.announce(signerAddress, transaction, transactionHash);
+    connect();
 
-      expect(result).toBe(announcer);
-    });
+    await vi.waitFor(() =>
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: 'Transaction announcement failed with HTTP 400' }))
+    );
+  });
 
-    it('emitメソッドでイベントを発火できるべきである / should emit event with emit method', () => {
-      const listener = vi.fn();
-      announcer.on('connected', listener);
+  it('WebSocketエラーをerrorイベントで通知するべきである', () => {
+    const error = vi.fn();
+    announcer.on('error', error);
 
-      const result = announcer.emit('connected');
+    const callback = monitor.onError.mock.calls[0]?.[0];
+    callback({ message: 'connection failed' });
 
-      expect(result).toBe(true);
-      expect(listener).toHaveBeenCalled();
-    });
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: 'connection failed' }));
+  });
 
-    it('announcedイベントでデータを渡せるべきである / should pass data with announced event', () => {
-      const listener = vi.fn();
-      const data = { test: 'data' };
-      announcer.on('announced', listener);
-
-      announcer.emit('announced', data);
-
-      expect(listener).toHaveBeenCalledWith(data);
-    });
-
-    it('errorイベントでエラーオブジェクトを渡せるべきである / should pass error object with error event', () => {
-      const listener = vi.fn();
-      const error = new Error('test error');
-      announcer.on('error', listener);
-
-      announcer.emit('error', error);
-
-      expect(listener).toHaveBeenCalledWith(error);
-    });
+  it('disconnectで内部WebSocketを切断するべきである', () => {
+    announcer.disconnect();
+    expect(monitor.disconnect).toHaveBeenCalledTimes(1);
   });
 });

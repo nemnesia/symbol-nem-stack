@@ -1,8 +1,9 @@
 {
   "name": "@nemnesia/symbol-announcer",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "SymbolブロックチェーンへトランザクションをアナウンスするためのTypeScriptライブラリ",
-  "main": "./dist/index.js",
+  "type": "module",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -12,13 +13,14 @@
     },
     "require": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "default": "./dist/index.cjs"
     }
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "symbol",
@@ -29,37 +31,37 @@
     "websocket",
     "typescript"
   ],
-  "author": "harvestasya",
+  "author": "ccHarvestasya",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/harvestasya/symbol-tools.git",
+    "url": "git+https://github.com/nemnesia/symbol-tools.git",
     "directory": "packages/symbol-announcer"
   },
-  "homepage": "https://github.com/harvestasya/symbol-tools/tree/main/packages/symbol-announcer#readme",
+  "homepage": "https://github.com/nemnesia/symbol-tools/tree/main/packages/symbol-announcer#readme",
   "bugs": {
-    "url": "https://github.com/harvestasya/symbol-tools/issues"
+    "url": "https://github.com/nemnesia/symbol-tools/issues"
   },
   "scripts": {
     "build": "pnpm run clean && tsup",
     "clean": "rm -rf dist",
-    "lint": "eslint \"{src,test,e2e}/**/*.ts\" --fix",
+    "lint": "eslint \"{src,test,e2e}/**/*.ts\"",
     "format": "prettier --write \"{src,test,e2e}/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:coverage:ui": "vitest --ui --coverage",
-    "prepublishOnly": "pnpm run build && pnpm test",
+    "prepublishOnly": "pnpm run lint && pnpm run build && pnpm test",
     "publish:dryrun": "npm publish --dry-run",
     "publish:release": "npm run build && npm publish"
   },
   "dependencies": {
-    "@nemnesia/symbol-websocket": "^0.1.0"
+    "@nemnesia/symbol-websocket": "^0.2.2"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "volta": {
-    "node": "20.19.5"
+    "node": "20.19.6"
   }
 }
