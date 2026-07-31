@@ -1,124 +1,91 @@
-# symbol-announcer
+# Symbol Announcer
 
-SymbolブロックチェーンへトランザクションをアナウンスするためのTypeScriptライブラリです。WebSocket監視機能を組み込み、トランザクションの承認やステータス変更を自動的に検知します。
+`@nemnesia/symbol-announcer` は、Symbol ノードへトランザクションをアナウンスし、その承認・ステータス通知を WebSocket で監視する TypeScript ライブラリです。
 
 ## 特徴
 
-- ✅ トランザクションをSymbolネットワークにアナウンス
-- 🔌 WebSocketで自動的にトランザクション結果を監視
-- 📡 承認完了やエラーステータスをイベントで通知
-- 🎯 型安全なイベントリスナー
-- ⚡ シンプルで直感的なAPI
+- REST API を使ったトランザクションアナウンス
+- 承認・ステータス通知の自動監視
+- 型安全なイベントリスナー
+- WebSocket の再接続時にアナウンス要求を重複送信しない保護
+- ノードURL、アドレス、ペイロード、ハッシュの実行時検証
 
 ## インストール
 
 ```bash
-npm install symbol-announcer
+npm install @nemnesia/symbol-announcer
 ```
 
-## 使い方
+このパッケージは ESM と CommonJS の両方から利用できます。
 
-### 基本的な使い方
+## 使用方法
 
 ```typescript
-import { SymbolAnnouncer } from 'symbol-announcer';
+import { SymbolAnnouncer } from '@nemnesia/symbol-announcer';
 
-// アナウンサーを初期化
-const announcer = new SymbolAnnouncer(
-  'https://t.sakia.harvestasya.com:3001', // ノードURL
-  aliceAccount.address.toString(), // 署名者アドレス
-  payloadJsonString, // トランザクションペイロード(JSON文字列)
-  transactionHash // トランザクションハッシュ
-);
+const announcer = new SymbolAnnouncer('https://node.example.com:3001');
 
-// イベントリスナーを設定
 announcer.on('connected', () => {
-  console.log('✅ WebSocket接続完了');
+  console.log('WebSocket connected');
 });
-
-announcer.on('announced', (data) => {
-  console.log('✅ トランザクションがアナウンスされました:', data);
+announcer.on('announced', (response) => {
+  console.log('Transaction accepted:', response);
 });
-
-announcer.on('confirmedAdded', (message) => {
-  console.log('✅ トランザクションが承認されました!', message);
+announcer.on('confirmedAdded', (notification) => {
+  console.log('Transaction confirmed:', notification);
   announcer.disconnect();
 });
-
-announcer.on('status', (message) => {
-  console.log('⚠️ トランザクションステータス:', message);
+announcer.on('status', (notification) => {
+  console.error('Transaction status:', notification);
   announcer.disconnect();
 });
-
 announcer.on('error', (error) => {
-  console.error('❌ エラー:', error);
-  announcer.disconnect();
+  console.error('Announcement failed:', error);
 });
 
-// アナウンスを開始
-announcer.announce();
+announcer.announce(
+  signerAddress,
+  transactionPayloadJson,
+  transactionHash
+);
 ```
 
 ## API
 
-### `SymbolAnnouncer`
-
-#### コンストラクタ
+### コンストラクタ
 
 ```typescript
-new SymbolAnnouncer(
-  nodeUrl: string,        // ノードURL (例: 'https://node.example.com:3001')
-  signerAddress: string,  // 署名者アドレス
-  transaction: string,    // トランザクションペイロード (JSON文字列)
-  transactionHash: string // トランザクションハッシュ
-)
+new SymbolAnnouncer(nodeUrl: string);
 ```
 
-#### メソッド
+- `nodeUrl`: Symbol REST ノードの完全な HTTP(S) URL。プロトコルに応じて WebSocket 接続も設定されます。
 
-- `announce(): void` - トランザクションをアナウンスし、WebSocket監視を開始します
-- `disconnect(): void` - WebSocket接続を切断します
+### メソッド
 
-#### イベント
+- `announce(signerAddress, transaction, transactionHash): void`
+  - 接続完了後にトランザクションをアナウンスし、同じ署名者アドレスの承認・ステータス通知を監視します。
+  - `transaction` は有効なJSON文字列、ほかの引数は空でない文字列を指定します。
+  - WebSocket の再接続後も購読は復元されますが、同じアナウンス要求は再送しません。
+- `disconnect(): void`
+  - WebSocket 接続と監視を終了します。
 
-- `connected` - WebSocket接続が確立されたときに発火
-- `announced` - トランザクションがアナウンスされたときに発火
-- `confirmedAdded` - トランザクションがブロックチェーンに承認されたときに発火
-- `status` - トランザクションのステータス変更（通常はエラー）時に発火
-- `error` - エラーが発生したときに発火
+### イベント
 
-## 依存関係
-
-- `@nemnesia/symbol-websocket` - WebSocket監視機能を提供
+- `connected`
+  - WebSocket 接続が確立されたときに発火します。
+- `announced(data)`
+  - REST API がアナウンス要求を受理したときに発火します。
+- `confirmedAdded(notification)`
+  - 指定したトランザクションハッシュと一致する承認通知を受信したときに発火します。
+- `status(notification)`
+  - 指定したトランザクションハッシュと一致するステータス通知を受信したときに発火します。
+- `error(error)`
+  - WebSocket または REST API で発生したエラーを通知します。未登録の場合は `console.error` に記録します。
 
 ## 動作環境
 
-- Node.js >= 20.0.0
+- Node.js 20 以降
 
 ## ライセンス
 
-このパッケージのライセンスについては、LICENSEファイルを参照してください。
-
-## 関連リンク
-
-- [Symbol Documentation](https://docs.symbol.dev/)
-- [Symbol SDK](https://www.npmjs.com/package/symbol-sdk)
-
-## 開発
-
-```bash
-# 依存関係のインストール
-pnpm install
-
-# ビルド
-pnpm build
-
-# テスト実行
-pnpm test
-
-# テスト(watch モード)
-pnpm test:watch
-
-# カバレッジ付きテスト
-pnpm test:coverage
-```
+[MIT](./LICENSE)

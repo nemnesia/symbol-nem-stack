@@ -1,2 +1,2 @@
-export { SymbolAnnouncer } from './SymbolAnnouncer';
-export type { SymbolAnnouncerEvents } from './SymbolAnnouncer';
+export { SymbolAnnouncer } from './SymbolAnnouncer.js';
+export type { SymbolAnnouncerEvents, SymbolAnnouncerNotification } from './SymbolAnnouncer.js';
