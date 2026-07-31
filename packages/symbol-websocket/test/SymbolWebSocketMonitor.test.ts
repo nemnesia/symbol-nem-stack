@@ -46,7 +46,7 @@ describe('SymbolWebSocketMonitor', () => {
     const cb = vi.fn();
     monitor.onError(cb);
     // @ts-ignore
-    monitor.errorCallbacks[0]({ type: 'error' });
+    monitor.client.onerror({ type: 'error' });
     expect(cb).toHaveBeenCalled();
   });
 
@@ -54,7 +54,7 @@ describe('SymbolWebSocketMonitor', () => {
     const cb = vi.fn();
     monitor.onClose(cb);
     // @ts-ignore
-    monitor.onCloseCallback({ type: 'close' });
+    monitor.client.onclose({ type: 'close' });
     expect(cb).toHaveBeenCalled();
   });
 
@@ -95,9 +95,12 @@ describe('SymbolWebSocketMonitor', () => {
     expect(cb).toHaveBeenCalled();
   });
 
-  it('エラーコールバックが登録されていない場合、JSONパースエラー時に例外がスローされるべきである', () => {
+  it('エラーコールバックが登録されていない場合、JSONパースエラーを警告して処理を継続するべきである', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // @ts-ignore
-    expect(() => monitor.client.onmessage({ data: '{invalid json' })).toThrow();
+    expect(() => monitor.client.onmessage({ data: '{invalid json' })).not.toThrow();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('最初のメッセージを処理し、uidを設定し、pendingSubscribesをフラッシュするべきである', () => {
@@ -120,7 +123,7 @@ describe('SymbolWebSocketMonitor', () => {
     const cb1 = vi.fn();
     const cb2 = vi.fn();
     // @ts-ignore
-    monitor.eventCallbacks['block'] = [cb1, cb2];
+    monitor.eventCallbacks.set('block', new Set([cb1, cb2]));
     // @ts-ignore
     monitor.client.onmessage({ data: JSON.stringify({ topic: 'block', foo: 'bar' }) });
     expect(cb1).toHaveBeenCalledWith(expect.objectContaining({ topic: 'block', foo: 'bar' }));
@@ -132,7 +135,7 @@ describe('SymbolWebSocketMonitor', () => {
     monitor.isFirstMessage = false;
     const cb = vi.fn();
     // @ts-ignore
-    monitor.eventCallbacks['block'] = [cb];
+    monitor.eventCallbacks.set('block', new Set([cb]));
     // @ts-ignore
     monitor.client.onmessage({ data: JSON.stringify({ topic: 'other', foo: 'bar' }) });
     expect(cb).not.toHaveBeenCalled();
@@ -148,7 +151,7 @@ describe('SymbolWebSocketMonitor', () => {
     // @ts-ignore
     monitor.on('block', cb2);
     // @ts-ignore
-    expect(monitor.eventCallbacks['block'].length).toBe(2);
+    expect(monitor.eventCallbacks.get('block')?.size).toBe(2);
   });
 
   it('uidが設定されていない場合、off呼び出し時に例外がスローされないべきである', () => {
@@ -178,15 +181,21 @@ describe('SymbolWebSocketMonitor', () => {
     // @ts-ignore
     monitor.isFirstMessage = false;
     // @ts-ignore
-    monitor.eventCallbacks.block = [
-      () => {
-        throw new Error('callback failed');
-      },
-    ];
+    monitor.eventCallbacks.set(
+      'block',
+      new Set([
+        () => {
+          throw new Error('callback failed');
+        },
+      ])
+    );
 
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     // @ts-ignore
-    expect(() => monitor.client.onmessage({ data: JSON.stringify({ topic: 'block' }) })).toThrow('callback failed');
+    expect(() => monitor.client.onmessage({ data: JSON.stringify({ topic: 'block' }) })).not.toThrow();
     expect(errorCallback).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith('[SymbolWebSocket] subscription callback failed', expect.any(Error));
+    errorSpy.mockRestore();
   });
 
   describe('SymbolWebSocketMonitor extra branches', () => {
@@ -531,13 +540,13 @@ describe('SymbolWebSocketMonitor', () => {
       monitor.disconnect();
 
       // @ts-ignore
-      expect(monitor.errorCallbacks.length).toBe(0);
+      expect(monitor.errorCallbacks.size).toBe(0);
       // @ts-ignore
-      expect(monitor.connectCallbacks.length).toBe(0);
+      expect(monitor.connectCallbacks.size).toBe(0);
       // @ts-ignore
-      expect(monitor.reconnectCallbacks.length).toBe(0);
+      expect(monitor.reconnectCallbacks.size).toBe(0);
       // @ts-ignore
-      expect(Object.keys(monitor.eventCallbacks).length).toBe(0);
+      expect(monitor.eventCallbacks.size).toBe(0);
       // @ts-ignore
       expect(monitor.activeSubscriptions.size).toBe(0);
     });

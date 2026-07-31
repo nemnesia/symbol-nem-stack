@@ -21,5 +21,6 @@ export type {
   SymbolWebSocketError,
   SymbolWebSocketErrorSeverity,
   SymbolWebSocketErrorType,
+  SymbolWebSocketUnsubscribe,
 } from './symbol.types.js';
 export type { SymbolChannel } from './symbolChannelPaths.js';

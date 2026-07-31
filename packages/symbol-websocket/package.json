@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/symbol-websocket",
-  "version": "0.2.2",
+  "version": "1.0.0",
   "description": "Symbol ブロックチェーンのリアルタイムデータを監視する TypeScript ライブラリ",
   "keywords": [
     "symbol",

@@ -25,7 +25,7 @@ export type SymbolChannel =
  * Symbol Gateway の購読パス定義。
  *
  * @remarks `subscribe(address)` はアドレスが指定された場合にだけパスへ付加します。
- * アドレスの形式は検証しないため、利用側で有効な Symbol アドレスを渡してください。
+ * `SymbolWebSocket` は URL 区切り文字や空白を含むアドレスを受け付けません。
  */
 export const symbolChannelPaths: Record<SymbolChannel, { subscribe: (address?: string) => string }> = {
   block: { subscribe: () => 'block' },

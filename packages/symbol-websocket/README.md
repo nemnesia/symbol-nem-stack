@@ -32,6 +32,12 @@ ws.on('block', (message) => {
   console.log('New block height:', message.data.block.height);
 });
 
+// 個別に解除する場合
+const stopBlocks = ws.on('block', (message) => {
+  console.log('Another block height:', message.data.block.height);
+});
+stopBlocks();
+
 // エラーイベントの登録（構造化エラー情報を受け取る）
 ws.onError((err) => {
   console.error('WebSocket error:', err.message);
@@ -73,30 +79,35 @@ new SymbolWebSocket(options: SymbolWebSocketOptions);
 
 - `options`: 接続設定。
   - `host`: プロトコル・ポートを含まない接続先ホスト名または IP アドレス。
+    IPv6 は `[2001:db8::1]` の形式で指定します。
   - `ssl`: SSL を使用するかどうか（デフォルト: `true`）。有効時は `wss://{host}:3001/ws`、無効時は `ws://{host}:3000/ws` に接続します。
   - `timeout`: Gateway UID を受信するまでの接続タイムアウト（ミリ秒、デフォルト: `10000`）。各接続試行に適用され、`0` で無効化できます。
   - `autoReconnect`: 自動再接続を有効にするか（デフォルト: `true`）。
   - `maxReconnectAttempts`: 初回接続を除く最大再接続試行回数（デフォルト: `Infinity`）。
   - `reconnectInterval`: 再接続の間隔（ミリ秒、デフォルト: `3000`）。
 
+### 解除関数
+
+`SymbolWebSocketUnsubscribe` は `() => void` 型です。`on` と各イベント登録メソッドの返り値を呼び出すと、登録した callback だけを解除できます。
+
 #### メソッド
 
-- `on<K extends SymbolChannel>(channel: K, callback: (message: SymbolNotificationMap[K]) => void): void`
-  - 指定したチャネルにサブスクライブします。接続完了前または再接続待機中なら、接続完了後に送信されます。
-- `on<K extends SymbolChannel>(channel: K, address: string, callback: (message: SymbolNotificationMap[K]) => void): void`
-  - アドレスを指定してチャネルにサブスクライブします。アドレス形式は検証しません。
+- `on<K extends SymbolChannel>(channel: K, callback: (message: SymbolNotificationMap[K]) => void): SymbolWebSocketUnsubscribe`
+  - 指定したチャネルにサブスクライブします。接続完了前または再接続待機中なら、接続完了後に送信されます。返り値を呼ぶと、その callback だけを解除します。
+- `on<K extends SymbolChannel>(channel: K, address: string, callback: (message: SymbolNotificationMap[K]) => void): SymbolWebSocketUnsubscribe`
+  - アドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
 - `off(channel: SymbolChannel): void`
   - 指定したチャネルのサブスクリプションと、そのチャネルに登録したすべてのコールバックを解除します。
 - `off(channel: SymbolChannel, address: string): void`
   - アドレスを指定してチャネルのサブスクリプションと、そのパスに登録したすべてのコールバックを解除します。
-- `onConnect(callback: (uid: string) => void): void`
+- `onConnect(callback: (uid: string) => void): SymbolWebSocketUnsubscribe`
   - 接続完了時のコールバックを追加します。初回接続・自動再接続で呼ばれ、すでに接続済みなら登録時に直ちに呼ばれます。
-- `onReconnect(callback: (attemptCount: number) => void): void`
+- `onReconnect(callback: (attemptCount: number) => void): SymbolWebSocketUnsubscribe`
   - 自動再接続の開始直前に呼ばれるコールバックを追加します。`attemptCount` は 1 始まりです。
-- `onError(callback: (err: SymbolWebSocketError) => void): void`
+- `onError(callback: (err: SymbolWebSocketError) => void): SymbolWebSocketUnsubscribe`
   - 構造化エラーを受け取るコールバックを追加します。未登録時はエラーが `console.warn` に出力されます。
-- `onClose(callback: (event: WebSocket.CloseEvent) => void): void`
-  - クローズイベントのコールバックを設定します。以前に設定したコールバックは置き換えられます。
+- `onClose(callback: (event: WebSocket.CloseEvent) => void): SymbolWebSocketUnsubscribe`
+  - クローズイベントのコールバックを追加します。複数登録できます。
 - `disconnect(): void`
   - WebSocket 接続を手動で切断し、すべての購読とコールバックを破棄します。自動再接続は行われません。
 - `close(): void`
@@ -158,6 +169,7 @@ ws.onError((err) => {
 ```
 
 **注意**: エラーコールバックが登録されていない場合、エラーは`console.warn`に出力されます。
+利用者が登録した callback が例外を送出した場合は、ライブラリが `console.error` に記録して接続管理を継続します。
 
 ## 注意点
 
@@ -168,6 +180,7 @@ ws.onError((err) => {
 - `severity: 'fatal'`のエラーが発生した場合は自動再接続停止
 - `off()`は指定チャネルのすべてのコールバックを解除（subscribePath単位）
 - `disconnect()` / `close()` の後に接続を再開する場合は、新しい `SymbolWebSocket` インスタンスを作成
+- `host`、タイムアウト、再接続設定、アドレスは実行時にも検証されます。不正な値は接続前に例外になります。
 
 ## ライセンス
 
