@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/nem-websocket",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "NEM ブロックチェーンのリアルタイムデータを監視する TypeScript ライブラリ",
   "keywords": [
     "nem",

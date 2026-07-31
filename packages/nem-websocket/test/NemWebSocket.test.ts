@@ -46,16 +46,7 @@ describe('NemWebSocket', () => {
     const cb = vi.fn();
     monitor.onError(cb);
     // @ts-ignore
-    monitor.errorCallbacks[0]({
-      type: 'network',
-      severity: 'recoverable',
-      host: 'localhost',
-      reconnecting: false,
-      reconnectAttempts: 0,
-      originalError: new Error('error'),
-      timestamp: Date.now(),
-      message: 'error',
-    });
+    monitor.client.onWebSocketError({ type: 'error' });
     expect(cb).toHaveBeenCalled();
   });
 
@@ -63,14 +54,31 @@ describe('NemWebSocket', () => {
     const cb = vi.fn();
     monitor.onClose(cb);
     // @ts-ignore
-    monitor.onCloseCallback({ type: 'close' });
+    monitor.client.onWebSocketClose({ type: 'close' });
     expect(cb).toHaveBeenCalled();
+  });
+
+  it('不正な接続オプションを拒否するべきである', () => {
+    expect(() => new NemWebSocket({ host: '' })).toThrow('host must be a non-empty hostname or IP address');
+    expect(() => new NemWebSocket({ host: 'wss://node.example' })).toThrow('host must not include a protocol');
+    expect(() => new NemWebSocket({ host: 'node.example:7778' })).toThrow(
+      'IPv6 hosts must be enclosed in brackets and ports are not supported'
+    );
+    expect(() => new NemWebSocket({ host: 'node.example', timeout: 0 })).toThrow(
+      'timeout must be a positive finite number'
+    );
+    expect(() => new NemWebSocket({ host: 'node.example', reconnectInterval: -1 })).toThrow(
+      'reconnectInterval must be a non-negative finite number'
+    );
+    expect(() => new NemWebSocket({ host: 'node.example', maxReconnectAttempts: 1.5 })).toThrow(
+      'maxReconnectAttempts must be a non-negative integer or Infinity'
+    );
   });
 
   it('addressが必要だが提供されていない場合、例外がスローされるべきである', () => {
     // nemChannelPathsのaccountはfunction型
     expect(() => {
-      monitor.on('account', vi.fn());
+      monitor.on('account' as any, vi.fn());
     }).toThrow();
   });
 
@@ -111,6 +119,18 @@ describe('NemWebSocket', () => {
     // @ts-ignore
     monitor.client.onConnect();
     expect(clientMock.subscribe).toHaveBeenCalledWith('/blocks', expect.any(Function));
+  });
+
+  it('接続コールバック内で登録した購読を二重に作成しないべきである', () => {
+    const callback = vi.fn();
+    monitor.onConnect(() => monitor.on('blocks', callback));
+
+    // @ts-ignore
+    monitor.client.onConnect();
+
+    expect(clientMock.subscribe).toHaveBeenCalledTimes(1);
+    monitor.off('blocks');
+    expect(clientMock.subscribe.mock.results[0].value.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('未接続中に解除した購読は接続時に登録されないべきである', () => {
@@ -170,6 +190,37 @@ describe('NemWebSocket', () => {
     const handler = subscribeCall[1];
     handler({ body: 'test-message' });
     expect(cb).toHaveBeenCalledWith('test-message');
+  });
+
+  it('購読解除関数は対象の callback だけを解除するべきである', () => {
+    // @ts-ignore
+    monitor._isConnected = true;
+    const first = vi.fn();
+    const second = vi.fn();
+    const unsubscribeFirst = monitor.on('blocks', first);
+    monitor.on('blocks', second);
+
+    unsubscribeFirst();
+
+    expect(clientMock.subscribe.mock.results[0].value.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(clientMock.subscribe.mock.results[1].value.unsubscribe).not.toHaveBeenCalled();
+    // @ts-ignore
+    expect(monitor.activeSubscriptions.get('/blocks')).toEqual(new Set([second]));
+  });
+
+  it('利用者 callback の例外で接続状態と購読復元を中断しないべきである', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    monitor.on('blocks', vi.fn());
+    monitor.onConnect(() => {
+      throw new Error('connect callback failed');
+    });
+
+    // @ts-ignore
+    expect(() => monitor.client.onConnect()).not.toThrow();
+    expect(monitor.isConnected).toBe(true);
+    expect(clientMock.subscribe).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith('[NemWebSocket] connect callback failed', expect.any(Error));
+    errorSpy.mockRestore();
   });
 
   it('クライアントからのエラーおよびクローズイベントが伝播されるべきである', () => {
@@ -290,6 +341,27 @@ describe('NemWebSocket', () => {
       vi.advanceTimersByTime(1000);
 
       expect(reconnectCallback).toHaveBeenCalledWith(1);
+    });
+
+    it('close callback が例外を送出しても自動再接続を予約するべきである', () => {
+      const options: NemWebSocketOptions = {
+        host: 'localhost',
+        autoReconnect: true,
+        reconnectInterval: 1000,
+      };
+      const reconnectMonitor = new NemWebSocket(options);
+      const reconnectCallback = vi.fn();
+      reconnectMonitor.onReconnect(reconnectCallback);
+      reconnectMonitor.onClose(() => {
+        throw new Error('close callback failed');
+      });
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // @ts-ignore
+      expect(() => reconnectMonitor.client.onWebSocketClose({ type: 'close' })).not.toThrow();
+      expect(reconnectCallback).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith('[NemWebSocket] close callback failed', expect.any(Error));
+      errorSpy.mockRestore();
     });
 
     it('maxReconnectAttemptsに達したら再接続を停止するべきである', () => {
