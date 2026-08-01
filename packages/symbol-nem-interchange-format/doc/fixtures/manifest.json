@@ -1,0 +1,12 @@
+{
+  "protocol": "snif",
+  "wireVersion": 1,
+  "normativeSymbolSdk": "3.3.2-pure.2",
+  "fixtures": [
+    {
+      "id": "mnemonic-derivation-v1",
+      "category": "mnemonic-derivation",
+      "path": "mnemonic-derivation.json"
+    }
+  ]
+}
