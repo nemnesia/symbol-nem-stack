@@ -439,7 +439,7 @@ rejected-signature = {
 
 エンベロープの`chain`によって許容する結果を切り替える。Symbolでは`symbol-cosignature`、NEMでは`nem-cosignature`だけを連署結果として許可する。Symbolの`symbol-cosignature.version`はv1では`0`だけを許可する。
 
-`rejected-signature`は5.5節または5.7節の要求を利用者が拒否した結果を表す。情報最小化のためrequestId以外を含めず、署名されない。偽造された拒否は承認や署名へ昇格できないがDoSにはなり得るため、判別が必要な搬送プロファイルは認証済みchannelを使用する。
+`rejected-signature`は5.5節または5.7節の要求を利用者が拒否した結果を表す。情報最小化のためrequestId以外を含めず、署名されない。受信側は11節の`authenticatedRejection`がtrueの場合だけ拒否を確定し、それ以外は`unauthenticated-rejection`として要求をpendingのまま維持する。
 
 `detached-signature.targetHash`は`signatureType`ごとに次のように定義する。
 
@@ -450,7 +450,7 @@ rejected-signature = {
 
 NEMの`transactionPayload`は完全に署名されたCosignatureV1 transactionとし、元の要求に含まれるunsigned transactionとsigning field以外が一致しなければならない。Symbolの`parentHash`は元Aggregate transactionから再計算する。
 
-受信側は`requestId`で元要求を取得し、target hash、signer、chain、network、署名を検証しなければならない。元要求が存在しない、期限切れ、不一致のいずれかなら結果を拒否する。pendingなら検証成功後に11節の`finalizeResponse`で一回限りの結果として保存する。すでに同じ応答でconsumedなら冪等成功とし、異なる応答なら拒否する。`requestId`の一致だけでは十分ではない。
+受信側は`requestId`で元要求を取得し、target hash、signer、chain、network、署名を検証しなければならない。元要求が存在しない、期限切れ、不一致のいずれかなら結果を拒否する。pendingなら検証成功後に11節の`acceptReceivedResponse`で一回限りの結果として保存する。すでに同じ応答でconsumedなら冪等成功とし、異なる応答なら拒否する。`requestId`の一致だけでは十分ではない。
 
 ### 5.9 ウォレット接続要求: `connection-request`
 
@@ -492,6 +492,8 @@ connection-request-frame = {
 要求者はchainに対応するSymbolまたはNEMの一時KeyPairをapplication単位で生成し、`connection-request-frame`の決定的CBOR byte列へ署名する。ウォレットは`requesterPublicKey`で`signature`を検証してから承認画面を表示する。この自己署名は要求の改ざん防止と同じ接続内での鍵所有継続を証明するが、applicationの名称、法人、domain所有を証明しない。一時秘密鍵は要求者端末のplatform keystoreまたは同等の保護領域へ非export可能な形で保存することを優先し、serverへ送信してはならない。接続失効後は6.5節と同等の規則で消去する。
 
 `origin`はapplicationを表すabsolute URI、`iconUrl`は指定する場合HTTPSのabsolute URIとする。ただし、`name`、`origin`、`iconUrl`はすべて要求者の自己申告による表示情報であり、applicationの本人性、domain所有、搬送元、認証済みoriginを証明しない。ウォレットはこの情報だけを根拠に自動承認してはならない。コア実装は`iconUrl`を取得せず、ホストが取得する場合はSSRF、追跡、過大response、redirect、media typeを制限する。
+
+`connection-request`では`context.audience`と`application.origin`をUnicode code point単位で完全一致させなければならない。この一致は要求内部の整合性だけを示し、originの真正性を証明しない。
 
 ウォレットは承認画面にchain、network、application name、origin、要求permissions、有効期限を表示する。接続承認は公開情報の開示とローカルなpermission grantを意味するが、秘密鍵の開示、トランザクションの自動署名、サーバー認証、chain上の権限変更を意味しない。
 
@@ -537,9 +539,9 @@ connection-response-frame = {
 
 承認時、ウォレットは新しい`sessionId`をOS CSPRNGで生成する。`sessionId`は16 bytesで、すべてゼロの値と再利用を禁止する。session時刻はUTCのUnix秒とし、`sessionCreatedAt < sessionExpiresAt`、有効期間は最大30日とする。受信側は`sessionCreatedAt > 現在時刻 + 300秒`または`sessionExpiresAt <= 現在時刻`の承認応答を拒否する。`permissions`は要求された集合の空でない部分集合で、`account`を必須とする。`account.publicKey`からaddressを導出し、エンベロープのchain/networkおよび`account.address`と一致しなければならない。
 
-`signature`の署名対象は、保存済みの元要求から構築した`connection-response-frame`の決定的CBOR byte列とする。SymbolではSymbol、NEMではNEMの選択アカウント鍵で署名する。受信側はrequestIdで元要求を取得し、要求hashとchallengeを再計算し、permissionsが要求の部分集合であること、account整合性、署名を検証してから、11節の`finalizeResponse`でrequestIdの消費、完全な応答byte列、connectionを原子的に保存する。応答自身が指定した値だけからframeを構築してはならない。
+`signature`の署名対象は、保存済みの元要求から構築した`connection-response-frame`の決定的CBOR byte列とする。SymbolではSymbol、NEMではNEMの選択アカウント鍵で署名する。受信側はrequestIdで元要求を取得し、要求hashとchallengeを再計算し、permissionsが要求の部分集合であること、account整合性、署名を検証してから、11節の`acceptReceivedResponse`でrequestIdの消費、完全な応答byte列、connectionを原子的に保存する。応答自身が指定した値だけからframeを構築してはならない。
 
-拒否時は情報最小化のため`approved: false`と元の`requestId`以外を含めてはならない。拒否応答には署名がないため、攻撃者による偽の拒否を暗号学的には判別できない。拒否の偽造によるDoSを防ぐ必要がある搬送プロファイルは、認証済みchannelまたは応答認証を追加しなければならない。拒否を承認として解釈できるfallbackは禁止する。
+拒否時は情報最小化のため`approved: false`と元の`requestId`以外を含めてはならない。拒否応答には署名がないため、攻撃者による偽の拒否を暗号学的には判別できない。受信側は11節の`authenticatedRejection`がtrueの場合だけ拒否を確定し、それ以外は`unauthenticated-rejection`として要求をpendingのまま維持する。拒否を承認として解釈できるfallbackは禁止する。
 
 ホストは承認済み接続についてsessionId、requesterPublicKey、requester表示情報、account、permissions、有効期限、失効状態をオフチェーンで管理する。`sessionId`は照合用識別子であり、単独ではbearer tokenまたは認証証明ではない。5.5節または5.7節の要求が`connection`を持つ場合、ウォレットは5.11節のproofを検証し、接続が未失効かつ未期限切れで、対応permissionがgrant済みであることを確認する。それでも署名対象の完全な表示、要求contextの検証、利用者承認を省略してはならない。`connection`を持たない署名要求は独立した要求として処理してよい。
 
@@ -573,7 +575,9 @@ connected-request-frame = {
 
 エンベロープのchainによって`chain-address`の分岐を決定する。Symbolエンベロープに25-byteのNEMアドレスを格納すること、およびその逆を禁止する。
 
-requestIdはOS CSPRNGで生成した16 bytesとし、すべてゼロの値を禁止する。時刻はUTCのUnix秒とし、`createdAt < expiresAt`かつ有効期間は最大24時間とする。要求を処理するホストは`createdAt > 現在時刻 + 300秒`の要求と、`expiresAt <= 現在時刻`の要求を拒否する。audienceは要求を利用するserviceまたはapplicationを一意に示すabsolute URIとする。
+requestIdはOS CSPRNGで生成した16 bytesとし、すべてゼロの値を禁止する。時刻はUTCのUnix秒とし、`createdAt < expiresAt`かつ有効期間は最大24時間とする。要求を処理するホストは`createdAt > 現在時刻 + 300秒`の要求と、`expiresAt <= 現在時刻`の要求を拒否する。
+
+audienceは要求を生成し、署名結果または接続応答を検証するrequester applicationを一意に示すabsolute URIとする。`connection`を持つ署名要求では、audienceを保存済み`ConnectionRecord.application.origin`と完全一致させなければならない。`connection`を持たない要求のaudienceは自己申告の表示情報であり、真正性を証明しない。認証済み搬送路またはhost設定からtrustedAudienceを取得できる場合だけ照合し、payload自身、application metadata、QR内容からtrustedAudienceを生成してはならない。trustedAudienceがない場合、ウォレットはaudienceが未検証であることを承認画面に表示する。
 
 要求hashは、`type`、`chain`、`network`、復号・展開後の`payload`からなるmapを決定的CBORでエンコードし、FIPS 202 SHA3-256を適用した値とする。compression、encryption、salt、nonceは要求hashへ含めない。
 
@@ -684,24 +688,25 @@ authentication tagは厳密に16 bytesとし、ciphertextの後ろへ連結す�
 
 実装はparser固有メッセージではなく、次の安定したカテゴリーを公開することを推奨する。
 
-| カテゴリー               | 意味                                                       |
-| ------------------------ | ---------------------------------------------------------- |
-| `invalid-envelope`       | 外側CBORまたはスキーマが不正・非決定的                     |
-| `unsupported-version`    | `protocol`はSNIFだが`version`が未対応                      |
-| `unsupported-type`       | SNIF versionは正しいがtypeが未実装                         |
-| `unsupported-codec`      | 圧縮または暗号化プロファイルが未対応                       |
-| `password-required`      | 暗号化データに対してpasswordが指定されていない             |
-| `decryption-failed`      | パスワード、ciphertext、認証の失敗                         |
-| `resource-limit`         | 宣言値または生成値が上限超過                               |
-| `operation-cancelled`    | 利用者またはAbortSignalによって処理が中断された            |
-| `invalid-payload`        | 内部CBORまたはタイプ固有スキーマが不正                     |
-| `invalid-context`        | request contextの型、期間、audienceが不正                  |
-| `request-store-required` | requestの保存・照合が必要だがstoreが指定されていない       |
-| `expired-request`        | 要求の期限が切れている                                     |
-| `replay-detected`        | requestIdが消費済み、または異なる要求に再利用されている    |
-| `authorization-failed`   | 接続proof、session状態、またはpermission grantが不正       |
-| `network-mismatch`       | アドレス、鍵、トランザクション、応答がエンベロープと不一致 |
-| `verification-failed`    | ハッシュ、署名、鍵導出、checksumが不一致                   |
+| カテゴリー                  | 意味                                                       |
+| --------------------------- | ---------------------------------------------------------- |
+| `invalid-envelope`          | 外側CBORまたはスキーマが不正・非決定的                     |
+| `unsupported-version`       | `protocol`はSNIFだが`version`が未対応                      |
+| `unsupported-type`          | SNIF versionは正しいがtypeが未実装                         |
+| `unsupported-codec`         | 圧縮または暗号化プロファイルが未対応                       |
+| `password-required`         | 暗号化データに対してpasswordが指定されていない             |
+| `decryption-failed`         | パスワード、ciphertext、認証の失敗                         |
+| `resource-limit`            | 宣言値または生成値が上限超過                               |
+| `operation-cancelled`       | 利用者またはAbortSignalによって処理が中断された            |
+| `invalid-payload`           | 内部CBORまたはタイプ固有スキーマが不正                     |
+| `invalid-context`           | request contextの型、期間、audienceが不正                  |
+| `request-store-required`    | requestの保存・照合が必要だがstoreが指定されていない       |
+| `expired-request`           | 要求の期限が切れている                                     |
+| `replay-detected`           | requestIdが消費済み、または異なる要求に再利用されている    |
+| `authorization-failed`      | 接続proof、session状態、またはpermission grantが不正       |
+| `unauthenticated-rejection` | 未署名拒否を認証済み搬送路以外から受信した                 |
+| `network-mismatch`          | アドレス、鍵、トランザクション、応答がエンベロープと不一致 |
+| `verification-failed`       | ハッシュ、署名、鍵導出、checksumが不一致                   |
 
 実装はローカル診断情報を付加してもよいが、暗号処理の詳細な失敗理由をtrust boundaryの外へ公開してはならない。
 
@@ -727,22 +732,35 @@ Draft 2を安定版へ昇格する前に、本仕様から生成した機械可�
 
 最低限のfixture matrixを次に示す。
 
-| 対象     | 必須ケース                                                  |
-| -------- | ----------------------------------------------------------- |
-| タイプ   | v1の10タイプについて正しいfixture 1件以上                   |
-| チェーン | SymbolとNEMのアドレスおよびトランザクション各1件以上        |
-| 暗号化   | 正しいaccountとmnemonic、誤パスワード、header改変、tag改変  |
-| 圧縮     | 正しいzlib、raw-DEFLATE拒否、末尾データ拒否、展開上限       |
-| CBOR     | 非最短整数、不定長、重複キー、誤ったキー順、末尾item        |
-| 整合性   | 鍵・アドレス不一致、network不一致、request ID不一致・再利用 |
-| 署名     | transaction、cosignature、message、connection応答の検証     |
-| 接続     | 部分grant、未知permission、偽署名、challenge/session再利用  |
+| 対象     | 必須ケース                                                   |
+| -------- | ------------------------------------------------------------ |
+| タイプ   | v1の10タイプについて正しいfixture 1件以上                    |
+| チェーン | SymbolとNEMのアドレスおよびトランザクション各1件以上         |
+| 暗号化   | 正しいaccountとmnemonic、誤パスワード、header改変、tag改変   |
+| 圧縮     | 正しいzlib、raw-DEFLATE拒否、末尾データ拒否、展開上限        |
+| CBOR     | 非最短整数、不定長、重複キー、誤ったキー順、末尾item         |
+| 整合性   | 鍵・アドレス不一致、network不一致、request ID不一致・再利用  |
+| 署名     | transaction、cosignature、message、connection応答の検証      |
+| 接続     | 部分grant、未知permission、偽署名、challenge/session再利用   |
+| 再送     | 生成側の保存済みbyte再利用、受信側の同一hash・異なるbyte拒否 |
+| 拒否     | 認証済み拒否の受理、未認証拒否でpending維持                  |
 
 未圧縮の決定的CBORと、固定salt・nonceを使用する暗号化fixtureではbyte-for-byte一致を必要とする。zlibは同じ入力に複数の正しいstreamを生成できるため、圧縮fixtureは展開後のbyte列、zlib profile、末尾data、上限によって適合性を判定し、圧縮byte列そのものの一致は要求しない。全不正fixtureは指定カテゴリーで拒否しなければならない。fixture生成器を独立したプロトコル規則の情報源としてはならず、不一致時は本文を正とする。
 
 各format typeの実装完了条件は、対応する正常fixture、境界値fixture、不正fixtureを追加し、独立したdecoderで期待値を確認することである。fixtureがないtypeをrelease済み機能として表示してはならない。
 
 実装はfixture-firstで進める。各componentの最初の変更は、本文から人手で導出してreview済みとなった入力・期待byte列・期待結果をmanifestへ登録し、そのfixtureが未実装コードに対して失敗するtestを追加することとする。そのcomponentのencoder、decoder、暗号処理、署名処理をfixtureより先に実装してはならない。fixture生成toolは期待値を上書きせず、review済みfixtureとの差分を報告するだけとする。この手順に限り、全fixtureが揃う前でも未着手componentのfixture追加から実装を開始してよい。
+
+実装ゲートを次のように固定する。
+
+| Phase | 着手可能な作業                                                           | 完了条件                                                                                   |
+| ----- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| 0     | fixture schema、manifest loader、fixture追加、未実装に対して失敗するtest | CBOR、envelope、password-v1、hash/frameの正常・異常fixtureがreview済みでmanifestへ登録済み |
+| 1     | strict CBOR、envelope、圧縮、暗号化、hash/frame                          | Phase 0 fixtureがすべて成功                                                                |
+| 2     | 各format type、chain署名、RequestStore、connection                       | 対象componentの正常・境界・異常fixtureが先に登録され、実装後にすべて成功                   |
+| 3     | 安定版公開                                                               | 10タイプのmatrix、Symbol/NEM相互運用、障害注入testがすべて成功                             |
+
+現時点のmanifestはmnemonic導出fixtureだけを含むため、実装状態はPhase 0とする。Phase 1以降のコードをfixtureより先に追加してはならない。
 
 ## 11. TypeScript公開API
 
@@ -760,7 +778,8 @@ interface EncodeOptions {
 
 interface DecodeOptions {
   password?: Password;
-  expectedAudience?: string;
+  trustedAudience?: string;
+  authenticatedRejection?: boolean;
   requestStore?: RequestStore;
   signal?: AbortSignal;
 }
@@ -801,16 +820,26 @@ type ResponseFinalization =
       connection: Omit<ConnectionRecord, 'state'>;
     };
 
+type ResponseStoreResult =
+  { status: 'stored' | 'same'; responseBytes: Uint8Array } | { status: 'missing' | 'conflict' };
+
 interface RequestStore {
   put(request: NewStoredRequest): Promise<'stored' | 'same' | 'conflict'>;
   get(requestId: Uint8Array): Promise<StoredRequest | undefined>;
-  finalizeResponse(
+  finalizeGeneratedResponse(
     requestId: Uint8Array,
     requestHash: Uint8Array,
     responseHash: Uint8Array,
     responseBytes: Uint8Array,
     finalization: ResponseFinalization
-  ): Promise<{ status: 'stored' | 'same'; responseBytes: Uint8Array } | { status: 'missing' | 'conflict' }>;
+  ): Promise<ResponseStoreResult>;
+  acceptReceivedResponse(
+    requestId: Uint8Array,
+    requestHash: Uint8Array,
+    responseHash: Uint8Array,
+    responseBytes: Uint8Array,
+    finalization: ResponseFinalization
+  ): Promise<ResponseStoreResult>;
   getResponse(requestId: Uint8Array): Promise<Uint8Array | undefined>;
   getConnection(sessionId: Uint8Array): Promise<ConnectionRecord | undefined>;
   revokeConnection(sessionId: Uint8Array): Promise<'revoked' | 'missing' | 'already-revoked'>;
@@ -835,14 +864,16 @@ APIの動作を次のように固定する。
 - `account`と`mnemonic`のencodeではpasswordを必須とし、未指定なら`password-required`とする。
 - `decode`は8.1節の順序で全処理とvalidationを完了してからdocumentを返す。暗号化データでpasswordが未指定なら`password-required`、誤passwordなら`decryption-failed`とする。
 - `sign-request`、`message-sign-request`または`connection-request`をencodeする場合、`requestStore`を必須とする。encode前に5.11節の要求hashと完全な要求documentを`put`し、`conflict`なら`replay-detected`、store未指定なら`request-store-required`とする。`same`は同一要求の再エンコードとして許可する。
-- `sign-request`、`message-sign-request`または`connection-request`をdecodeする場合、`expectedAudience`と`requestStore`を必須とする。`context.audience`は`expectedAudience`とUnicode code point単位で完全一致しなければならず、URIの再正規化やoriginだけの比較をしてはならない。時刻、署名、接続proofを含む全validationの成功後にだけ、要求hashと完全な要求documentを`put`する。`conflict`、消費済み、拒否済み、期限切れを拒否し、不正要求によってstoreを予約してはならない。
-- ウォレットが要求を拒否する場合と、`signature`または要求への応答である`signed-transaction`をencodeする場合は、完全な応答SNIF byte列を生成した後、呼び出し側へ返す前に`finalizeResponse`を実行する。`responseHash`は5.11節の要求hashと同じ規則を応答documentへ適用した値とする。拒否は`request-rejected`、署名結果は`signature-result`を指定する。
-- `signature`、または`requestId`を持つ`signed-transaction`をdecodeする場合、`requestStore`を必須とする。`get`で取得した元要求に対して5.6節または5.8節の全検証を行い、受信した完全なSNIF byte列を指定して`finalizeResponse`する。
-- `connection-response`のencodeとdecodeでは`requestStore`を必須とする。承認応答は5.10節のframeと署名を検証し、`kind: 'connection-approved'`とconnection recordを指定して`finalizeResponse`する。拒否応答は元要求とのrequestId一致を確認し、`kind: 'request-rejected'`で同じ処理を行う。
-- `finalizeResponse`は要求状態、responseHash、完全なresponseBytes、finalization、およびconnection承認時のconnection recordを1つの永続transactionで保存する。stored requestのtypeとresponse typeに対して許されないfinalization kindは`conflict`とする。pending要求への初回処理は`stored`を返す。すでに同じrequestHash、responseHash、finalizationで完了している場合は`same`と保存済みresponseBytesを返す。responseHashまたはfinalizationが異なる場合は`conflict`とし、応答を返却してはならない。encodeは`stored`と`same`のどちらでも、必ずmethodが返したresponseBytesを呼び出し側へ返す。
-- 搬送、QR表示、file保存が失敗した場合、呼び出し側は`getResponse`または同じencode操作で保存済みbyte列を取得して再送する。再署名、salt・nonceの再生成、別CBORへの再エンコードをしてはならない。decodeで同じresponseBytesを再受信した場合は冪等成功として同じdocumentを返し、異なるresponseHashは`replay-detected`とする。
+- `sign-request`、`message-sign-request`または`connection-request`をdecodeする場合、`requestStore`を必須とする。`trustedAudience`が指定された場合、`context.audience`とUnicode code point単位で完全一致させ、URIの再正規化をしてはならない。`trustedAudience`は認証済み搬送路またはhost設定からだけ取得し、payload自身から設定してはならない。`connection-request`ではさらに`application.origin`、接続済み署名要求では保存済み`ConnectionRecord.application.origin`との一致を検証する。時刻、署名、接続proofを含む全validationの成功後にだけ、要求hashと完全な要求documentを`put`する。
+- ウォレットが要求を拒否する場合と、`signature`または要求への応答である`signed-transaction`をencodeする場合は、完全な応答SNIF byte列を生成した後、呼び出し側へ返す前に`finalizeGeneratedResponse`を実行する。`responseHash`は5.11節の要求hashと同じ規則を応答documentへ適用した値とする。拒否は`request-rejected`、署名結果は`signature-result`を指定する。
+- `signature`、または`requestId`を持つ`signed-transaction`をdecodeする場合、`requestStore`を必須とする。`get`で取得した元要求に対して5.6節または5.8節の全検証を行い、受信した完全なSNIF byte列を指定して`acceptReceivedResponse`する。未署名拒否は`authenticatedRejection: true`の場合だけ受理する。このoptionの既定値はfalseとし、搬送プロファイルが応答peerを認証した場合だけtrueを指定してよい。
+- `connection-response`のencodeでは`finalizeGeneratedResponse`、decodeでは`acceptReceivedResponse`を使用する。承認応答は5.10節のframeと署名を検証し、`kind: 'connection-approved'`とconnection recordを指定する。拒否応答は元要求とのrequestId一致と`authenticatedRejection`を確認し、`kind: 'request-rejected'`を指定する。
+- 2つのresponse保存methodは、要求状態、responseHash、完全なresponseBytes、finalization、およびconnection承認時のconnection recordを1つの永続transactionで保存する。stored requestのtypeとresponse typeに対して許されないfinalization kindは`conflict`とする。
+- `finalizeGeneratedResponse`は、すでに同じrequestHash、responseHash、finalizationで完了している場合、引数のresponseBytesが異なっても破棄し、`same`と最初に保存したresponseBytesを返す。encodeは`stored`と`same`のどちらでもmethodが返したresponseBytesを呼び出し側へ返す。
+- `acceptReceivedResponse`は、すでに同じrequestHash、responseHash、finalizationで完了している場合、受信responseBytesと保存済みresponseBytesのbyte-for-byte一致を必須とする。一致時だけ`same`を返し、不一致は`conflict`として`replay-detected`へ変換する。responseHashまたはfinalizationが異なる場合も同じく拒否する。
+- 搬送、QR表示、file保存が失敗した場合、送信側は`getResponse`または同じencode操作で保存済みbyte列を取得して再送する。再署名、salt・nonceの再生成、別CBORへの再エンコードをしてはならない。
 - `connection`を持つ署名要求のdecodeでは`getConnection`を必須とし、chain、network、requesterPublicKey、有効期限、失効状態、permission、proof署名を検証する。不足または不一致は`authorization-failed`とし、接続の存在を外部向けエラー詳細で区別してはならない。
-- `RequestStore.put`は同じrequestIdと同じ要求hashに限り`same`を返し、異なるhashなら`conflict`を返す。`finalizeResponse`は永続層のtransactionまたはcompare-and-swapで`pending`から一回だけ最終状態へ遷移させる。process内Mapだけを既定実装としてはならず、再起動をまたぐ利用では呼び出し側が永続adapterを指定する。
+- `RequestStore.put`は同じrequestIdと同じ要求hashに限り`same`を返し、異なるhashなら`conflict`を返す。response保存methodは永続層のtransactionまたはcompare-and-swapで`pending`から一回だけ最終状態へ遷移させる。process内Mapだけを既定実装としてはならず、再起動をまたぐ利用では呼び出し側が永続adapterを指定する。
 - storeはpending要求を少なくとも`expiresAt`まで保持する。finalize済み要求では、元要求、responseHash、responseBytes、outcome、finalizedAtを`max(expiresAt, finalizedAt + 24時間)`まで保持する。connection承認ではさらに`sessionExpiresAt`まで保持する。製品の再送・監査期間がこれより長い場合はその期間を採用する。秘密鍵、mnemonic、password、復号済み秘密payloadをstoreへ保存してはならない。保持期間後は監査用にrequestId、要求hash、responseHash、state、時刻だけを残してよい。
 - `inspect`は外側エンベロープだけをstrictに検証し、payloadを復号・展開せずheaderを返す。返却値をpayloadが正しい証拠として使用してはならない。
 - 入力`Uint8Array`を無断で変更しない。内部copyは6.5節に従って消去する。返却された秘密payloadの所有権と消去責任は呼び出し側へ移る。
