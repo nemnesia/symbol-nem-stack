@@ -6,7 +6,7 @@
 
 ## 1. 目的と適用範囲
 
-Symbol NEM Interchange Format（SNIF）は、SymbolおよびNEMのデータをアプリケーションや端末間で交換するための、搬送手段に依存しないバイナリ形式である。公開アカウント情報、秘密情報のバックアップ、トランザクションおよびメッセージへの署名を対象とする。
+Symbol NEM Interchange Format（SNIF）は、SymbolおよびNEMのデータをアプリケーションや端末間で交換するための、搬送手段に依存しないバイナリ形式である。公開アカウント情報、秘密情報のバックアップ、トランザクションおよびメッセージへの署名、ウォレット接続の承認を対象とする。
 
 本仕様は、1件の完全なSNIFバイト列までを定義する。そのバイト列をQRコード、Animated QR、ファイル、NFCレコード、Deep Linkなどへ格納する方法は、別途定義する搬送プロファイルの責務とする。分割、再構成、URIスキーム、搬送時のテキストエンコードはv1の対象外である。
 
@@ -89,6 +89,7 @@ v1で定義するmapキーはすべて大文字・小文字を区別するUTF-8�
 | 配列要素数                       |     1配列につき256 |
 | 一般表示文字列                   | UTF-8で1,024 bytes |
 | `name`                           |    128 UTF-8 bytes |
+| `origin`と`iconUrl`              |  2,048 UTF-8 bytes |
 | `purpose`                        |    256 UTF-8 bytes |
 | メッセージ                       |              1 MiB |
 | シリアライズ済みトランザクション |              8 MiB |
@@ -146,7 +147,9 @@ format-type =
   "sign-request" /
   "signed-transaction" /
   "message-sign-request" /
-  "signature"
+  "signature" /
+  "connection-request" /
+  "connection-response"
 
 chain = "symbol" / "nem"
 
@@ -289,7 +292,7 @@ account-payload = {
 
 ### 5.4 ニーモニックバックアップ: `mnemonic`
 
-BIP39復元フレーズと、対象アカウントを再現するための派生パスを格納する。`encryption.algorithm`は`password-v1`を必須とする。
+BIP39復元フレーズを格納する。`encryption.algorithm`は`password-v1`を必須とする。
 
 ```cddl
 mnemonic-payload = {
@@ -297,7 +300,6 @@ mnemonic-payload = {
   "language": bip39-language,
   "mnemonic": text .size (1..1024),
   ? "passphrase": text .size (0..1024),
-  "derivation": derivation,
 }
 
 bip39-language =
@@ -306,35 +308,17 @@ bip39-language =
   "chinese-traditional" / "french" /
   "italian" / "czech" / "portuguese"
 
-derivation = {
-  "algorithm": "slip10-ed25519",
-  "paths": [1*32 hardened-derivation-path],
-}
-
-hardened-derivation-path = text .size (1..128)
 ```
 
 `mnemonic`と`passphrase`はUnicode NFKD形式とする。ニーモニックは`language`に対応するBIP39単語リストとchecksumの検証に合格しなければならない。単語間はASCII space 1文字とし、日本語でもワイヤ値にはASCII spaceを使用する。`passphrase`はBIP39のpassphraseそのもので、存在しない場合は空文字列としてseedを導出する。UIの暗号化パスワードとは別物である。
 
-`derivation.algorithm`はSymbolとNEMのどちらでも`slip10-ed25519`だけを許可する。派生手順を次のように固定する。
-
-1. NFKDのmnemonicとpassphraseからBIP39 PBKDF2-HMAC-SHA512により64-byte seedを生成する。
-2. root HMAC keyはSymbolとNEMのどちらもUTF-8の`ed25519 seed`とする。
-3. rootは`HMAC-SHA512(rootHmacKey, seed)`で生成し、左32 bytesをprivate key material、右32 bytesをchain codeとする。
-4. 各childは`HMAC-SHA512(parentChainCode, childData)`で生成し、左32 bytesをchild private key material、右32 bytesをchild chain codeとする。`childData`は`0x00 || parentPrivateKey || ser32be(index | 0x80000000)`とする。
-5. Symbolは最後のprivate key materialをそのまま使用する。NEMは32 bytesを逆順にしてNEM private keyとする。
-
-各派生パスは`m/44'/4343'/0'/0'/0'`のような正規の絶対表記を使用する。文法は正規表現`^m(?:/(?:0|[1-9][0-9]{0,9})'){1,10}$`に一致し、各indexは0〜2,147,483,647とする。全segmentをhardened derivationとし、先頭ゼロ、空segment、末尾slash、空白を禁止する。重複パスは禁止する。
+鍵導出アルゴリズムとパスはchainとnetworkに対するSymbol SDKの規則で固定し、SNIF payloadでは指定または上書きできない。公式TypeScript実装は`@nemnesia/symbol-sdk`の`Bip32`、各facadeの`bip32Path(accountId)`、`bip32NodeToKeyPair`を使用する。復元UIはaccount IDを利用者に選択させてもよいが、独自のcurve、root HMAC key、coin type、非hardened pathを受け付けてはならない。SDKの導出規則を変更する場合はワイヤ互換性の変更として扱い、既知mnemonicから得られるSymbol/NEMの鍵とaddressのfixtureを再検証する。
 
 ```json
 {
   "scheme": "bip39",
   "language": "english",
-  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-  "derivation": {
-    "algorithm": "slip10-ed25519",
-    "paths": ["m/44'/4343'/0'/0'/0'"]
-  }
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 }
 ```
 
@@ -348,6 +332,7 @@ sign-request-payload = {
   "signingType": "transaction" / "cosignature",
   "context": request-context,
   ? "expectedSignerPublicKey": bstr .size 32,
+  ? "connection": connection-proof,
 }
 ```
 
@@ -358,7 +343,7 @@ sign-request-payload = {
 
 ウォレットは承認を求める前にトランザクションを完全に解析し、少なくともchain、network、transaction type、signer、送受信先、mosaic、amount、fee、deadline、message、Aggregate／multisigの内部transactionと必要連署者を表示しなければならない。該当しない項目は省略してよい。未知のtransaction typeまたは安全に表示できないfieldがある場合は署名を拒否する。
 
-`expectedSignerPublicKey`が存在する場合、ウォレットはその鍵でのみ署名できる。ウォレットは`context`を5.10節に従って検証し、期限切れまたは消費済みの要求を拒否する。contextはchain transaction signatureそのものには含まれないため、transaction payloadのdeadlineとnetworkも独立して検証しなければならない。
+`expectedSignerPublicKey`が存在する場合、ウォレットはその鍵でのみ署名できる。ウォレットは`context`を5.11節に従って検証し、期限切れまたは消費済みの要求を拒否する。contextはchain transaction signatureそのものには含まれないため、transaction payloadのdeadlineとnetworkも独立して検証しなければならない。
 
 ### 5.6 署名済みトランザクション: `signed-transaction`
 
@@ -383,6 +368,7 @@ message-sign-request-payload = {
   "purpose": text .size (1..256),
   "context": request-context,
   ? "expectedSignerPublicKey": bstr .size 32,
+  ? "connection": connection-proof,
 }
 ```
 
@@ -396,6 +382,7 @@ message-signing-frame = {
   "context": request-context,
   "purpose": text .size (1..256),
   "message": bstr .size (0..1048576),
+  ? "connection": connection-proof,
 }
 ```
 
@@ -458,13 +445,98 @@ NEMの`transactionPayload`は完全に署名されたCosignatureV1 transaction�
 
 受信側は`requestId`で未消費の元要求を取得し、target hash、signer、chain、network、署名を検証しなければならない。元要求が存在しない、期限切れ、消費済み、不一致のいずれかなら結果を拒否する。検証成功後にrequestIdを一回限りで消費する。`requestId`の一致だけでは十分ではない。
 
-### 5.9 接続プロトコルの予約
+### 5.9 ウォレット接続要求: `connection-request`
 
-`connection-request`と`connection-response`はv1のformat typeではなく、受信した場合は`unsupported-type`として拒否する。名前は将来の接続プロファイル用に予約し、別用途へ割り当ててはならない。
+ウォレットに対して、公開アカウント情報と将来の署名要求を関連付ける接続の承認を要求する。
 
-将来プロファイルはrequester key、wallet key、audience、challenge、相互署名、response encryption、channel binding、session identifier、権限、期限、失効、replay防止をすべて定義しなければならない。自己申告のname、origin、iconだけを認証根拠としてはならない。
+```cddl
+connection-request-payload = {
+  "application": application-metadata,
+  "permissions": [1*3 connection-permission],
+  "challenge": bstr .size 32,
+  "context": request-context,
+  "requesterPublicKey": bstr .size 32,
+  "signature": bstr .size 64,
+}
 
-### 5.10 共通CDDL定義
+application-metadata = {
+  "name": text .size (1..128),
+  "origin": text .size (1..2048),
+  ? "iconUrl": text .size (1..2048),
+}
+
+connection-permission =
+  "account" / "sign-transaction" / "sign-message"
+
+connection-request-frame = {
+  "domain": "SNIF-CONNECTION-REQUEST-V1",
+  "chain": chain,
+  "network": network,
+  "application": application-metadata,
+  "permissions": [1*3 connection-permission],
+  "challenge": bstr .size 32,
+  "context": request-context,
+  "requesterPublicKey": bstr .size 32,
+}
+```
+
+`permissions`は重複を含まず、`account`を必須とする。未知のpermissionを含む要求は全体を拒否する。`challenge`は要求ごとにOS CSPRNGで生成した32 bytesとし、すべてゼロの値と再利用を禁止する。
+
+要求者はchainに対応するSymbolまたはNEMの一時KeyPairをapplication単位で生成し、`connection-request-frame`の決定的CBOR byte列へ署名する。ウォレットは`requesterPublicKey`で`signature`を検証してから承認画面を表示する。この自己署名は要求の改ざん防止と同じ接続内での鍵所有継続を証明するが、applicationの名称、法人、domain所有を証明しない。一時秘密鍵は要求者端末のplatform keystoreまたは同等の保護領域へ非export可能な形で保存することを優先し、serverへ送信してはならない。接続失効後は6.5節と同等の規則で消去する。
+
+`origin`はapplicationを表すabsolute URI、`iconUrl`は指定する場合HTTPSのabsolute URIとする。ただし、`name`、`origin`、`iconUrl`はすべて要求者の自己申告による表示情報であり、applicationの本人性、domain所有、搬送元、認証済みoriginを証明しない。ウォレットはこの情報だけを根拠に自動承認してはならない。コア実装は`iconUrl`を取得せず、ホストが取得する場合はSSRF、追跡、過大response、redirect、media typeを制限する。
+
+ウォレットは承認画面にchain、network、application name、origin、要求permissions、有効期限を表示する。接続承認は公開情報の開示とローカルなpermission grantを意味するが、秘密鍵の開示、トランザクションの自動署名、サーバー認証、chain上の権限変更を意味しない。
+
+### 5.10 ウォレット接続応答: `connection-response`
+
+```cddl
+connection-response-payload = connection-approved / connection-denied
+
+connection-approved = {
+  "approved": true,
+  "requestId": request-id,
+  "sessionId": request-id,
+  "sessionCreatedAt": uint .le 253402300799,
+  "sessionExpiresAt": uint .le 253402300799,
+  "account": account-reference,
+  "permissions": [1*3 connection-permission],
+  "signature": bstr .size 64,
+}
+
+connection-denied = {
+  "approved": false,
+  "requestId": request-id,
+}
+
+account-reference = {
+  "address": chain-address,
+  "publicKey": bstr .size 32,
+}
+
+connection-response-frame = {
+  "domain": "SNIF-CONNECTION-RESPONSE-V1",
+  "chain": chain,
+  "network": network,
+  "requestHash": bstr .size 32,
+  "challenge": bstr .size 32,
+  "sessionId": request-id,
+  "sessionCreatedAt": uint .le 253402300799,
+  "sessionExpiresAt": uint .le 253402300799,
+  "account": account-reference,
+  "permissions": [1*3 connection-permission],
+}
+```
+
+承認時、ウォレットは新しい`sessionId`をOS CSPRNGで生成する。`sessionId`は16 bytesで、すべてゼロの値と再利用を禁止する。session時刻はUTCのUnix秒とし、`sessionCreatedAt < sessionExpiresAt`、有効期間は最大30日とする。受信側は`sessionCreatedAt > 現在時刻 + 300秒`または`sessionExpiresAt <= 現在時刻`の承認応答を拒否する。`permissions`は要求された集合の空でない部分集合で、`account`を必須とする。`account.publicKey`からaddressを導出し、エンベロープのchain/networkおよび`account.address`と一致しなければならない。
+
+`signature`の署名対象は、保存済みの元要求から構築した`connection-response-frame`の決定的CBOR byte列とする。SymbolではSymbol、NEMではNEMの選択アカウント鍵で署名する。受信側はrequestIdで元要求を取得し、要求hashとchallengeを再計算し、permissionsが要求の部分集合であること、account整合性、署名を検証してから、11節の`approveConnection`でrequestIdの消費とconnection保存を原子的に行う。応答自身が指定した値だけからframeを構築してはならない。
+
+拒否時は情報最小化のため`approved: false`と元の`requestId`以外を含めてはならない。拒否応答には署名がないため、攻撃者による偽の拒否を暗号学的には判別できない。拒否の偽造によるDoSを防ぐ必要がある搬送プロファイルは、認証済みchannelまたは応答認証を追加しなければならない。拒否を承認として解釈できるfallbackは禁止する。
+
+ホストは承認済み接続についてsessionId、requesterPublicKey、requester表示情報、account、permissions、有効期限、失効状態をオフチェーンで管理する。`sessionId`は照合用識別子であり、単独ではbearer tokenまたは認証証明ではない。5.5節または5.7節の要求が`connection`を持つ場合、ウォレットは5.11節のproofを検証し、接続が未失効かつ未期限切れで、対応permissionがgrant済みであることを確認する。それでも署名対象の完全な表示、要求contextの検証、利用者承認を省略してはならない。`connection`を持たない署名要求は独立した要求として処理してよい。
+
+### 5.11 共通CDDL定義
 
 ```cddl
 chain-address = symbol-address / nem-address
@@ -477,13 +549,28 @@ request-context = {
   "expiresAt": uint .le 253402300799,
   "audience": text .size (1..256),
 }
+connection-proof = {
+  "sessionId": request-id,
+  "requesterPublicKey": bstr .size 32,
+  "signature": bstr .size 64,
+}
+connected-request-frame = {
+  "domain": "SNIF-CONNECTED-REQUEST-V1",
+  "type": "sign-request" / "message-sign-request",
+  "chain": chain,
+  "network": network,
+  "sessionId": request-id,
+  "authorizationHash": bstr .size 32,
+}
 ```
 
 エンベロープのchainによって`chain-address`の分岐を決定する。Symbolエンベロープに25-byteのNEMアドレスを格納すること、およびその逆を禁止する。
 
-requestIdはOS CSPRNGで生成した16 bytesとし、すべてゼロの値を禁止する。時刻はUTCのUnix秒とし、`createdAt < expiresAt`かつ有効期間は最大24時間とする。署名を実行するホストは`createdAt > 現在時刻 + 300秒`の要求と、`expiresAt <= 現在時刻`の要求を拒否する。audienceは要求を利用するserviceまたはapplicationを一意に示すabsolute URIとする。
+requestIdはOS CSPRNGで生成した16 bytesとし、すべてゼロの値を禁止する。時刻はUTCのUnix秒とし、`createdAt < expiresAt`かつ有効期間は最大24時間とする。要求を処理するホストは`createdAt > 現在時刻 + 300秒`の要求と、`expiresAt <= 現在時刻`の要求を拒否する。audienceは要求を利用するserviceまたはapplicationを一意に示すabsolute URIとする。
 
 要求hashは、`type`、`chain`、`network`、復号・展開後の`payload`からなるmapを決定的CBORでエンコードし、FIPS 202 SHA3-256を適用した値とする。compression、encryption、salt、nonceは要求hashへ含めない。
+
+接続済み署名要求の`authorizationHash`は、要求hashと同じmapから`connection.signature`だけを除いてSHA3-256を適用した値とする。要求者は保存済み一時秘密鍵で`connected-request-frame`の決定的CBOR byte列へchain固有署名を行い、`connection.signature`へ格納する。ウォレットはsessionIdで接続を取得し、保存済みrequesterPublicKeyとproofの値が一致すること、frameの再構築値、署名を検証する。構文検証とauthorizationHash再構築に必要な解析を除き、proof検証より前に要求を業務処理へ渡したり承認画面へ表示したりしてはならない。
 
 ホストアプリケーションはrequestIdと要求hashを`expiresAt`まで保持する。同じrequestIdと同じhashの再受信は未処理なら同じ判断結果を返し、異なるhashで同じrequestIdを受信した場合は改ざんとして拒否する。署名済みまたは拒否済みのrequestIdは再処理してはならない。期限後もreplay検知を必要とする製品は、秘密情報を含まないrequestIdと最終状態だけを製品の監査保持期間まで保存する。
 
@@ -544,7 +631,7 @@ authentication tagは厳密に16 bytesとし、ciphertextの後ろへ連結す�
 
 ### 6.5 秘密情報のライフサイクル
 
-本節の秘密情報には、パスワード、秘密鍵、ニーモニック、BIP39 passphrase、導出鍵、およびそれらを含む未暗号化のCBOR・圧縮前後の一時bufferを含む。
+本節の秘密情報には、パスワード、アカウント秘密鍵、接続用一時秘密鍵、ニーモニック、BIP39 passphrase、導出鍵、およびそれらを含む未暗号化のCBOR・圧縮前後の一時bufferを含む。
 
 暗号化側と復号側は、成功、失敗、例外、利用者による中断のすべての経路で、秘密情報が不要になり次第、次の処理をベストエフォートで行わなければならない。
 
@@ -578,8 +665,9 @@ authentication tagは厳密に16 bytesとし、ciphertextの後ろへ連結す�
 5. 認証と復号
 6. 展開と展開後サイズ
 7. 内部CBORの構文、決定性、厳密なスキーマ、リソース上限
-8. request contextの時刻、audience、重複、消費済み状態
-9. タイプ固有の暗号値、トランザクション、要求・結果整合性
+8. request contextの時刻とaudience、およびrequest storeの既存状態の読取検査
+9. タイプ固有の暗号値、接続proof、トランザクション、要求・結果整合性
+10. 未登録要求の原子的な保存、または検証済み結果による状態遷移
 
 いずれかが失敗した場合、受信側は部分的にデコードしたペイロードを返してはならない。UIは利用者向け表現へ変換してもよいが、logへパスワード、秘密鍵、ニーモニック、復号済みペイロード、署名対象challenge全体を出力してはならない。
 
@@ -602,6 +690,7 @@ authentication tagは厳密に16 bytesとし、ciphertextの後ろへ連結す�
 | `request-store-required` | requestの保存・照合が必要だがstoreが指定されていない       |
 | `expired-request`        | 要求の期限が切れている                                     |
 | `replay-detected`        | requestIdが消費済み、または異なる要求に再利用されている    |
+| `authorization-failed`   | 接続proof、session状態、またはpermission grantが不正       |
 | `network-mismatch`       | アドレス、鍵、トランザクション、応答がエンベロープと不一致 |
 | `verification-failed`    | ハッシュ、署名、鍵導出、checksumが不一致                   |
 
@@ -629,13 +718,14 @@ Draft 2を安定版へ昇格する前に、本仕様から生成した機械可�
 
 | 対象     | 必須ケース                                                  |
 | -------- | ----------------------------------------------------------- |
-| タイプ   | v1の8タイプについて正しいfixture 1件以上                    |
+| タイプ   | v1の10タイプについて正しいfixture 1件以上                   |
 | チェーン | SymbolとNEMのアドレスおよびトランザクション各1件以上        |
 | 暗号化   | 正しいaccountとmnemonic、誤パスワード、header改変、tag改変  |
 | 圧縮     | 正しいzlib、raw-DEFLATE拒否、末尾データ拒否、展開上限       |
 | CBOR     | 非最短整数、不定長、重複キー、誤ったキー順、末尾item        |
 | 整合性   | 鍵・アドレス不一致、network不一致、request ID不一致・再利用 |
-| 署名     | transaction、cosignature、domain-separated messageの検証    |
+| 署名     | transaction、cosignature、message、connection応答の検証     |
+| 接続     | 部分grant、未知permission、偽署名、challenge/session再利用  |
 
 未圧縮の決定的CBORと、固定salt・nonceを使用する暗号化fixtureではbyte-for-byte一致を必要とする。zlibは同じ入力に複数の正しいstreamを生成できるため、圧縮fixtureは展開後のbyte列、zlib profile、末尾data、上限によって適合性を判定し、圧縮byte列そのものの一致は要求しない。全不正fixtureは指定カテゴリーで拒否しなければならない。fixture生成器を独立したプロトコル規則の情報源としてはならず、不一致時は本文を正とする。
 
@@ -665,12 +755,25 @@ interface DecodeOptions {
 interface NewStoredRequest {
   requestId: Uint8Array;
   requestHash: Uint8Array;
-  document: SignRequestDocument | MessageSignRequestDocument;
+  document: SignRequestDocument | MessageSignRequestDocument | ConnectionRequestDocument;
   expiresAt: number;
 }
 
 interface StoredRequest extends NewStoredRequest {
   state: 'pending' | 'rejected' | 'consumed';
+}
+
+interface ConnectionRecord {
+  sessionId: Uint8Array;
+  chain: Chain;
+  network: Network;
+  requesterPublicKey: Uint8Array;
+  application: ApplicationMetadata;
+  account: AccountReference;
+  permissions: ConnectionPermission[];
+  sessionCreatedAt: number;
+  sessionExpiresAt: number;
+  state: 'active' | 'revoked';
 }
 
 interface RequestStore {
@@ -684,6 +787,13 @@ interface RequestStore {
     requestId: Uint8Array,
     requestHash: Uint8Array
   ): Promise<'consumed' | 'missing' | 'already-consumed' | 'conflict'>;
+  approveConnection(
+    requestId: Uint8Array,
+    requestHash: Uint8Array,
+    connection: Omit<ConnectionRecord, 'state'>
+  ): Promise<'approved' | 'missing' | 'already-final' | 'conflict'>;
+  getConnection(sessionId: Uint8Array): Promise<ConnectionRecord | undefined>;
+  revokeConnection(sessionId: Uint8Array): Promise<'revoked' | 'missing' | 'already-revoked'>;
 }
 
 declare function encode(document: SnifDocument, options?: EncodeOptions): Promise<Uint8Array>;
@@ -695,7 +805,7 @@ declare class SnifError extends Error {
 }
 ```
 
-`SnifDocument`は`type`を判別fieldとするv1の8 payload typeのdiscriminated unionとする。`chain`、`network`、`payload`を必須とし、CDDLの任意fieldだけをTypeScriptでもoptionalとする。
+`SnifDocument`は`type`を判別fieldとするv1の10 payload typeのdiscriminated unionとする。`chain`、`network`、`payload`を必須とし、CDDLの任意fieldだけをTypeScriptでもoptionalとする。
 
 APIの動作を次のように固定する。
 
@@ -704,11 +814,13 @@ APIの動作を次のように固定する。
 - `compression`の既定値は`auto`とする。`auto`は`account`と`mnemonic`で必ず`none`、ほかのtypeではzlib結果が元CBORより短い場合だけ`zlib`を選択する。秘密typeへ明示的に`zlib`を指定した場合は`invalid-envelope`とする。
 - `account`と`mnemonic`のencodeではpasswordを必須とし、未指定なら`password-required`とする。
 - `decode`は8.1節の順序で全処理とvalidationを完了してからdocumentを返す。暗号化データでpasswordが未指定なら`password-required`、誤passwordなら`decryption-failed`とする。
-- `sign-request`または`message-sign-request`をencodeする場合、`requestStore`を必須とする。encode前に5.10節の要求hashと完全な要求documentを`put`し、`conflict`なら`replay-detected`、store未指定なら`request-store-required`とする。`same`は同一要求の再エンコードとして許可する。
-- `sign-request`または`message-sign-request`をdecodeする場合、`expectedAudience`と`requestStore`を必須とする。`context.audience`は`expectedAudience`とUnicode code point単位で完全一致しなければならず、URIの再正規化やoriginだけの比較をしてはならない。要求hashと完全な要求documentを`put`し、`conflict`、消費済み、拒否済み、期限切れを拒否する。
+- `sign-request`、`message-sign-request`または`connection-request`をencodeする場合、`requestStore`を必須とする。encode前に5.11節の要求hashと完全な要求documentを`put`し、`conflict`なら`replay-detected`、store未指定なら`request-store-required`とする。`same`は同一要求の再エンコードとして許可する。
+- `sign-request`、`message-sign-request`または`connection-request`をdecodeする場合、`expectedAudience`と`requestStore`を必須とする。`context.audience`は`expectedAudience`とUnicode code point単位で完全一致しなければならず、URIの再正規化やoriginだけの比較をしてはならない。時刻、署名、接続proofを含む全validationの成功後にだけ、要求hashと完全な要求documentを`put`する。`conflict`、消費済み、拒否済み、期限切れを拒否し、不正要求によってstoreを予約してはならない。
 - ウォレットが要求を拒否した場合、hostは同じ要求hashを指定して`reject`を呼び出す。`signature`または要求への応答である`signed-transaction`をencodeする場合、`requestStore`を必須とし、元要求との全照合後に`consume`を成功させてから結果を返す。競合時は生成済み結果を返してはならない。
 - `signature`、または`requestId`を持つ`signed-transaction`をdecodeする場合、`requestStore`を必須とする。`get`で取得した元要求に対して5.6節または5.8節の全検証を行い、成功後に同じ要求hashを指定して`consume`する。照合と`consume`の間に競合した場合は結果を返さず`replay-detected`とする。
-- `RequestStore.put`は同じrequestIdと同じ要求hashに限り`same`を返し、異なるhashなら`conflict`を返す。`reject`と`consume`は永続層のtransactionまたはcompare-and-swapで`pending`から一回だけ最終状態へ遷移させる。process内Mapだけを既定実装としてはならず、再起動をまたぐ利用では呼び出し側が永続adapterを指定する。
+- `connection-response`のencodeとdecodeでは`requestStore`を必須とする。承認応答は5.10節のframeと署名を検証し、`approveConnection`で元要求の消費とactive connectionの作成を1つの永続transactionとして実行する。拒否応答は元要求とのrequestId一致を確認して`reject`する。storeの原子的遷移に失敗した応答を返却してはならない。
+- `connection`を持つ署名要求のdecodeでは`getConnection`を必須とし、chain、network、requesterPublicKey、有効期限、失効状態、permission、proof署名を検証する。不足または不一致は`authorization-failed`とし、接続の存在を外部向けエラー詳細で区別してはならない。
+- `RequestStore.put`は同じrequestIdと同じ要求hashに限り`same`を返し、異なるhashなら`conflict`を返す。`reject`、`consume`、`approveConnection`は永続層のtransactionまたはcompare-and-swapで`pending`から一回だけ最終状態へ遷移させる。process内Mapだけを既定実装としてはならず、再起動をまたぐ利用では呼び出し側が永続adapterを指定する。
 - storeは少なくとも`expiresAt`まで完全な元要求を保持する。秘密鍵、mnemonic、password、復号済み秘密payloadをstoreへ保存してはならない。期限後は監査用にrequestId、要求hash、state、expiresAtだけを保持してよい。
 - `inspect`は外側エンベロープだけをstrictに検証し、payloadを復号・展開せずheaderを返す。返却値をpayloadが正しい証拠として使用してはならない。
 - 入力`Uint8Array`を無断で変更しない。内部copyは6.5節に従って消去する。返却された秘密payloadの所有権と消去責任は呼び出し側へ移る。
@@ -726,7 +838,8 @@ APIの動作を次のように固定する。
 5. チェーン固有のアドレス、鍵、トランザクション、ハッシュ、署名検証
 6. フォーマットタイプごとのvalidator
 7. request context storeと一回限り消費処理
-8. 公開encode/decode境界での適合fixture実行
+8. connection request/response、session proof、失効処理
+9. 公開encode/decode境界での適合fixture実行
 
 コアAPIは搬送処理と暗号処理をinterfaceの背後に分離し、browser、Node.js、mobile、hardware wallet、offline実装で同じスキーマと検証動作を共有する。
 
