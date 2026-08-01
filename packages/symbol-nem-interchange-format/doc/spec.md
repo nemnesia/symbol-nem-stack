@@ -133,7 +133,7 @@ dAppがウォレットに対し、接続元の情報と必要な権限を提示�
 
 ```json
 {
-  "protocol": "SNIF",
+  "protocol": "snif",
   "version": 1,
   "type": "sign-request",
   "chain": "symbol",
@@ -153,7 +153,7 @@ NEMでは、`generationHashSeed`を省略する。
 
 ```json
 {
-  "protocol": "SNIF",
+  "protocol": "snif",
   "version": 1,
   "type": "address",
   "chain": "nem",
