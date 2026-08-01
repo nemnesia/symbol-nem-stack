@@ -614,3 +614,27 @@ Draft 1を安定版へ昇格する前に、本仕様から生成した機械可�
 7. 公開encode/decode境界での適合fixture実行
 
 コアAPIは搬送処理と暗号処理をinterfaceの背後に分離し、browser、Node.js、mobile、hardware wallet、offline実装で同じスキーマと検証動作を共有できる構造を推奨する。
+
+## 12. TypeScript推奨実装（非規範）
+
+本章はTypeScript参照実装の依存パッケージを統一するための非規範ガイドであり、ワイヤ適合性は使用ライブラリではなく、本文と10章のfixtureによって判定する。別言語またはplatform nativeの実装は、同じ結果を生成できれば別ライブラリを使用してよい。
+
+初期TypeScript実装では、次の組み合わせを推奨する。
+
+| 処理        | 推奨パッケージ／API                                                           | 選定理由と要件                                                                                              |
+| ----------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Argon2id    | [`@noble/hashes`](https://github.com/paulmillr/noble-hashes)の`argon2idAsync` | pure JavaScriptでbrowserとNode.jsを共通化できる。全KDFパラメーターを明示し、非同期APIを使用する             |
+| AES-256-GCM | [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers)の`gcm`         | browserとNode.jsで同じ結果を得られ、AADを明示できる。ciphertextの後ろにtagが続く返却形式をfixtureで固定する |
+| zlib        | [`fflate`](https://github.com/101arrowz/fflate)のzlib専用API                  | 小さなpure JavaScript実装でbrowserとNode.jsを共通化でき、streaming APIを利用できる                          |
+
+本リポジトリで確認済みの初期baselineは`@noble/hashes` 2.2.0、`@noble/ciphers` 2.2.0、`fflate` 0.8.3である。実装パッケージはこれらをdirect dependencyとして宣言し、lockfileで解決versionとintegrityを固定する。将来versionを更新する場合は、暗号化・圧縮を含む全適合fixtureを再実行しなければならない。
+
+既存の`@nemnesia/simple-password-crypto`はKDFパラメーター、AAD、暗号文エンベロープがSNIF `password-v1`と異なるため、その出力をSNIFへ直接格納してはならない。内部primitiveを共有する場合も、SNIF専用adapterで6章の処理とbyte配置を実装し、適合fixtureで検証する。
+
+`fflate`ではformat自動判定APIを使用せず、zlib専用の`zlibSync`／`Zlib`と`unzlibSync`／`Unzlib`だけを使用する。展開側は出力chunkの累積長を受け取るたびに検査し、16 MiBを超えた時点で中断する。使用APIがzlib stream後の余分なbyteを拒否することも負のfixtureで確認し、拒否できない場合はwrapperで検出する。
+
+Argon2idはCPU・memory負荷が大きいため、対応端末上で処理時間とUI応答性をbenchmarkする。Web Workerまたは同等のbackground executionを推奨する。platform nativeまたはWASM実装へ差し替える場合も、6.2節の全パラメーター、password byte列、salt、出力鍵がfixtureとbyte-for-byteで一致しなければならない。
+
+baseline時点の`@noble/hashes`文書では、過去の第三者audit範囲にArgon2実装が含まれていないことが明記されている。このため、採用理由を可搬性と実装統一性に限定し、「第三者audit済みArgon2」と表現してはならない。安定版の公開前に、対象versionのsecurity review状況を再確認し、必要に応じてadapterの背後でreview済みのplatform nativeまたはWASM実装へ交換する。
+
+ライブラリAPIへ渡したbufferも6.5節の消去対象である。ライブラリが内部コピーの消去を保証しない場合、呼び出し側が所有する入力・出力・一時bufferを消去し、保証範囲をAPI文書へ記載する。
