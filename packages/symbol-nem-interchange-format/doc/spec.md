@@ -746,15 +746,21 @@ codecとverification helperはいずれも外部storageを読み書きしない�
 
 ## 10. 適合テストベクトル
 
-Draft 2を安定版へ昇格する前に、本仕様から生成した機械可読な適合fixtureをリポジトリへ追加しなければならない。各fixtureは次を含む。
+Draft 2を安定版へ昇格する前に、本仕様から生成した機械可読な適合fixtureをリポジトリへ追加しなければならない。
 
-規範fixtureの入口は`doc/fixtures/manifest.json`とする。manifestに登録されていないファイルを適合性の根拠にしてはならない。鍵導出については`mnemonic-derivation.json`をv1の規範値とし、Symbol SDK自身を含む全実装が一致しなければならない。
+規範fixtureの入口は`doc/fixtures/manifest.json`とする。manifestに登録されていないファイルを適合性の根拠にしてはならない。各manifest entryの`category`に対応するJSON Schemaをfixture本体のデータ形状、必須field、および期待値表現の正本とする。loaderはmanifest entryの`id`とfixture本体の`id`が完全一致することを検証しなければならない。鍵導出については`mnemonic-derivation.json`をv1の規範値とし、Symbol SDK自身を含む全実装が一致しなければならない。
+
+wire-format fixtureは次を含まなければならない。
 
 - 診断用入力値
 - 内部ペイロードの決定的CBOR（16進）
 - 完全なエンベロープの決定的CBOR（16進）
 - 期待デコード値または期待エラーカテゴリー
 - 暗号化ケースではテスト専用の固定password、salt、nonce、導出鍵、AAD、ciphertext、authentication tag
+
+mnemonic derivationなどのalgorithm fixtureはwire-format fixtureではない。algorithm fixtureは、category別JSON Schemaが定める入力と期待導出値を含まなければならず、内部ペイロードCBORまたは完全なエンベロープCBORを持つ必要はない。
+
+manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema対応表が同じ変更で追加された場合にだけ追加してよい。既存categoryのfieldの意味または期待値表現を互換性なく変更してはならない。この変更が必要な場合は、新しいcategory名と新しいcategory別JSON Schemaを追加し、既存categoryを保持しなければならない。loaderは未知のcategoryを推測せず拒否しなければならない。
 
 最低限のfixture matrixを次に示す。
 
@@ -786,7 +792,7 @@ Draft 2を安定版へ昇格する前に、本仕様から生成した機械可�
 | 2     | 公開codec APIとverification helperのend-to-end統合                                        | Node.jsとbrowserでcomponent間の相互運用、失敗伝播、資源制限のfixtureがすべて成功 |
 | 3     | 安定版公開                                                                                | 10タイプのmatrix、Symbol/NEM相互運用、公開対象componentの全適合testが成功        |
 
-現時点のmanifestはmnemonic導出fixtureだけを含むため、全体状態はPhase 0とする。ただし、各componentは対応fixtureが先に登録・review済みであれば個別にPhase 1へ進めてよい。fixtureより先に同じcomponentの実装を追加してはならない。
+現行のfixture登録状況は`doc/fixtures/manifest.json`を正とする。全体phaseは、manifestに登録されたfixture、共通loader／test基盤、および上表の完了条件から決定する。ただし、各componentは対応fixtureが先に登録・review済みであれば個別にPhase 1へ進めてよい。fixtureより先に同じcomponentの実装を追加してはならない。
 
 ## 11. TypeScript公開API
 

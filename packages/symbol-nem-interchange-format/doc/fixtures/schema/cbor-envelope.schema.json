@@ -4,7 +4,10 @@
   "additionalProperties": false,
   "required": ["id", "document", "payloadCbor", "envelopeCbor"],
   "properties": {
-    "id": { "const": "cbor-envelope-symbol-address-v1" },
+    "id": {
+      "type": "string",
+      "pattern": "^cbor-envelope-[a-z0-9]+(?:-[a-z0-9]+)*-v1$"
+    },
     "document": {
       "type": "object",
       "additionalProperties": false,
