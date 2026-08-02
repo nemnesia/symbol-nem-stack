@@ -2,7 +2,7 @@
 import { PublicKey } from './CryptoTypes.js';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { NetworkTimestamp, NetworkTimestampDatetimeConverter } from './NetworkTimestamp.js';
- 
+// import Ripemd160 from 'ripemd160';
 import { ripemd160 } from '@noble/hashes/legacy.js';
 
 const BASE32_RFC4648_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -73,6 +73,7 @@ export class Network {
 		partOneHashBuilder.update(publicKey.bytes);
 		const partOneHash = partOneHashBuilder.digest();
 
+		// const partTwoHash = new Ripemd160().update(Buffer.from(partOneHash)).digest();
 		// noble/hashesはUint8Arrayを直接受け付ける
 		const partTwoHash = ripemd160(partOneHash);
 

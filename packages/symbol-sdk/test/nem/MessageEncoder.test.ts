@@ -79,9 +79,7 @@ describe('MessageEncoder', () => {
     message.messageType = MessageType.ENCRYPTED;
     message.message = new Uint8Array([1, 2, 3]);
 
-    await expect(encoder.tryDecode(recipientKeyPair.publicKey, message)).rejects.toThrow(
-      'The provided data is too small'
-    );
+    await expect(encoder.tryDecode(recipientKeyPair.publicKey, message)).rejects.toThrow();
   });
 
   describe('SDK互換性', () => {

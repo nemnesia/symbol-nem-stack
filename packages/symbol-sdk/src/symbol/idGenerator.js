@@ -47,7 +47,7 @@ const generateMosaicId = (ownerAddress, nonce) => {
  */
 const generateNamespaceId = (name, parentNamespaceId = 0n) => {
 	if (name.includes('.'))
-		throw Error(`'name' cannot contain '.'; if '${name}' is a namespace path, consider using generateNamespacePath`);
+		throw Error(`'name' cannot contain '.'; if ${name} is a namepace path, consider using generateNamespacePath'`);
 
 	const hasher = sha3_256.create();
 	hasher.update(uint32ToBytes(Number(parentNamespaceId & 0xFFFFFFFFn)));

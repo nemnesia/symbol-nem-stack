@@ -50,8 +50,9 @@ export default class MessageEncoder {
 	 * @returns {Promise<TryDecodeResult>} Tuple containing decoded status and message.
 	 */
 	async tryDecode(recipientPublicKey, encodedMessage) {
-		// models.Messageのデシリアライズを使ってる場合、`.value`がないと不一致になるので`.value`を追記
+		// if (MessageType.ENCRYPTED !== encodedMessage.messageType)
 		if (MessageType.ENCRYPTED.value !== encodedMessage.messageType.value)
+		// models.Messageのデシリアライズを使ってる場合、`.value`がないと不一致になるので`.value`を追記
 			throw new Error('invalid message format');
 
 		let [result, message] = await filterExceptions(

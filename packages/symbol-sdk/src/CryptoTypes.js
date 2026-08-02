@@ -1,4 +1,5 @@
 import ByteArray from './ByteArray.js';
+// import crypto from 'crypto';
 import { randomBytes } from '@noble/hashes/utils.js';
 
 /**
@@ -63,6 +64,7 @@ export class PrivateKey extends ByteArray {
 	 * @returns {PrivateKey} Random private key.
 	 */
 	static random() {
+		// return new PrivateKey(crypto.randomBytes(PrivateKey.SIZE));
 		return new PrivateKey(randomBytes(PrivateKey.SIZE));
 	}
 }
