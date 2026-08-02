@@ -1,0 +1,47 @@
+{
+  "id": "wire-invalid-matrix-v1",
+  "provenance": {
+    "source": "RFC 8949 deterministic encoding requirements and SNIF v1 Draft 2",
+    "derivation": "Each mutation is applied to the reviewed Symbol address envelope fixture and fixes the externally visible error category."
+  },
+  "constants": { "baseFixture": "cbor-envelope-symbol-address-v1" },
+  "cases": [
+    {
+      "id": "non-shortest-integer",
+      "input": { "mutation": "network-id-uint16" },
+      "expected": { "error": "invalid-envelope" }
+    },
+    {
+      "id": "indefinite-map",
+      "input": { "mutation": "outer-map-indefinite" },
+      "expected": { "error": "invalid-envelope" }
+    },
+    { "id": "duplicate-key", "input": { "mutation": "duplicate-type" }, "expected": { "error": "invalid-envelope" } },
+    {
+      "id": "wrong-key-order",
+      "input": { "mutation": "swap-type-chain" },
+      "expected": { "error": "invalid-envelope" }
+    },
+    { "id": "trailing-cbor-item", "input": { "suffix": "F6" }, "expected": { "error": "invalid-envelope" } },
+    {
+      "id": "payload-noncanonical",
+      "input": { "mutation": "payload-map-indefinite" },
+      "expected": { "error": "invalid-payload" }
+    },
+    {
+      "id": "symbol-network-without-seed",
+      "input": { "mutation": "remove-generationHashSeed" },
+      "expected": { "error": "invalid-envelope" }
+    },
+    {
+      "id": "nem-network-with-seed",
+      "input": { "mutation": "add-generationHashSeed" },
+      "expected": { "error": "invalid-envelope" }
+    },
+    {
+      "id": "address-network-mismatch",
+      "input": { "mutation": "address-network-byte" },
+      "expected": { "error": "network-mismatch" }
+    }
+  ]
+}

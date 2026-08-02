@@ -17,7 +17,20 @@
         "required": ["id", "category", "path"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-          "category": { "enum": ["mnemonic-derivation", "cbor-envelope"] },
+          "category": {
+            "enum": [
+              "mnemonic-derivation",
+              "cbor-envelope",
+              "wire-valid",
+              "wire-invalid",
+              "password-v1",
+              "zlib",
+              "transaction-verification",
+              "message-verification",
+              "connection-verification",
+              "mnemonic-unicode"
+            ]
+          },
           "path": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]*\\.json$" }
         }
       }

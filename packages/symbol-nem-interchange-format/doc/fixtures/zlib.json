@@ -1,0 +1,24 @@
+{
+  "id": "zlib-profile-v1",
+  "provenance": {
+    "source": "RFC 1950 and RFC 1951",
+    "derivation": "The reviewed zlib stream was produced from the fixed payload with a standards-conforming implementation; tests consume but do not regenerate it."
+  },
+  "constants": {
+    "plaintext": "A167616464726573735818988E1191A25A88142C2FB3F69787576E3DC713EFC1CE4DE9",
+    "zlib": "789C5B989E989252945A5C1C2131A34F70E2A2A80E111DFDCDDFA6B787E7D91E177E7FF09CEF4B000FB61071"
+  },
+  "cases": [
+    { "id": "valid", "input": { "profile": "zlib" }, "expected": { "plaintextBytes": 36 } },
+    {
+      "id": "raw-deflate",
+      "input": { "removeZlibHeaderAndChecksum": true },
+      "expected": { "error": "invalid-payload" }
+    },
+    { "id": "gzip", "input": { "magic": "1F8B" }, "expected": { "error": "invalid-payload" } },
+    { "id": "trailing-data", "input": { "suffix": "00" }, "expected": { "error": "invalid-payload" } },
+    { "id": "checksum-tamper", "input": { "xorLastByte": 1 }, "expected": { "error": "invalid-payload" } },
+    { "id": "output-limit", "input": { "expandedBytes": 16777216 }, "expected": { "accepted": true } },
+    { "id": "output-limit-plus-one", "input": { "expandedBytes": 16777217 }, "expected": { "error": "resource-limit" } }
+  ]
+}

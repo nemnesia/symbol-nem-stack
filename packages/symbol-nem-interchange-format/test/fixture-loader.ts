@@ -5,7 +5,17 @@ import path from 'node:path';
 
 interface ManifestEntry {
   id: string;
-  category: 'mnemonic-derivation' | 'cbor-envelope';
+  category:
+    | 'mnemonic-derivation'
+    | 'cbor-envelope'
+    | 'wire-valid'
+    | 'wire-invalid'
+    | 'password-v1'
+    | 'zlib'
+    | 'transaction-verification'
+    | 'message-verification'
+    | 'connection-verification'
+    | 'mnemonic-unicode';
   path: string;
 }
 
@@ -24,13 +34,34 @@ export const loadFixtures = async (
   const root = await realpath(fixturesDirectory);
   const schemas = path.join(root, 'schema');
   const ajv = new Ajv2020({ allErrors: true, strict: true });
+  ajv.addSchema(
+    (await readJson(path.join(schemas, 'conformance-cases.schema.json'))) as AnySchema,
+    'conformance-cases.schema.json'
+  );
   const manifestValidator = ajv.compile((await readJson(path.join(schemas, 'manifest.schema.json'))) as AnySchema);
+  const conformanceCategories = [
+    'wire-valid',
+    'wire-invalid',
+    'password-v1',
+    'zlib',
+    'transaction-verification',
+    'message-verification',
+    'connection-verification',
+    'mnemonic-unicode',
+  ] as const;
+  const conformanceValidators = await Promise.all(
+    conformanceCategories.map(async (category): Promise<[string, ValidateFunction]> => [
+      category,
+      ajv.compile((await readJson(path.join(schemas, `${category}.schema.json`))) as AnySchema),
+    ])
+  );
   const categoryValidators = new Map<string, ValidateFunction>([
     [
       'mnemonic-derivation',
       ajv.compile((await readJson(path.join(schemas, 'mnemonic-derivation.schema.json'))) as AnySchema),
     ],
     ['cbor-envelope', ajv.compile((await readJson(path.join(schemas, 'cbor-envelope.schema.json'))) as AnySchema)],
+    ...conformanceValidators,
   ]);
   const manifestValue = await readJson(path.join(root, 'manifest.json'));
   if (!manifestValidator(manifestValue)) throw new Error(ajv.errorsText(manifestValidator.errors));

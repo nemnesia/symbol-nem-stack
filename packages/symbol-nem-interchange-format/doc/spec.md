@@ -682,7 +682,7 @@ authentication tagは厳密に16 bytesとし、ciphertextの後ろへ連結す�
 
 `compression: "zlib"`は、[RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)のzlibデータストリーム内にRFC 1951のDEFLATEデータを格納することを意味する。raw DEFLATEおよびgzipではない。
 
-エンコーダーは、圧縮処理を含めても処理済みペイロード全体が小さくなる場合に限りzlibを選択することを推奨する。デコーダーはstream処理などで展開出力を16 MiBに制限し、超過時は即座に中断し、zlib stream後の余分なbyteを拒否しなければならない。
+エンコーダーは、圧縮処理を含めても処理済みペイロード全体が小さくなる場合に限りzlibを選択することを推奨する。デコーダーはstream処理などで展開出力を16 MiBに制限し、超過時は即座に中断して`resource-limit`を返さなければならない。zlib stream後に1 byte以上の余分なdataがある場合は`invalid-payload`として拒否しなければならない。zlib header、DEFLATE streamまたはAdler-32 checksumが不正な場合も`invalid-payload`とする。`unsupported-codec`は、構文上正しいが実装が対応しない圧縮または暗号化profileに限って使用し、既知の`zlib` streamの破損には使用してはならない。
 
 圧縮は暗号化より前に行う。`account`と`mnemonic`では`none`だけを許可し、`zlib`を受信した場合は`invalid-envelope`として拒否する。
 
@@ -720,13 +720,13 @@ codecとverification helperはいずれも外部storageを読み書きしない�
 | `invalid-envelope`          | 外側CBORまたはスキーマが不正・非決定的                     |
 | `unsupported-version`       | `protocol`はSNIFだが`version`が未対応                      |
 | `unsupported-type`          | SNIF versionは正しいがtypeが未実装                         |
-| `unsupported-codec`         | 圧縮または暗号化プロファイルが未対応                       |
+| `unsupported-codec`         | 構文上正しい圧縮または暗号化プロファイルが未対応           |
 | `password-required`         | 暗号化データに対してpasswordが指定されていない             |
 | `decryption-failed`         | パスワード、ciphertext、認証の失敗                         |
 | `resource-limit`            | 宣言値または生成値が上限超過                               |
 | `operation-cancelled`       | 利用者またはAbortSignalによって処理が中断された            |
 | `entropy-unavailable`       | OS CSPRNGから必要な乱数を取得できない                      |
-| `invalid-payload`           | 内部CBORまたはタイプ固有スキーマが不正                     |
+| `invalid-payload`           | 内部CBOR、タイプ固有スキーマ、または既知codec streamが不正 |
 | `invalid-context`           | request contextの型、期間、audienceが不正                  |
 | `expired-request`           | 要求の期限が切れている                                     |
 | `authorization-failed`      | 接続proof、session状態、またはpermission grantが不正       |
@@ -760,7 +760,18 @@ wire-format fixtureは次を含まなければならない。
 
 mnemonic derivationなどのalgorithm fixtureはwire-format fixtureではない。algorithm fixtureは、category別JSON Schemaが定める入力と期待導出値を含まなければならず、内部ペイロードCBORまたは完全なエンベロープCBORを持つ必要はない。
 
+Unicode mnemonic適合fixtureは、BIP39が参照する公開test vectorから次を採用し、出典repository、取得対象commit、元vectorのentropy、NFKD前の表示値、SNIFへ格納するNFKD／ASCII-space値、および期待BIP39 seedを記録しなければならない。
+
+- 日本語は`bip32JP/bip32JP.github.io`の`test_JP_BIP39.json`先頭vector（entropy `00000000000000000000000000000000`）を採用する。元vectorのIDEOGRAPHIC SPACEはSNIFワイヤ値でASCII spaceへNFKD正規化し、互換文字を含むpassphrase `㍍ガバヴァぱばぐゞちぢ十人十色`もNFKD正規化したbyte列を格納する。
+- スペイン語は`trezor/python-mnemonic`の`vectors.json`にあるSpanish先頭vector（entropy `00000000000000000000000000000000`）を採用する。mnemonic中のアクセント付き文字はNFKD表現を格納する。
+- 空passphraseは、同じSpanish先頭mnemonicと空文字列を入力とするSNIF固有vectorで固定する。
+- 1,024 UTF-8 bytes境界は、NFKD文字列`e\u0301`を341回連結し、末尾へASCII `a`を1文字連結した値（`3 * 341 + 1 = 1,024 bytes`）をpassphraseとする。末尾の`a`を2文字へ増やした1,025-byte値は`invalid-payload`となり、PBKDF2を実行してはならない。
+
+NFC入力拒否fixtureでは、上記境界vectorと同じUnicode scalar列をNFCへ変換した値を入力とし、`invalid-payload`を期待する。受信側がNFC入力を暗黙にNFKDへ変換して受理してはならない。正常fixtureの期待BIP39 seedとchain別導出値は、BIP39 test vectorまたは独立した導出手順によるreview済み値をfixture本体へ明記しなければならず、SNIFのencoder、decoderまたはverification実装の出力で上書きしてはならない。
+
 manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema対応表が同じ変更で追加された場合にだけ追加してよい。既存categoryのfieldの意味または期待値表現を互換性なく変更してはならない。この変更が必要な場合は、新しいcategory名と新しいcategory別JSON Schemaを追加し、既存categoryを保持しなければならない。loaderは未知のcategoryを推測せず拒否しなければならない。
+
+v1の規範categoryは`wire-valid`、`wire-invalid`、`password-v1`、`zlib`、`transaction-verification`、`message-verification`、`connection-verification`、`mnemonic-unicode`、`mnemonic-derivation`および`cbor-envelope`とする。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
 
 最低限のfixture matrixを次に示す。
 
@@ -793,6 +804,8 @@ manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema�
 | 3     | 安定版公開                                                                                | 10タイプのmatrix、Symbol/NEM相互運用、公開対象componentの全適合testが成功        |
 
 現行のfixture登録状況は`doc/fixtures/manifest.json`を正とする。全体phaseは、manifestに登録されたfixture、共通loader／test基盤、および上表の完了条件から決定する。ただし、各componentは対応fixtureが先に登録・review済みであれば個別にPhase 1へ進めてよい。fixtureより先に同じcomponentの実装を追加してはならない。
+
+v1ではpackage全体を単一のDraftとして扱う。全10タイプと公開codec／verification helperに必要なfixture matrixがPhase 3の完了条件を満たすまで、packageを安定版として公開registryへpublishしてはならず、いずれかのcomponentだけをrelease済みまたは適合済みと表示してはならない。開発用buildでfixture完成済みcomponentを試験することは妨げないが、そのbuildは非公開のpre-releaseとして明示しなければならない。component単位の段階的な公開はv1の対象外とする。
 
 ## 11. TypeScript公開API
 

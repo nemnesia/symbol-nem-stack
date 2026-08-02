@@ -1,0 +1,61 @@
+{
+  "id": "mnemonic-unicode-v1",
+  "provenance": {
+    "source": "BIP-39 test vectors: bip32JP/test_JP_BIP39.json and trezor/python-mnemonic/vectors.json",
+    "derivation": "Published BIP39 seeds are copied verbatim. Empty and boundary passphrase seeds were independently derived with PBKDF2-HMAC-SHA512, 2048 iterations."
+  },
+  "constants": { "pbkdf2Iterations": 2048, "prf": "HMAC-SHA512", "seedBytes": 64 },
+  "cases": [
+    {
+      "id": "japanese-first-vector",
+      "input": {
+        "entropy": "00000000000000000000000000000000",
+        "mnemonicDisplay": "あいこくしん　あいこくしん　あいこくしん　あいこくしん　あいこくしん　あいこくしん　あいこくしん　あいこくしん　あいこくしん　あいこくしん　あいこくしん　あおぞら",
+        "passphraseDisplay": "㍍ガバヴァぱばぐゞちぢ十人十色"
+      },
+      "expected": {
+        "wireSeparator": "ASCII SPACE",
+        "normalization": "NFKD",
+        "wireMnemonic": "あいこくしん あいこくしん あいこくしん あいこくしん あいこくしん あいこくしん あいこくしん あいこくしん あいこくしん あいこくしん あいこくしん あおぞら",
+        "wireMnemonicUtf8Bytes": 224,
+        "wirePassphrase": "メートルガバヴァぱばぐゞちぢ十人十色",
+        "wirePassphraseUtf8Bytes": 78,
+        "seed": "A262D6FB6122ECF45BE09C50492B31F92E9BEB7D9A845987A02CEFDA57A15F9C467A17872029A9E92299B5CBDF306E3A0EE620245CBD508959B6CB7CA637BD55"
+      }
+    },
+    {
+      "id": "spanish-first-vector",
+      "input": {
+        "entropy": "00000000000000000000000000000000",
+        "mnemonic": "ábaco ábaco ábaco ábaco ábaco ábaco ábaco ábaco ábaco ábaco ábaco abierto",
+        "passphrase": "TREZOR"
+      },
+      "expected": {
+        "normalization": "NFKD",
+        "seed": "29A2EE16DE47D07025DE37E7D9C596869439F9BCD26A702D2BAE64DB2BF0F68383841C5444B5B3BD39DD720D2EBE59969E110E5955C8E6D32C6C3294FD87439B"
+      }
+    },
+    {
+      "id": "spanish-empty-passphrase",
+      "input": { "mnemonicCase": "spanish-first-vector", "passphrase": "" },
+      "expected": {
+        "seed": "FDFE9B7C7A5E5079BB36D6381838867A34358DB0A0307D060ADBAF5EDADB08B0A87C06EDE1A96AFD8566EF499792FFCBD37F43F6F554FA344138660EACDEFCF8"
+      }
+    },
+    { "id": "nfc-rejected", "input": { "passphrase": "é" }, "expected": { "error": "invalid-payload" } },
+    { "id": "nfkd-accepted", "input": { "passphrase": "é" }, "expected": { "accepted": true, "utf8Bytes": 3 } },
+    {
+      "id": "utf8-1024-boundary",
+      "input": { "expression": "U+0065 U+0301 repeated 341 times, followed by U+0061" },
+      "expected": {
+        "utf8Bytes": 1024,
+        "seed": "921106552E0358A0DAD0030A8C2B1A56429D1CC48CD370D94A39ACB969CB8FC0782E60DC6C1D526079A58EA19D55FECDD8D714ACC4EB6FBB47E8F48B4B104847"
+      }
+    },
+    {
+      "id": "utf8-1025-rejected",
+      "input": { "expression": "1024-byte boundary value followed by U+0061" },
+      "expected": { "error": "invalid-payload" }
+    }
+  ]
+}
