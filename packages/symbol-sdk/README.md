@@ -9,20 +9,23 @@
 
 ## 概要
 
-このパッケージは [symbol-sdk](https://github.com/symbol/symbol/tree/main/sdk) 公式リポジトリをベースに、Node.js だけでなくモダンブラウザ（ES2020以降）、さらに React Native でも動作するよう再構成した TypeScript/JavaScript SDK です。
+このパッケージは [symbol-sdk](https://github.com/symbol/symbol/tree/main/sdk) 公式リポジトリをベースに、Node.js だけでなくモダンブラウザ（ES2020以降）と React Native でも利用できるよう再構成した JavaScript SDK です。
 
 ### 主な変更点
 
-**暗号処理の依存先をNode.js組込から@noble系へ移行**
+この移植版では、実行環境への依存を減らすため、主に次の変更を加えています。
 
-- 乱数生成: Node.js標準の`crypto.randomBytes`から、`@noble/hashes/utils.js`の`randomBytes`へ変更
-- HMAC生成: Node.js標準の`crypto.createHmac`から、`@noble/hashes/hmac.js`の`hmac`へ変更
-- RIPEMD160: Node.js標準の`ripemd160`から、`@noble/hashes/legacy.js`の`ripemd160`へ変更
-  **BIP32/BIP39関連**
-- ニーモニック生成: 従来の`bitcore-mnemonic`から、`@scure/bip39`へ変更
-- **MessageEncoder**
-  - `encode`/`tryDecode` など暗号化部分を非同期メソッド化
-- **`Buffer`完全排除**
+- **Node.js 組み込み暗号 API への依存を削減**
+  - 乱数生成を `@noble/hashes/utils.js` の `randomBytes` に変更。`randomBytes` は利用環境の Web Crypto API（`crypto.getRandomValues`）を利用します。
+  - HMAC を `@noble/hashes/hmac.js` の `hmac` に変更
+  - RIPEMD160 を `@noble/hashes/legacy.js` の `ripemd160` に変更
+- **BIP32/BIP39 の依存を更新**
+  - ニーモニック生成を `bitcore-mnemonic` から `@scure/bip39` に変更
+- **`Buffer` への依存を削除**
+  - バイト列は `Uint8Array` を使用します。
+- **メッセージ暗号化 API を非同期化**
+  - `MessageEncoder` の `encode`、`tryDecode`、`encodeDeprecated`、`tryDecodeDeprecated`（Symbol）は `Promise` を返します。
+  - 呼び出し側では `await`、または `Promise` のハンドリングが必要です。
 
 ## インストール
 
@@ -50,17 +53,48 @@ const privateKey = PrivateKey.random();
 const facade = new SymbolFacade('testnet');
 const account = facade.createAccount(privateKey);
 
-console.log('privateKey:', account.keyPair.privateKey.toString());
 console.log('publicKey :', account.publicKey.toString());
 console.log('address   :', account.address.toString());
 ```
 
 TypeScriptでもそのまま利用できます。
 
+## メッセージの暗号化と復号
+
+`MessageEncoder` の暗号化・復号メソッドは非同期です。`await` を付けて結果を取得してください。
+
+```js
+import { PrivateKey } from 'symbol-sdk';
+import { SymbolFacade } from 'symbol-sdk/symbol';
+
+const facade = new SymbolFacade('testnet');
+const sender = facade.createAccount(PrivateKey.random());
+const recipient = facade.createAccount(PrivateKey.random());
+
+const clearMessage = new TextEncoder().encode('Hello, Symbol!');
+const encryptedMessage = await sender.messageEncoder().encode(
+  recipient.publicKey,
+  clearMessage
+);
+
+const result = await recipient.messageEncoder().tryDecode(
+  sender.publicKey,
+  encryptedMessage
+);
+
+if (!result.isDecoded)
+  throw new Error('メッセージを復号できませんでした');
+
+console.log(new TextDecoder().decode(result.message)); // Hello, Symbol!
+```
+
+Symbol の `tryDecode` は、復号できた場合に `{ isDecoded: true, message: Uint8Array }` を返します。暗号化されていない形式や、受信者が異なるメッセージでは `isDecoded` が `false` になります。NEM の `MessageEncoder` も `encode` と `tryDecode` を非同期で提供しますが、入出力は NEM の `Message` モデルです。
+
 ## 注意事項
 
-- 公式symbol-sdkと一部APIや挙動が異なる場合があります。
-- 暗号処理や依存パッケージの違いにより、完全な互換性は保証されません。
+- 公式 symbol-sdk と一部 API や挙動が異なります。特に暗号化 API の戻り値は `Promise` です。
+- 暗号処理や依存パッケージの違いにより、公式 SDK および既存ウォレットとの完全な互換性は保証されません。
+- 秘密鍵やニーモニックをログ、エラー出力、リポジトリへ保存しないでください。
 
 ## ライセンス
 
