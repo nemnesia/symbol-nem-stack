@@ -10,6 +10,7 @@ interface ManifestEntry {
     | 'cbor-envelope'
     | 'codec-structural'
     | 'password-v1'
+    | 'secret-backup'
     | 'zlib'
     | 'transaction-primitives'
     | 'mnemonic-unicode';
@@ -35,6 +36,7 @@ export const loadFixtures = async (
   const additionalSchemas = new Map([
     ['codec-structural', 'codec-structural.schema.json'],
     ['password-v1', 'password-v1.schema.json'],
+    ['secret-backup', 'secret-backup.schema.json'],
     ['zlib', 'zlib.schema.json'],
     ['transaction-primitives', 'transaction-verification.schema.json'],
     ['mnemonic-unicode', 'mnemonic-unicode.schema.json'],

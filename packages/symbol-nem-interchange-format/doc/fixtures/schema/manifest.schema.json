@@ -23,6 +23,7 @@
               "cbor-envelope",
               "codec-structural",
               "password-v1",
+              "secret-backup",
               "zlib",
               "transaction-primitives",
               "mnemonic-unicode"

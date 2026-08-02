@@ -777,7 +777,7 @@ manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema�
 
 `codec-structural` fixtureはcodecが外部contextなしに受理するdocument構造を表すだけであり、chain transaction、署名、connection proofまたは利用者承認の検証成功を意味しない。`codec-structural`のcaseを下表の「タイプ」「署名」「接続」の完全適合件数へ算入してはならない。これらのmatrixを満たす正しいfixtureは、必要なverification helperの成功まで含む実行可能なverification fixtureとする。
 
-現行の規範categoryは`codec-structural`、`password-v1`、`zlib`、`transaction-primitives`、`mnemonic-unicode`、`mnemonic-derivation`および`cbor-envelope`とする。`transaction-primitives`はSDKのserialize、hashおよび署名primitiveだけを検証し、SNIF request／response対応の成功を意味しない。未完成のnegative、transaction verification、messageまたはconnection caseをmanifestへ登録してはならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
+現行の規範categoryは`codec-structural`、`password-v1`、`secret-backup`、`zlib`、`transaction-primitives`、`mnemonic-unicode`、`mnemonic-derivation`および`cbor-envelope`とする。`secret-backup`は`account`と`mnemonic`について、完全SNIF入力、固定password、復号済みpayload、誤password、AAD header改変、tag改変、password未指定および禁止されたzlib圧縮を固定する。秘密typeで`compression`が`"none"`以外であるcaseは各typeにつき少なくとも1件を登録し、decoderはpassword導出、復号、展開または内部payloadのdecodeより前に`invalid-envelope`として拒否しなければならない。`transaction-primitives`はSDKのserialize、hashおよび署名primitiveだけを検証し、SNIF request／response対応の成功を意味しない。未完成のnegative、transaction verification、messageまたはconnection caseをmanifestへ登録してはならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
 
 最低限のfixture matrixを次に示す。
 

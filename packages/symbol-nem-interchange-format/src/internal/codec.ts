@@ -142,6 +142,8 @@ export const encodeDocument = async (input: SnifDocument, options: EncodeOptions
 export const decodeDocument = async (data: Uint8Array, options: DecodeOptions = {}): Promise<SnifDocument> => {
   assertNotAborted(options.signal);
   const envelope = validateEnvelope(decodeCanonical(new Uint8Array(data), 'invalid-envelope'));
+  const secret = 'account' === envelope.type || 'mnemonic' === envelope.type;
+  if (secret && 'none' !== envelope.compression) throw new SnifError('invalid-envelope');
   let payload: Uint8Array<ArrayBufferLike> = new Uint8Array(envelope.payload);
   if ('password-v1' === envelope.encryption.algorithm) {
     if (!options.password) throw new SnifError('password-required');
@@ -158,8 +160,7 @@ export const decodeDocument = async (data: Uint8Array, options: DecodeOptions = 
   if ('zlib' === envelope.compression) payload = decompress(payload);
   const decodedPayload = decodeCanonical(payload, 'invalid-payload');
   const validated = validatePayload(envelope.type, envelope.chain, decodedPayload);
-  if (('account' === envelope.type || 'mnemonic' === envelope.type) && 'password-v1' !== envelope.encryption.algorithm)
-    throw new SnifError('invalid-envelope');
+  if (secret && 'password-v1' !== envelope.encryption.algorithm) throw new SnifError('invalid-envelope');
   const document = { type: envelope.type, chain: envelope.chain, network: envelope.network, payload: validated };
   validateChainSemantics(document);
   return document;

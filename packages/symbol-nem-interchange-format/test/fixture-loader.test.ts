@@ -29,6 +29,7 @@ describe('normative fixture loader', () => {
       'cbor-envelope-symbol-address-v1',
       'codec-structural-matrix-v1',
       'password-v1-fixed-v1',
+      'secret-backup-codec-v1',
       'zlib-profile-v1',
       'transaction-primitives-v1',
       'mnemonic-unicode-v1',
@@ -196,6 +197,37 @@ describe('normative fixture loader', () => {
       type: 'address',
       chain: 'symbol',
     });
+  });
+
+  it('executes every normative secret backup codec case', async () => {
+    const loaded = await loadFixtures(fixtures);
+    const fixture = loaded.find((item) => item.entry.id === 'secret-backup-codec-v1')!.data as {
+      constants: { password: string; wrongPassword: string };
+      cases: Array<{
+        id: string;
+        input: { envelopeCbor: string; password?: 'normal' | 'wrong' };
+        expected: { payloadCbor?: string; error?: string };
+      }>;
+    };
+    for (const testCase of fixture.cases) {
+      const password =
+        'normal' === testCase.input.password
+          ? fixture.constants.password
+          : 'wrong' === testCase.input.password
+            ? fixture.constants.wrongPassword
+            : undefined;
+      if (testCase.expected.error) {
+        await expect(
+          decode(bytes(testCase.input.envelopeCbor), password ? { password } : {}),
+          testCase.id
+        ).rejects.toMatchObject({
+          code: testCase.expected.error,
+        });
+      } else {
+        const document = await decode(bytes(testCase.input.envelopeCbor), { password });
+        expect(hex(new Uint8Array(encodeCbor(document.payload)))).toBe(testCase.expected.payloadCbor);
+      }
+    }
   });
 
   it('executes every normative transaction primitive', async () => {

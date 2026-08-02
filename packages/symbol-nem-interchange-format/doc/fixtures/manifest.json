@@ -24,6 +24,11 @@
       "path": "password-v1.json"
     },
     {
+      "id": "secret-backup-codec-v1",
+      "category": "secret-backup",
+      "path": "secret-backup.json"
+    },
+    {
       "id": "zlib-profile-v1",
       "category": "zlib",
       "path": "zlib.json"
