@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "mode", "provenance", "cases"],
+  "properties": {
+    "id": { "const": "codec-component-matrix-v1" },
+    "mode": { "const": "encode-decode" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "cases": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "kind", "document", "expected"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": {
+            "enum": [
+              "contact",
+              "address",
+              "account",
+              "mnemonic",
+              "sign-request",
+              "signed-transaction",
+              "message-sign-request",
+              "signature",
+              "connection-request",
+              "connection-response"
+            ]
+          },
+          "kind": { "enum": ["normal", "boundary", "invalid"] },
+          "document": { "type": "object" },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["result"],
+            "properties": {
+              "result": { "enum": ["success", "invalid-payload"] },
+              "passwordFixture": { "const": "password-v1-fixed-v1" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "derivation"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "derivation": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

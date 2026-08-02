@@ -20,6 +20,13 @@ const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const bytes = (hex: string): Uint8Array =>
   Uint8Array.from(hex.match(/../g)!.map((value) => Number.parseInt(value, 16)));
 const hex = (value: Uint8Array): string => Buffer.from(value).toString('hex').toUpperCase();
+const fromDiagnostic = (value: unknown): unknown => {
+  if (typeof value === 'string' && value.startsWith('hex:')) return bytes(value.slice(4));
+  if (Array.isArray(value)) return value.map(fromDiagnostic);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fromDiagnostic(item)]));
+  return value;
+};
 
 describe('normative fixture loader', () => {
   it('loads and validates every manifest fixture', async () => {
@@ -28,12 +35,68 @@ describe('normative fixture loader', () => {
       'mnemonic-derivation-v1',
       'cbor-envelope-symbol-address-v1',
       'codec-structural-matrix-v1',
+      'codec-component-matrix-v1',
       'password-v1-fixed-v1',
       'secret-backup-codec-v1',
       'zlib-profile-v1',
       'transaction-primitives-v1',
       'mnemonic-unicode-v1',
     ]);
+  });
+
+  it('executes reviewed normal, boundary, and invalid fixtures for every format type', async () => {
+    const loaded = await loadFixtures(fixtures);
+    const fixture = loaded.find((item) => item.entry.id === 'codec-component-matrix-v1')!.data as {
+      cases: Array<{
+        id: string;
+        type: string;
+        kind: 'normal' | 'boundary' | 'invalid';
+        document: Record<string, unknown>;
+        expected: { result: 'success' | 'invalid-payload'; passwordFixture?: string };
+      }>;
+    };
+    const password = (
+      loaded.find((item) => item.entry.id === 'password-v1-fixed-v1')!.data as { constants: { password: string } }
+    ).constants.password;
+    const expectedTypes = [
+      'contact',
+      'address',
+      'account',
+      'mnemonic',
+      'sign-request',
+      'signed-transaction',
+      'message-sign-request',
+      'signature',
+      'connection-request',
+      'connection-response',
+    ];
+    for (const type of expectedTypes) {
+      expect(
+        fixture.cases
+          .filter((testCase) => testCase.type === type)
+          .map((testCase) => testCase.kind)
+          .sort()
+      ).toEqual(['boundary', 'invalid', 'normal']);
+    }
+    for (const testCase of fixture.cases) {
+      const document = fromDiagnostic(testCase.document);
+      const options = testCase.expected.passwordFixture
+        ? { password, compression: 'none' as const }
+        : { compression: 'none' as const };
+      if ('invalid-payload' === testCase.expected.result) {
+        await expect(encode(document as never, options), testCase.id).rejects.toMatchObject({
+          code: 'invalid-payload',
+        });
+      } else {
+        const data = await encode(document as never, options);
+        await expect(
+          decode(data, testCase.expected.passwordFixture ? { password } : {}),
+          testCase.id
+        ).resolves.toMatchObject({
+          type: testCase.type,
+        });
+      }
+    }
   });
 
   it('covers all v1 format types with reviewed CBOR values', async () => {

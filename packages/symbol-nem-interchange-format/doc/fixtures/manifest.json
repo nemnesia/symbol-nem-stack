@@ -19,6 +19,11 @@
       "path": "wire-valid.json"
     },
     {
+      "id": "codec-component-matrix-v1",
+      "category": "codec-component-matrix",
+      "path": "codec-component-matrix-v1.json"
+    },
+    {
       "id": "password-v1-fixed-v1",
       "category": "password-v1",
       "path": "password-v1.json"

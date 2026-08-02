@@ -22,6 +22,7 @@
               "mnemonic-derivation",
               "cbor-envelope",
               "codec-structural",
+              "codec-component-matrix",
               "password-v1",
               "secret-backup",
               "zlib",

@@ -9,6 +9,7 @@ interface ManifestEntry {
     | 'mnemonic-derivation'
     | 'cbor-envelope'
     | 'codec-structural'
+    | 'codec-component-matrix'
     | 'password-v1'
     | 'secret-backup'
     | 'zlib'
@@ -35,6 +36,7 @@ export const loadFixtures = async (
   const manifestValidator = ajv.compile((await readJson(path.join(schemas, 'manifest.schema.json'))) as AnySchema);
   const additionalSchemas = new Map([
     ['codec-structural', 'codec-structural.schema.json'],
+    ['codec-component-matrix', 'codec-component-matrix.schema.json'],
     ['password-v1', 'password-v1.schema.json'],
     ['secret-backup', 'secret-backup.schema.json'],
     ['zlib', 'zlib.schema.json'],

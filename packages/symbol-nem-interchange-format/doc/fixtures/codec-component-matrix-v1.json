@@ -1,0 +1,508 @@
+{
+  "id": "codec-component-matrix-v1",
+  "mode": "encode-decode",
+  "provenance": {
+    "source": "SNIF v1 Draft 2 sections 3, 5, and 10",
+    "derivation": "Each entry is a complete diagnostic encoder document. hex: values denote exact byte strings. Normal, boundary, and invalid cases are reviewed independently; the invalid cases are required to fail before serialization."
+  },
+  "cases": [
+    {
+      "id": "contact-normal",
+      "type": "contact",
+      "kind": "normal",
+      "document": {
+        "type": "contact",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "name": "SNIF Test Account",
+          "address": "hex:68639B5DD5B49506D6C96B51B3FF565A98512DBBDB8A97808B",
+          "publicKey": "hex:7B80BE99D38ED9BB7B33C3FE1C3087683BDEADF49AB664A08BE4215A53CE06EB"
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "contact-boundary",
+      "type": "contact",
+      "kind": "boundary",
+      "document": {
+        "type": "contact",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": { "name": "A", "address": "hex:68639B5DD5B49506D6C96B51B3FF565A98512DBBDB8A97808B" }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "contact-invalid",
+      "type": "contact",
+      "kind": "invalid",
+      "document": {
+        "type": "contact",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "name": "bad\nname", "address": "hex:68639B5DD5B49506D6C96B51B3FF565A98512DBBDB8A97808B" }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "address-normal",
+      "type": "address",
+      "kind": "normal",
+      "document": {
+        "type": "address",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "address": "hex:68639B5DD5B49506D6C96B51B3FF565A98512DBBDB8A97808B" }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "address-boundary",
+      "type": "address",
+      "kind": "boundary",
+      "document": {
+        "type": "address",
+        "chain": "symbol",
+        "network": {
+          "id": 152,
+          "generationHashSeed": "hex:0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "payload": { "address": "hex:000102030405060708090A0B0C0D0E0F1011121314151617" }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "address-invalid",
+      "type": "address",
+      "kind": "invalid",
+      "document": { "type": "address", "chain": "nem", "network": { "id": 104 }, "payload": { "address": "hex:6863" } },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "account-normal",
+      "type": "account",
+      "kind": "normal",
+      "document": {
+        "type": "account",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "privateKey": "hex:F532362ED9F59309EB1413027F1F742A07262C95B0257A97D3EF7FD95B51E77E",
+          "publicKey": "hex:7B80BE99D38ED9BB7B33C3FE1C3087683BDEADF49AB664A08BE4215A53CE06EB",
+          "address": "hex:68639B5DD5B49506D6C96B51B3FF565A98512DBBDB8A97808B"
+        }
+      },
+      "expected": { "result": "success", "passwordFixture": "password-v1-fixed-v1" }
+    },
+    {
+      "id": "account-boundary",
+      "type": "account",
+      "kind": "boundary",
+      "document": {
+        "type": "account",
+        "chain": "symbol",
+        "network": {
+          "id": 0,
+          "generationHashSeed": "hex:0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "payload": {
+          "privateKey": "hex:0101010101010101010101010101010101010101010101010101010101010101",
+          "publicKey": "hex:0202020202020202020202020202020202020202020202020202020202020202",
+          "address": "hex:000102030405060708090A0B0C0D0E0F1011121314151617"
+        }
+      },
+      "expected": { "result": "success", "passwordFixture": "password-v1-fixed-v1" }
+    },
+    {
+      "id": "account-invalid",
+      "type": "account",
+      "kind": "invalid",
+      "document": {
+        "type": "account",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "privateKey": "hex:0000000000000000000000000000000000000000000000000000000000000000",
+          "publicKey": "hex:7B80BE99D38ED9BB7B33C3FE1C3087683BDEADF49AB664A08BE4215A53CE06EB",
+          "address": "hex:68639B5DD5B49506D6C96B51B3FF565A98512DBBDB8A97808B"
+        }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "mnemonic-normal",
+      "type": "mnemonic",
+      "kind": "normal",
+      "document": {
+        "type": "mnemonic",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "scheme": "bip39",
+          "language": "english",
+          "mnemonic": "vehicle unfold decline merry control genuine real already erase address unique clerk have rice motor spike human own attack trim gloom inch payment chronic",
+          "passphrase": ""
+        }
+      },
+      "expected": { "result": "success", "passwordFixture": "password-v1-fixed-v1" }
+    },
+    {
+      "id": "mnemonic-boundary",
+      "type": "mnemonic",
+      "kind": "boundary",
+      "document": {
+        "type": "mnemonic",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": { "scheme": "bip39", "language": "japanese", "mnemonic": "あ", "passphrase": "" }
+      },
+      "expected": { "result": "success", "passwordFixture": "password-v1-fixed-v1" }
+    },
+    {
+      "id": "mnemonic-invalid",
+      "type": "mnemonic",
+      "kind": "invalid",
+      "document": {
+        "type": "mnemonic",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "scheme": "bip39", "language": "english", "mnemonic": "a  b" }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "sign-request-normal",
+      "type": "sign-request",
+      "kind": "normal",
+      "document": {
+        "type": "sign-request",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "transactionPayload": "hex:01",
+          "signingType": "transaction",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 1735689600,
+            "expiresAt": 1735690200,
+            "audience": "https://example.com"
+          }
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "sign-request-boundary",
+      "type": "sign-request",
+      "kind": "boundary",
+      "document": {
+        "type": "sign-request",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": {
+          "transactionPayload": "hex:01",
+          "signingType": "cosignature",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 0,
+            "expiresAt": 86400,
+            "audience": "https://example.com"
+          }
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "sign-request-invalid",
+      "type": "sign-request",
+      "kind": "invalid",
+      "document": {
+        "type": "sign-request",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "transactionPayload": "hex:01",
+          "signingType": "transaction",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 1,
+            "expiresAt": 1,
+            "audience": "https://example.com"
+          }
+        }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "signed-transaction-normal",
+      "type": "signed-transaction",
+      "kind": "normal",
+      "document": {
+        "type": "signed-transaction",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "transactionPayload": "hex:01", "requestId": "hex:00112233445566778899AABBCCDDEEFF" }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "signed-transaction-boundary",
+      "type": "signed-transaction",
+      "kind": "boundary",
+      "document": {
+        "type": "signed-transaction",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": { "transactionPayload": "hex:01" }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "signed-transaction-invalid",
+      "type": "signed-transaction",
+      "kind": "invalid",
+      "document": {
+        "type": "signed-transaction",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "transactionPayload": "hex:" }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "message-sign-request-normal",
+      "type": "message-sign-request",
+      "kind": "normal",
+      "document": {
+        "type": "message-sign-request",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "message": "hex:534E49462066697874757265",
+          "purpose": "authentication",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 1735689600,
+            "expiresAt": 1735690200,
+            "audience": "https://example.com"
+          }
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "message-sign-request-boundary",
+      "type": "message-sign-request",
+      "kind": "boundary",
+      "document": {
+        "type": "message-sign-request",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": {
+          "message": "hex:",
+          "purpose": "A",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 0,
+            "expiresAt": 86400,
+            "audience": "https://example.com"
+          }
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "message-sign-request-invalid",
+      "type": "message-sign-request",
+      "kind": "invalid",
+      "document": {
+        "type": "message-sign-request",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "message": "hex:01",
+          "purpose": "bad\ntext",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 0,
+            "expiresAt": 1,
+            "audience": "https://example.com"
+          }
+        }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "signature-normal",
+      "type": "signature",
+      "kind": "normal",
+      "document": {
+        "type": "signature",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "signatureType": "rejected", "requestId": "hex:00112233445566778899AABBCCDDEEFF" }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "signature-boundary",
+      "type": "signature",
+      "kind": "boundary",
+      "document": {
+        "type": "signature",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": {
+          "signatureType": "cosignature",
+          "transactionPayload": "hex:01",
+          "requestId": "hex:00112233445566778899AABBCCDDEEFF"
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "signature-invalid",
+      "type": "signature",
+      "kind": "invalid",
+      "document": {
+        "type": "signature",
+        "chain": "symbol",
+        "network": {
+          "id": 152,
+          "generationHashSeed": "hex:0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "payload": {
+          "signatureType": "cosignature",
+          "parentHash": "hex:0101010101010101010101010101010101010101010101010101010101010101",
+          "signature": "hex:0101",
+          "signerPublicKey": "hex:0202020202020202020202020202020202020202020202020202020202020202",
+          "version": 0,
+          "requestId": "hex:00112233445566778899AABBCCDDEEFF"
+        }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "connection-request-normal",
+      "type": "connection-request",
+      "kind": "normal",
+      "document": {
+        "type": "connection-request",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "application": { "name": "SNIF Fixture App", "origin": "https://example.com" },
+          "permissions": ["account", "sign-message"],
+          "challenge": "hex:000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 1735689600,
+            "expiresAt": 1735690200,
+            "audience": "https://example.com"
+          },
+          "requesterPublicKey": "hex:7B80BE99D38ED9BB7B33C3FE1C3087683BDEADF49AB664A08BE4215A53CE06EB",
+          "signature": "hex:01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "connection-request-boundary",
+      "type": "connection-request",
+      "kind": "boundary",
+      "document": {
+        "type": "connection-request",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": {
+          "application": { "name": "A", "origin": "https://example.com", "iconUrl": "https://example.com/icon" },
+          "permissions": ["account", "sign-transaction", "sign-message"],
+          "challenge": "hex:0101010101010101010101010101010101010101010101010101010101010101",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 0,
+            "expiresAt": 86400,
+            "audience": "https://example.com"
+          },
+          "requesterPublicKey": "hex:7B80BE99D38ED9BB7B33C3FE1C3087683BDEADF49AB664A08BE4215A53CE06EB",
+          "signature": "hex:01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "connection-request-invalid",
+      "type": "connection-request",
+      "kind": "invalid",
+      "document": {
+        "type": "connection-request",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": {
+          "application": { "name": "App", "origin": "https://example.com", "iconUrl": "http://example.com/icon" },
+          "permissions": ["account"],
+          "challenge": "hex:0101010101010101010101010101010101010101010101010101010101010101",
+          "context": {
+            "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+            "createdAt": 0,
+            "expiresAt": 1,
+            "audience": "https://example.com"
+          },
+          "requesterPublicKey": "hex:7B80BE99D38ED9BB7B33C3FE1C3087683BDEADF49AB664A08BE4215A53CE06EB",
+          "signature": "hex:01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": { "result": "invalid-payload" }
+    },
+    {
+      "id": "connection-response-normal",
+      "type": "connection-response",
+      "kind": "normal",
+      "document": {
+        "type": "connection-response",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "approved": false, "requestId": "hex:00112233445566778899AABBCCDDEEFF" }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "connection-response-boundary",
+      "type": "connection-response",
+      "kind": "boundary",
+      "document": {
+        "type": "connection-response",
+        "chain": "nem",
+        "network": { "id": 0 },
+        "payload": {
+          "approved": true,
+          "requestId": "hex:00112233445566778899AABBCCDDEEFF",
+          "sessionId": "hex:FFEEDDCCBBAA99887766554433221100",
+          "sessionCreatedAt": 0,
+          "sessionExpiresAt": 2592000,
+          "account": {
+            "address": "hex:68639B5DD5B49506D6C96B51B3FF565A98512DBBDB8A97808B",
+            "publicKey": "hex:7B80BE99D38ED9BB7B33C3FE1C3087683BDEADF49AB664A08BE4215A53CE06EB"
+          },
+          "permissions": ["account", "sign-transaction", "sign-message"],
+          "signature": "hex:01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": { "result": "success" }
+    },
+    {
+      "id": "connection-response-invalid",
+      "type": "connection-response",
+      "kind": "invalid",
+      "document": {
+        "type": "connection-response",
+        "chain": "nem",
+        "network": { "id": 104 },
+        "payload": { "approved": false, "requestId": "hex:00000000000000000000000000000000" }
+      },
+      "expected": { "result": "invalid-payload" }
+    }
+  ]
+}
