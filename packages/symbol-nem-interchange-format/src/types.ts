@@ -50,15 +50,17 @@ export interface DecodeOptions {
 export type EncryptionHeader =
   { algorithm: 'none' } | { algorithm: 'password-v1'; salt: Uint8Array; nonce: Uint8Array };
 
-export interface SnifHeader {
+interface SnifHeaderBase {
   protocol: 'snif';
   version: 1;
   type: FormatType;
-  chain: Chain;
-  network: Network;
   compression: 'none' | 'zlib';
   encryption: EncryptionHeader;
 }
+
+export type SnifHeader =
+  | (SnifHeaderBase & { chain: 'symbol'; network: SymbolNetwork })
+  | (SnifHeaderBase & { chain: 'nem'; network: NemNetwork });
 
 export interface ConnectionRecord {
   sessionId: Uint8Array;

@@ -8,9 +8,7 @@ import { decodeCanonical, encodeCanonical } from './cbor.js';
 import { decrypt, encrypt, secureRandom } from './crypto.js';
 import { isFormatType, isRecord, validateDocument, validateNetwork, validatePayload } from './validation.js';
 
-interface Envelope extends SnifHeader {
-  payload: Uint8Array;
-}
+type Envelope = SnifHeader & { payload: Uint8Array };
 
 const envelopeKeys = ['protocol', 'version', 'type', 'chain', 'network', 'compression', 'encryption', 'payload'];
 
@@ -53,18 +51,19 @@ const validateEnvelope = (value: unknown): Envelope => {
     compression: value.compression,
     encryption,
     payload: requireBytes(value.payload, 1, MAX_SNIF_SIZE, 'invalid-envelope'),
-  };
+  } as Envelope;
 };
 
-const headerOf = (envelope: Envelope): SnifHeader => ({
-  protocol: envelope.protocol,
-  version: envelope.version,
-  type: envelope.type,
-  chain: envelope.chain,
-  network: envelope.network,
-  compression: envelope.compression,
-  encryption: envelope.encryption,
-});
+const headerOf = (envelope: Envelope): SnifHeader =>
+  ({
+    protocol: envelope.protocol,
+    version: envelope.version,
+    type: envelope.type,
+    chain: envelope.chain,
+    network: envelope.network,
+    compression: envelope.compression,
+    encryption: envelope.encryption,
+  }) as SnifHeader;
 
 export const decompress = (payload: Uint8Array): Uint8Array => {
   try {
@@ -120,7 +119,7 @@ export const encodeDocument = async (input: SnifDocument, options: EncodeOptions
   let encryption: EncryptionHeader = { algorithm: 'none' };
   if (options.password) encryption = { algorithm: 'password-v1', salt: secureRandom(16), nonce: secureRandom(12) };
   if (secret && 'password-v1' !== encryption.algorithm) throw new SnifError('password-required');
-  const header: SnifHeader = {
+  const header = {
     protocol: 'snif',
     version: 1,
     type: document.type,
@@ -128,7 +127,7 @@ export const encodeDocument = async (input: SnifDocument, options: EncodeOptions
     network: document.network,
     compression,
     encryption,
-  };
+  } as SnifHeader;
   if ('password-v1' === encryption.algorithm) {
     const aad = encodeCanonical(header, 'invalid-envelope');
     payload = await encrypt(payload, options.password!, encryption.salt, encryption.nonce, aad, options.signal);
