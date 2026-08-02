@@ -21,13 +21,10 @@
             "enum": [
               "mnemonic-derivation",
               "cbor-envelope",
-              "wire-valid",
-              "wire-invalid",
+              "codec-structural",
               "password-v1",
               "zlib",
-              "transaction-verification",
-              "message-verification",
-              "connection-verification",
+              "transaction-primitives",
               "mnemonic-unicode"
             ]
           },

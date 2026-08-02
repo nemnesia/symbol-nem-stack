@@ -14,14 +14,9 @@
       "path": "cbor-envelope-symbol-address.json"
     },
     {
-      "id": "wire-valid-matrix-v1",
-      "category": "wire-valid",
+      "id": "codec-structural-matrix-v1",
+      "category": "codec-structural",
       "path": "wire-valid.json"
-    },
-    {
-      "id": "wire-invalid-matrix-v1",
-      "category": "wire-invalid",
-      "path": "wire-invalid.json"
     },
     {
       "id": "password-v1-fixed-v1",
@@ -34,19 +29,9 @@
       "path": "zlib.json"
     },
     {
-      "id": "transaction-verification-v1",
-      "category": "transaction-verification",
+      "id": "transaction-primitives-v1",
+      "category": "transaction-primitives",
       "path": "transaction-verification.json"
-    },
-    {
-      "id": "message-verification-v1",
-      "category": "message-verification",
-      "path": "message-verification.json"
-    },
-    {
-      "id": "connection-verification-v1",
-      "category": "connection-verification",
-      "path": "connection-verification.json"
     },
     {
       "id": "mnemonic-unicode-v1",

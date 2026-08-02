@@ -758,6 +758,10 @@ wire-format fixtureは次を含まなければならない。
 - 期待デコード値または期待エラーカテゴリー
 - 暗号化ケースではテスト専用の固定password、salt、nonce、導出鍵、AAD、ciphertext、authentication tag
 
+各規範caseは、適合実装が実装固有constant、暗黙のmutation手順、または外部状態を追加せず実行できる完全な入力を含まなければならない。byte列を扱うcaseは入力および変異後の完全byte列を大文字16進で格納しなければならない。`mutation`、`baseCase`、`expression`などの説明だけを規範入力としてはならない。
+
+verification caseは、requestおよびresponseの完全SNIF byte列、またはcategory別schemaで固定した完全なdecode後documentに加え、`now`、`trustedAudience`、`ConnectionRecord`、`authenticatedRejection`など検証APIへ渡す全外部引数と、期待hash／resultまたは期待errorを含まなければならない。署名、proof、transaction、hashまたはframeを検証するcaseは、有効な入力と負のcaseごとの変異後byte列をbyte-for-byteで格納しなければならない。
+
 mnemonic derivationなどのalgorithm fixtureはwire-format fixtureではない。algorithm fixtureは、category別JSON Schemaが定める入力と期待導出値を含まなければならず、内部ペイロードCBORまたは完全なエンベロープCBORを持つ必要はない。
 
 Unicode mnemonic適合fixtureは、BIP39が参照する公開test vectorから次を採用し、出典repository、取得対象commit、元vectorのentropy、NFKD前の表示値、SNIFへ格納するNFKD／ASCII-space値、および期待BIP39 seedを記録しなければならない。
@@ -771,7 +775,9 @@ NFC入力拒否fixtureでは、上記境界vectorと同じUnicode scalar列をNF
 
 manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema対応表が同じ変更で追加された場合にだけ追加してよい。既存categoryのfieldの意味または期待値表現を互換性なく変更してはならない。この変更が必要な場合は、新しいcategory名と新しいcategory別JSON Schemaを追加し、既存categoryを保持しなければならない。loaderは未知のcategoryを推測せず拒否しなければならない。
 
-v1の規範categoryは`wire-valid`、`wire-invalid`、`password-v1`、`zlib`、`transaction-verification`、`message-verification`、`connection-verification`、`mnemonic-unicode`、`mnemonic-derivation`および`cbor-envelope`とする。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
+`codec-structural` fixtureはcodecが外部contextなしに受理するdocument構造を表すだけであり、chain transaction、署名、connection proofまたは利用者承認の検証成功を意味しない。`codec-structural`のcaseを下表の「タイプ」「署名」「接続」の完全適合件数へ算入してはならない。これらのmatrixを満たす正しいfixtureは、必要なverification helperの成功まで含む実行可能なverification fixtureとする。
+
+現行の規範categoryは`codec-structural`、`password-v1`、`zlib`、`transaction-primitives`、`mnemonic-unicode`、`mnemonic-derivation`および`cbor-envelope`とする。`transaction-primitives`はSDKのserialize、hashおよび署名primitiveだけを検証し、SNIF request／response対応の成功を意味しない。未完成のnegative、transaction verification、messageまたはconnection caseをmanifestへ登録してはならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
 
 最低限のfixture matrixを次に示す。
 

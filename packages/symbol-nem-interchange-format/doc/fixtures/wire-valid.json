@@ -1,8 +1,8 @@
 {
-  "id": "wire-valid-matrix-v1",
+  "id": "codec-structural-matrix-v1",
   "provenance": {
     "source": "SNIF v1 Draft 2 sections 3 and 5",
-    "derivation": "Payload and envelope maps were encoded independently with RFC 8949 deterministic CBOR; account and mnemonic use the fixed password-v1 vector."
+    "derivation": "Payload and envelope maps were encoded independently with RFC 8949 deterministic CBOR; account and mnemonic use the fixed password-v1 vector. These cases assert codec structure only and do not assert transaction or signature verification."
   },
   "constants": {
     "chain": "nem",
