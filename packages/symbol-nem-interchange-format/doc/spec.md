@@ -712,9 +712,19 @@ zlib componentのPhase 1 fixtureは、展開後16 MiBを受理し、byte長とSH
 | 2     | 公開codec APIのend-to-end統合                                                             | Node.jsとbrowserでcomponent間の相互運用、失敗伝播、資源制限のfixtureがすべて成功 |
 | 3     | 安定版公開                                                                                | 10タイプのwire・profile matrix、Symbol/NEM相互運用、公開codecの全適合testが成功  |
 
+### 10.1 Phase 2 公開API相互運用
+
+Phase 2のbrowser test環境はPlaywright Chromiumとし、Node.js testと同じ`doc/fixtures/manifest.json`を読み込まなければならない。browser専用の複製fixture、暗黙のtest constant、または環境ごとに異なる期待値を使用してはならない。
+
+各環境はv1の10タイプについて、公開`encode`、`decode`および`inspect`を実行し、正常・境界caseでは`payloadCbor`、`envelopeCbor`、返却documentおよびheaderが同じfixture期待値と一致することを確認しなければならない。暗号化caseはfixtureの固定暗号材料でwire値を比較してよいが、通常の公開`encode`が呼び出し側指定のsaltまたはnonceを受け取ってはならない。
+
+両環境は次の失敗を同じ`SnifError.code`で確認しなければならない。不正payloadおよび不正envelopeはfixture指定のerror、誤passwordは`decryption-failed`、既にabort済みの`AbortSignal`は`operation-cancelled`とする。実行中の中断を確認するcaseは、暗号処理開始後の安全な境界で同じ`operation-cancelled`を返さなければならない。
+
+資源制限caseは、16 MiB zlib streamを受理し、16 MiB+1を内側payloadのdecode前に`resource-limit`として拒否すること、入力byte長が`MAX_SNIF_SIZE`を超える場合を`resource-limit`として拒否することを両環境で確認しなければならない。Phase 2 fixtureは環境名、公開API操作、完全入力、期待payload／envelopeまたはerror codeをmanifestから参照される本体へ固定する。
+
 現行のfixture登録状況は`doc/fixtures/manifest.json`を正とする。全体phaseは、manifestに登録されたfixture、共通loader／test基盤、および上表の完了条件から決定する。ただし、各componentは対応fixtureが先に登録・review済みであれば個別にPhase 1へ進めてよい。fixtureより先に同じcomponentの実装を追加してはならない。
 
-`codec-component-matrix-v1`には全10タイプの正常・境界・不正caseを登録している。正常・境界caseは期待wire byte列を持ち、別CBOR decoderで復元する。ただし、Node.js/browser間相互運用は未実施である。したがって、package全体をPhase 2完了、適合済み、またはrelease済みと表示してはならない。
+`codec-component-matrix-v1`には全10タイプの正常・境界・不正caseを登録している。正常・境界caseは期待wire byte列を持ち、別CBOR decoderで復元する。Phase 2のNode.js/browser相互運用fixtureは未登録かつ未実施である。したがって、package全体をPhase 2完了、適合済み、またはrelease済みと表示してはならない。
 
 v1ではpackage全体を単一のDraftとして扱う。全10タイプと公開codecに必要なwire・profile fixture matrixがPhase 3の完了条件を満たすまで、packageを安定版として公開registryへpublishしてはならず、いずれかのcomponentだけをrelease済みまたは適合済みと表示してはならない。開発用buildでfixture完成済みcomponentを試験することは妨げないが、そのbuildは非公開のpre-releaseとして明示しなければならない。component単位の段階的な公開はv1の対象外とする。
 
