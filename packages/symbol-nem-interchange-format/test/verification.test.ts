@@ -186,7 +186,7 @@ describe('verification boundary', () => {
   );
 
   it.each(['complete', 'bonded'] as const)(
-    'rejects a Symbol aggregate %s response with changed existing cosignatures',
+    'accepts a Symbol aggregate %s response when SDK signing payload and signature are valid',
     async (kind) => {
       const { original, signed } = createSymbolAggregatePair(kind);
       (signed as models.AggregateCompleteTransactionV3 | models.AggregateBondedTransactionV3).cosignatures = [];
@@ -206,8 +206,8 @@ describe('verification boundary', () => {
         network: originalRequest.network,
         payload: { transactionPayload: signed.serialize(), requestId },
       };
-      await expect(verifyResponse(response, originalRequest, { now: 150 })).rejects.toMatchObject({
-        code: 'verification-failed',
+      await expect(verifyResponse(response, originalRequest, { now: 150 })).resolves.toMatchObject({
+        document: response,
       });
     }
   );

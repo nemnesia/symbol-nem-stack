@@ -370,7 +370,7 @@ signed-transaction-payload = {
 
 `requestId`が存在する場合、hostは元の`sign-request`を明示的な引数として11節の`verifyResponse`を呼び出さなければならない。verification helperはSymbol SDKのchain固有modelとfacadeを使用し、chain、network、signing type、署名対象、期待signer、および格納済みの全署名を検証する。
 
-`signingType: "transaction"`では、verification helperは元要求と応答を同じchain／networkのtransaction factoryでdeserializeし、各modelを同じfacadeの`extractSigningPayload`相当処理へ渡して署名対象byte列を算出する。両byte列はbyte-for-byteで一致しなければならない。さらに、応答modelは元要求modelと同じtype、version、network、signer public key、fee、deadline、transaction body、embedded transactionおよび既存cosignatureを持たなければならず、元要求からの変更はtransaction自身のsignature fieldへの有効な署名の設定だけを許可する。署名対象が一致しても、これらのmodel fieldが異なる応答は`verification-failed`として拒否する。
+`signingType: "transaction"`では、verification helperは元要求と応答を同じchain／networkのtransaction factoryでdeserializeし、各modelを同じfacadeの`extractSigningPayload`相当処理へ渡して署名対象byte列を算出する。両byte列はbyte-for-byteで一致しなければならない。helperは応答の格納署名を検証するが、fee、deadline、mosaic、message、embedded transaction、既存cosignatureその他のtransaction bodyをfield単位で解釈または比較してはならない。これらの表示、承認およびオンチェーン有効性の判断はhostの責務とする。
 
 `signingType: "cosignature"`ではchain別に次を必須とする。
 
