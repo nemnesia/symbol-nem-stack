@@ -1,6 +1,7 @@
 {
   "name": "@nemnesia/symbol-nem-interchange-format",
   "version": "0.1.0",
+  "private": true,
   "description": "Transport-independent interchange format for Symbol and NEM data",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,9 +30,6 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "dependencies": {
     "@nemnesia/symbol-sdk": "workspace:3.3.2-pure.2",
