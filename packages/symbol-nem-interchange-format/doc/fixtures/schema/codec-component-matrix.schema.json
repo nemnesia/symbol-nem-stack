@@ -36,6 +36,7 @@
           "expected": {
             "type": "object",
             "additionalProperties": false,
+            "description": "The fixture test MUST compare envelopeCbor decoded by an independent CBOR decoder with payloadCbor; JSON Schema cannot express this byte-level correlation.",
             "properties": {
               "result": { "enum": ["success", "invalid-payload"] },
               "payloadCbor": { "$ref": "#/$defs/hex" },

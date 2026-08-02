@@ -681,6 +681,8 @@ manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema�
 
 現行のcore規範categoryは`codec-structural`、`codec-component-matrix`、`password-v1`、`secret-backup`、`zlib`、`mnemonic-unicode`および`cbor-envelope`とする。`codec-component-matrix`は10タイプの完全な診断用documentについて、各typeの正常・境界・不正caseを登録する規範encoder/decoder matrixである。`hex:`接頭辞は大文字16進の完全byte列を表す。正常・境界caseは`payloadCbor`および`envelopeCbor`を必須とし、適合encoderは両方とbyte-for-byteで一致しなければならない。password-v1 caseはtest専用のpassword、salt、nonce、導出鍵、AAD、ciphertextおよびtagを必須とする。不正caseはserializationより前に指定errorで失敗しなければならない。期待envelopeは別CBOR decoderで復元してpayload byte stringを確認する。このmatrixの成功だけではNode.js/browser相互運用の確認を意味しない。`transaction-primitives`と`mnemonic-derivation`はchain意味検証用の補助資料であり、core codec適合またはrelease判定の根拠にしてはならない。`secret-backup`は`account`と`mnemonic`について、完全SNIF入力、固定password、復号済みpayload、誤password、AAD header改変、tag改変、password未指定および禁止されたzlib圧縮を固定する。秘密typeで`compression`が`"none"`以外であるcaseは各typeにつき少なくとも1件を登録し、decoderはpassword導出、復号、展開または内部payloadのdecodeより前に`invalid-envelope`として拒否しなければならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
 
+`codec-component-matrix`の正常・境界caseでは、fixture testが別CBOR decoderで`envelopeCbor`を復元し、その`payload` byte stringと同じcaseの`payloadCbor`をbyte-for-byteで比較しなければならない。不一致はfixture不整合であり、encoder、decoderまたはreleaseの適合根拠にしてはならない。category別JSON Schemaだけではこの相関を表せないため、manifest loaderまたはfixture testはこの照合を省略してはならない。
+
 最低限のfixture matrixを次に示す。
 
 | 対象     | 必須ケース                                                                                                              |

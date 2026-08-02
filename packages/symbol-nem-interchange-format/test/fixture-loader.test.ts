@@ -106,6 +106,7 @@ describe('normative fixture loader', () => {
           payload: Uint8Array;
         };
         expect(independentEnvelope.payload).toBeInstanceOf(Uint8Array);
+        expect(hex(independentEnvelope.payload)).toBe(testCase.expected.payloadCbor);
         await expect(
           decode(
             bytes(testCase.expected.envelopeCbor!),
