@@ -793,7 +793,7 @@ type MessageSignRequestPayload = {
   expectedSignerPublicKey?: Uint8Array;
   connection?: ConnectionProof;
 };
-type SignaturePayload =
+type DetachedSignaturePayload =
   | {
       signatureType: 'transaction' | 'message';
       signature: Uint8Array;
@@ -801,6 +801,9 @@ type SignaturePayload =
       targetHash: Uint8Array;
       requestId: Uint8Array;
     }
+  | { signatureType: 'rejected'; requestId: Uint8Array };
+type SymbolSignaturePayload =
+  | DetachedSignaturePayload
   | {
       signatureType: 'cosignature';
       parentHash: Uint8Array;
@@ -808,9 +811,9 @@ type SignaturePayload =
       signerPublicKey: Uint8Array;
       version: 0;
       requestId: Uint8Array;
-    }
-  | { signatureType: 'cosignature'; transactionPayload: Uint8Array; requestId: Uint8Array }
-  | { signatureType: 'rejected'; requestId: Uint8Array };
+    };
+type NemSignaturePayload =
+  DetachedSignaturePayload | { signatureType: 'cosignature'; transactionPayload: Uint8Array; requestId: Uint8Array };
 type ConnectionRequestPayload = {
   application: ApplicationMetadata;
   permissions: ConnectionPermission[];
@@ -840,26 +843,33 @@ type PayloadByType = {
   'sign-request': SignRequestPayload;
   'signed-transaction': SignedTransactionPayload;
   'message-sign-request': MessageSignRequestPayload;
-  signature: SignaturePayload;
+  signature: never;
   'connection-request': ConnectionRequestPayload;
   'connection-response': ConnectionResponsePayload;
 };
 type FormatType = keyof PayloadByType;
 type NetworkByChain = { symbol: SymbolNetwork; nem: NemNetwork };
+type PayloadFor<T extends FormatType, C extends Chain> = T extends 'signature'
+  ? C extends 'symbol'
+    ? SymbolSignaturePayload
+    : NemSignaturePayload
+  : PayloadByType[T];
 type SnifDocument = {
   [T in FormatType]: {
-    [C in Chain]: { type: T; chain: C; network: NetworkByChain[C]; payload: PayloadByType[T] };
+    [C in Chain]: { type: T; chain: C; network: NetworkByChain[C]; payload: PayloadFor<T, C> };
   }[Chain];
 }[FormatType];
 type SnifHeader = {
-  protocol: 'snif';
-  version: 1;
-  type: FormatType;
-  chain: Chain;
-  network: Network;
-  compression: 'none' | 'zlib';
-  encryption: EncryptionHeader;
-};
+  [C in Chain]: {
+    protocol: 'snif';
+    version: 1;
+    type: FormatType;
+    chain: C;
+    network: NetworkByChain[C];
+    compression: 'none' | 'zlib';
+    encryption: EncryptionHeader;
+  };
+}[Chain];
 ```
 
 `SnifDocument`は`type`を判別fieldとするv1の10 payload typeのdiscriminated unionとする。`chain`、`network`、`payload`を必須とし、payloadはtype固有CDDL mapと同じfield名・必須性を持つ。`network`は`chain: 'symbol'`で`SymbolNetwork`、`chain: 'nem'`で`NemNetwork`だけを許可する。公開型が表す組合せに加え、適合実装はruntime validationを省略してはならない。
