@@ -1,4 +1,4 @@
-import { unzlibSync, zlibSync } from 'fflate';
+import { Unzlib, zlibSync } from 'fflate';
 
 import { SnifError } from '../errors.js';
 import type { DecodeOptions, EncodeOptions, EncryptionHeader, SnifDocument, SnifHeader } from '../types.js';
@@ -68,13 +68,47 @@ const headerOf = (envelope: Envelope): SnifHeader => ({
 
 const decompress = (payload: Uint8Array): Uint8Array => {
   try {
-    const result = unzlibSync(payload);
-    if (result.byteLength > MAX_SNIF_SIZE) throw new SnifError('resource-limit');
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    const stream = new Unzlib((chunk) => {
+      length += chunk.byteLength;
+      if (length > MAX_SNIF_SIZE) throw new SnifError('resource-limit');
+      chunks.push(chunk);
+    });
+    for (let offset = 0; offset < payload.byteLength; offset += 1024)
+      stream.push(
+        payload.subarray(offset, Math.min(offset + 1024, payload.byteLength)),
+        offset + 1024 >= payload.byteLength
+      );
+    const result = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    if (payload.byteLength < 6 || readAdler32(payload) !== adler32(result)) throw new SnifError('invalid-payload');
     return result;
   } catch (error) {
     if (error instanceof SnifError) throw error;
     throw new SnifError('invalid-payload');
   }
+};
+
+const readAdler32 = (payload: Uint8Array): number => {
+  const offset = payload.byteLength - 4;
+  return (
+    ((payload[offset]! << 24) | (payload[offset + 1]! << 16) | (payload[offset + 2]! << 8) | payload[offset + 3]!) >>> 0
+  );
+};
+
+const adler32 = (data: Uint8Array): number => {
+  let a = 1;
+  let b = 0;
+  for (const byte of data) {
+    a = (a + byte) % 65_521;
+    b = (b + a) % 65_521;
+  }
+  return ((b << 16) | a) >>> 0;
 };
 
 export const inspect = (data: Uint8Array): SnifHeader =>

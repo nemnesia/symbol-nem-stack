@@ -1,3 +1,5 @@
+import { encode as encodeCbor } from 'cborg';
+import { zlibSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
 import { type SnifDocument, decode, encode, inspect } from '../src/index.js';
@@ -72,5 +74,63 @@ describe('SNIF codec', () => {
     await expect(decode(encoded, { password: 'wrong password' })).rejects.toMatchObject({
       code: 'decryption-failed',
     });
+  });
+
+  it.each([
+    ['decomposed Unicode', 'Cafe\u0301'],
+    ['line feed', 'line\nfeed'],
+    ['tab', 'tab\tseparated'],
+    ['NUL', 'nul\u0000byte'],
+    ['DEL', 'delete\u007fbyte'],
+  ])('rejects %s in display text', async (_name, value) => {
+    await expect(
+      encode(
+        { type: 'contact', chain: 'symbol', network: document.network, payload: { name: value, address } },
+        { compression: 'none' }
+      )
+    ).rejects.toMatchObject({ code: 'invalid-payload' });
+  });
+
+  it('accepts NFC display text at its UTF-8 byte limit', async () => {
+    await expect(
+      encode(
+        { type: 'contact', chain: 'symbol', network: document.network, payload: { name: 'é'.repeat(64), address } },
+        { compression: 'none' }
+      )
+    ).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it('stops zlib expansion above the 16 MiB payload limit', async () => {
+    const compressed = zlibSync(new Uint8Array(16 * 1024 * 1024 + 1));
+    const envelope = encodeCbor({
+      protocol: 'snif',
+      version: 1,
+      type: 'address',
+      chain: 'symbol',
+      network: document.network,
+      compression: 'zlib',
+      encryption: { algorithm: 'none' },
+      payload: compressed,
+    });
+    await expect(decode(envelope)).rejects.toMatchObject({ code: 'resource-limit' });
+  });
+
+  it('rejects data appended after a zlib stream', async () => {
+    const payload = encodeCbor(document.payload);
+    const compressed = zlibSync(payload);
+    const withTrailingData = new Uint8Array(compressed.byteLength + 4);
+    withTrailingData.set(compressed);
+    withTrailingData.set([1, 2, 3, 4], compressed.byteLength);
+    const envelope = encodeCbor({
+      protocol: 'snif',
+      version: 1,
+      type: 'address',
+      chain: 'symbol',
+      network: document.network,
+      compression: 'zlib',
+      encryption: { algorithm: 'none' },
+      payload: withTrailingData,
+    });
+    await expect(decode(envelope)).rejects.toMatchObject({ code: 'invalid-payload' });
   });
 });

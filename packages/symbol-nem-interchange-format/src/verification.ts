@@ -239,6 +239,11 @@ const verifyTransactionResponse = (response: ResponseDocument, request: RequestD
         const signed = SymbolTransactionFactory.deserialize(response.payload.transactionPayload as Uint8Array);
         if (!equalBytes(signingPayload, facade.extractSigningPayload(signed)))
           throw new SnifError('verification-failed');
+        const signedSignature = signed.signature;
+        signed.signature = original.signature;
+        const unchangedExceptSignature = equalBytes(original.serialize(), signed.serialize());
+        signed.signature = signedSignature;
+        if (!unchangedExceptSignature) throw new SnifError('verification-failed');
         verifyExpectedSigner(request, signed.signerPublicKey.bytes);
         if (!facade.verifyTransaction(signed, new Signature(signed.signature.bytes)))
           throw new SnifError('verification-failed');
@@ -306,6 +311,7 @@ export const verifyResponse = async <T extends ResponseDocument>(
 ): Promise<ResponseVerificationResult<T>> => {
   const response = validatedDocument(input);
   const request = validatedDocument(originalInput);
+  verifyTime(requestContext(request), options.now);
   if (
     response.chain !== request.chain ||
     !equalBytes(

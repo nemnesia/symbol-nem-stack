@@ -33,9 +33,21 @@ const exactKeys = (value: Record<string, unknown>, required: string[], optional:
 };
 
 const text = (value: unknown, minimum: number, maximum: number): string => {
-  if (typeof value !== 'string' || utf8Length(value) < minimum || utf8Length(value) > maximum)
+  if (
+    typeof value !== 'string' ||
+    value.normalize('NFC') !== value ||
+    utf8Length(value) < minimum ||
+    utf8Length(value) > maximum
+  )
     throw new SnifError('invalid-payload');
   return value;
+};
+
+const displayText = (value: unknown, minimum: number, maximum: number): string => {
+  const result = text(value, minimum, maximum);
+  if ([...result].some((character) => character.codePointAt(0)! <= 0x1f || character.codePointAt(0) === 0x7f))
+    throw new SnifError('invalid-payload');
+  return result;
 };
 
 const uint = (value: unknown, maximum = 253_402_300_799): number => {
@@ -45,7 +57,7 @@ const uint = (value: unknown, maximum = 253_402_300_799): number => {
 };
 
 const absoluteUri = (value: unknown, maximum = 2048): string => {
-  const uri = text(value, 1, maximum);
+  const uri = displayText(value, 1, maximum);
   try {
     const parsed = new URL(uri);
     if (!parsed.protocol) throw new Error();
@@ -119,7 +131,7 @@ export const validatePayload = (type: FormatType, chain: Chain, payload: unknown
   switch (type) {
     case 'contact':
       exactKeys(payload, ['name', 'address'], ['publicKey']);
-      text(payload.name, 1, 128);
+      displayText(payload.name, 1, 128);
       address(payload.address, chain);
       if (payload.publicKey !== undefined) publicKey(payload.publicKey);
       break;
@@ -172,7 +184,7 @@ export const validatePayload = (type: FormatType, chain: Chain, payload: unknown
     case 'message-sign-request':
       exactKeys(payload, ['message', 'purpose', 'context'], ['expectedSignerPublicKey', 'connection']);
       requireBytes(payload.message, 0, MAX_MESSAGE_SIZE);
-      text(payload.purpose, 1, 256);
+      displayText(payload.purpose, 1, 256);
       validateCommonRequest(payload);
       break;
     case 'signature':
@@ -182,7 +194,7 @@ export const validatePayload = (type: FormatType, chain: Chain, payload: unknown
       exactKeys(payload, ['application', 'permissions', 'challenge', 'context', 'requesterPublicKey', 'signature']);
       if (!isRecord(payload.application)) throw new SnifError('invalid-payload');
       exactKeys(payload.application, ['name', 'origin'], ['iconUrl']);
-      text(payload.application.name, 1, 128);
+      displayText(payload.application.name, 1, 128);
       const origin = absoluteUri(payload.application.origin);
       if (payload.application.iconUrl !== undefined) {
         const icon = absoluteUri(payload.application.iconUrl);
