@@ -3,6 +3,7 @@ import { zlibSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
 import { type SnifDocument, decode, encode, inspect } from '../src/index.js';
+import { validatePayload } from '../src/internal/validation.js';
 
 const generationHashSeed = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
 const address = Uint8Array.from(
@@ -115,12 +116,18 @@ describe('SNIF codec', () => {
     await expect(decode(envelope)).rejects.toMatchObject({ code: 'resource-limit' });
   });
 
-  it('rejects data appended after a zlib stream', async () => {
+  it.each([
+    ['duplicated checksum', (compressed: Uint8Array) => compressed.subarray(compressed.byteLength - 4)],
+    ['another complete stream', (compressed: Uint8Array) => compressed],
+    ['a zero byte', () => Uint8Array.of(0)],
+    ['arbitrary bytes', () => Uint8Array.of(1, 2, 3, 4)],
+  ])('rejects %s appended after a zlib stream', async (_name, trailingData) => {
     const payload = encodeCbor(document.payload);
     const compressed = zlibSync(payload);
-    const withTrailingData = new Uint8Array(compressed.byteLength + 4);
+    const trailing = trailingData(compressed);
+    const withTrailingData = new Uint8Array(compressed.byteLength + trailing.byteLength);
     withTrailingData.set(compressed);
-    withTrailingData.set([1, 2, 3, 4], compressed.byteLength);
+    withTrailingData.set(trailing, compressed.byteLength);
     const envelope = encodeCbor({
       protocol: 'snif',
       version: 1,
@@ -132,5 +139,31 @@ describe('SNIF codec', () => {
       payload: withTrailingData,
     });
     await expect(decode(envelope)).rejects.toMatchObject({ code: 'invalid-payload' });
+  });
+
+  it('accepts an NFKD BIP39 passphrase and rejects its NFC equivalent', () => {
+    const payload = {
+      scheme: 'bip39',
+      language: 'english',
+      mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+      passphrase: 'e\u0301',
+    };
+    expect(validatePayload('mnemonic', 'nem', payload)).toBe(payload);
+    expect(() => validatePayload('mnemonic', 'nem', { ...payload, passphrase: 'é' })).toThrowError(
+      expect.objectContaining({ code: 'invalid-payload' })
+    );
+  });
+
+  it('applies the mnemonic passphrase UTF-8 byte boundary without NFC normalization', () => {
+    const payload = {
+      scheme: 'bip39',
+      language: 'english',
+      mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+    };
+    expect(validatePayload('mnemonic', 'nem', { ...payload, passphrase: 'a'.repeat(1024) })).toBeDefined();
+    expect(() => validatePayload('mnemonic', 'nem', { ...payload, passphrase: 'a'.repeat(1025) })).toThrowError(
+      expect.objectContaining({ code: 'invalid-payload' })
+    );
+    expect(validatePayload('mnemonic', 'nem', { ...payload, passphrase: '' })).toBeDefined();
   });
 });

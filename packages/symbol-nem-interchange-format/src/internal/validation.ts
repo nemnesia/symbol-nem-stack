@@ -32,15 +32,16 @@ const exactKeys = (value: Record<string, unknown>, required: string[], optional:
     throw new SnifError('invalid-payload');
 };
 
-const text = (value: unknown, minimum: number, maximum: number): string => {
-  if (
-    typeof value !== 'string' ||
-    value.normalize('NFC') !== value ||
-    utf8Length(value) < minimum ||
-    utf8Length(value) > maximum
-  )
+const rawText = (value: unknown, minimum: number, maximum: number): string => {
+  if (typeof value !== 'string' || utf8Length(value) < minimum || utf8Length(value) > maximum)
     throw new SnifError('invalid-payload');
   return value;
+};
+
+const text = (value: unknown, minimum: number, maximum: number): string => {
+  const result = rawText(value, minimum, maximum);
+  if (result.normalize('NFC') !== result) throw new SnifError('invalid-payload');
+  return result;
 };
 
 const displayText = (value: unknown, minimum: number, maximum: number): string => {
@@ -161,10 +162,10 @@ export const validatePayload = (type: FormatType, chain: Chain, payload: unknown
       ]);
       if ('bip39' !== payload.scheme || typeof payload.language !== 'string' || !languages.has(payload.language))
         throw new SnifError('invalid-payload');
-      const mnemonic = text(payload.mnemonic, 1, 1024);
+      const mnemonic = rawText(payload.mnemonic, 1, 1024);
       if (mnemonic.normalize('NFKD') !== mnemonic || mnemonic.includes('  ')) throw new SnifError('invalid-payload');
       if (payload.passphrase !== undefined) {
-        const passphrase = text(payload.passphrase, 0, 1024);
+        const passphrase = rawText(payload.passphrase, 0, 1024);
         if (passphrase.normalize('NFKD') !== passphrase) throw new SnifError('invalid-payload');
       }
       break;

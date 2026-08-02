@@ -1,4 +1,5 @@
-import { Unzlib, zlibSync } from 'fflate';
+import { zlibSync } from 'fflate';
+import { Inflate } from 'pako';
 
 import { SnifError } from '../errors.js';
 import type { DecodeOptions, EncodeOptions, EncryptionHeader, SnifDocument, SnifHeader } from '../types.js';
@@ -70,45 +71,38 @@ const decompress = (payload: Uint8Array): Uint8Array => {
   try {
     const chunks: Uint8Array[] = [];
     let length = 0;
-    const stream = new Unzlib((chunk) => {
+    const stream = new Inflate({ windowBits: 15, chunkSize: 64 * 1024 });
+    stream.onData = (data) => {
+      const chunk = new Uint8Array(data);
       length += chunk.byteLength;
       if (length > MAX_SNIF_SIZE) throw new SnifError('resource-limit');
       chunks.push(chunk);
-    });
-    for (let offset = 0; offset < payload.byteLength; offset += 1024)
-      stream.push(
-        payload.subarray(offset, Math.min(offset + 1024, payload.byteLength)),
-        offset + 1024 >= payload.byteLength
-      );
+    };
+    const succeeded = stream.push(payload, true);
+    const state = stream as Inflate & {
+      ended: boolean;
+      strm: { avail_in: number; total_in: number; total_out: number };
+    };
+    if (
+      !succeeded ||
+      stream.err ||
+      !state.ended ||
+      0 !== state.strm.avail_in ||
+      payload.byteLength !== state.strm.total_in ||
+      length !== state.strm.total_out
+    )
+      throw new SnifError('invalid-payload');
     const result = new Uint8Array(length);
     let offset = 0;
     for (const chunk of chunks) {
       result.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    if (payload.byteLength < 6 || readAdler32(payload) !== adler32(result)) throw new SnifError('invalid-payload');
     return result;
   } catch (error) {
     if (error instanceof SnifError) throw error;
     throw new SnifError('invalid-payload');
   }
-};
-
-const readAdler32 = (payload: Uint8Array): number => {
-  const offset = payload.byteLength - 4;
-  return (
-    ((payload[offset]! << 24) | (payload[offset + 1]! << 16) | (payload[offset + 2]! << 8) | payload[offset + 3]!) >>> 0
-  );
-};
-
-const adler32 = (data: Uint8Array): number => {
-  let a = 1;
-  let b = 0;
-  for (const byte of data) {
-    a = (a + byte) % 65_521;
-    b = (b + a) % 65_521;
-  }
-  return ((b << 16) | a) >>> 0;
 };
 
 export const inspect = (data: Uint8Array): SnifHeader =>
