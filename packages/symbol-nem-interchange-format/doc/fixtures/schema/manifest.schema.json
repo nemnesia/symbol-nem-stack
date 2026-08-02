@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nemnesia.dev/snif/fixtures/manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "wireVersion", "normativeSymbolSdk", "fixtures"],
+  "properties": {
+    "protocol": { "const": "snif" },
+    "wireVersion": { "const": 1 },
+    "normativeSymbolSdk": { "const": "3.3.2-pure.2" },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category", "path"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "category": { "enum": ["mnemonic-derivation", "cbor-envelope"] },
+          "path": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]*\\.json$" }
+        }
+      }
+    }
+  }
+}

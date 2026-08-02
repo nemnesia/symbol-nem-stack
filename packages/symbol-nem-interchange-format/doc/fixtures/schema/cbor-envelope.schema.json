@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "document", "payloadCbor", "envelopeCbor"],
+  "properties": {
+    "id": { "const": "cbor-envelope-symbol-address-v1" },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "chain", "networkId", "generationHashSeed", "address"],
+      "properties": {
+        "type": { "const": "address" },
+        "chain": { "const": "symbol" },
+        "networkId": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "generationHashSeed": { "$ref": "#/$defs/hex32" },
+        "address": { "type": "string", "pattern": "^[0-9A-F]{48}$" }
+      }
+    },
+    "payloadCbor": { "type": "string", "pattern": "^[0-9A-F]+$" },
+    "envelopeCbor": { "type": "string", "pattern": "^[0-9A-F]+$" }
+  },
+  "$defs": { "hex32": { "type": "string", "pattern": "^[0-9A-F]{64}$" } }
+}

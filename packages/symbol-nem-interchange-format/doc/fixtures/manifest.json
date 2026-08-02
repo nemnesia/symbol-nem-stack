@@ -7,6 +7,11 @@
       "id": "mnemonic-derivation-v1",
       "category": "mnemonic-derivation",
       "path": "mnemonic-derivation.json"
+    },
+    {
+      "id": "cbor-envelope-symbol-address-v1",
+      "category": "cbor-envelope",
+      "path": "cbor-envelope-symbol-address.json"
     }
   ]
 }
