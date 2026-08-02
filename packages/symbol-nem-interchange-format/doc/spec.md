@@ -739,7 +739,134 @@ declare function decode(data: Uint8Array, options?: DecodeOptions): Promise<Snif
 declare function inspect(data: Uint8Array): SnifHeader;
 ```
 
-`SnifDocument`は`type`を判別fieldとするv1の10 payload typeのdiscriminated unionとする。`chain`、`network`、`payload`を必須とし、CDDLの任意fieldだけをTypeScriptでもoptionalとする。
+`SnifDocument`、`SnifHeader`および以下のexported TypeScript型は、本節を正本とする。byte stringは`Uint8Array`で表し、正確なbyte長、全ゼロ禁止およびchainとの組合せは本文5章の規則に従う。型だけでbyte長を保証してはならない。
+
+```ts
+type Chain = 'symbol' | 'nem';
+type ConnectionPermission = 'account' | 'sign-transaction' | 'sign-message';
+type SymbolNetwork = { id: number; generationHashSeed: Uint8Array };
+type NemNetwork = { id: number };
+type Network = SymbolNetwork | NemNetwork;
+type EncryptionHeader = { algorithm: 'none' } | { algorithm: 'password-v1'; salt: Uint8Array; nonce: Uint8Array };
+
+type RequestContext = {
+  requestId: Uint8Array;
+  createdAt: number;
+  expiresAt: number;
+  audience: string;
+};
+type ConnectionProof = { sessionId: Uint8Array; requesterPublicKey: Uint8Array; signature: Uint8Array };
+type AccountReference = { address: Uint8Array; publicKey: Uint8Array };
+type ApplicationMetadata = { name: string; origin: string; iconUrl?: string };
+
+type ContactPayload = { name: string; address: Uint8Array; publicKey?: Uint8Array };
+type AddressPayload = { address: Uint8Array };
+type AccountPayload = { privateKey: Uint8Array; publicKey: Uint8Array; address: Uint8Array };
+type MnemonicPayload = {
+  scheme: 'bip39';
+  language:
+    | 'english'
+    | 'japanese'
+    | 'korean'
+    | 'spanish'
+    | 'chinese-simplified'
+    | 'chinese-traditional'
+    | 'french'
+    | 'italian'
+    | 'czech'
+    | 'portuguese';
+  mnemonic: string;
+  passphrase?: string;
+};
+type SignRequestPayload = {
+  transactionPayload: Uint8Array;
+  signingType: 'transaction' | 'cosignature';
+  context: RequestContext;
+  expectedSignerPublicKey?: Uint8Array;
+  connection?: ConnectionProof;
+};
+type SignedTransactionPayload = { transactionPayload: Uint8Array; requestId?: Uint8Array };
+type MessageSignRequestPayload = {
+  message: Uint8Array;
+  purpose: string;
+  context: RequestContext;
+  expectedSignerPublicKey?: Uint8Array;
+  connection?: ConnectionProof;
+};
+type SignaturePayload =
+  | {
+      signatureType: 'transaction' | 'message';
+      signature: Uint8Array;
+      signerPublicKey: Uint8Array;
+      targetHash: Uint8Array;
+      requestId: Uint8Array;
+    }
+  | {
+      signatureType: 'cosignature';
+      parentHash: Uint8Array;
+      signature: Uint8Array;
+      signerPublicKey: Uint8Array;
+      version: 0;
+      requestId: Uint8Array;
+    }
+  | { signatureType: 'cosignature'; transactionPayload: Uint8Array; requestId: Uint8Array }
+  | { signatureType: 'rejected'; requestId: Uint8Array };
+type ConnectionRequestPayload = {
+  application: ApplicationMetadata;
+  permissions: ConnectionPermission[];
+  challenge: Uint8Array;
+  context: RequestContext;
+  requesterPublicKey: Uint8Array;
+  signature: Uint8Array;
+};
+type ConnectionResponsePayload =
+  | { approved: false; requestId: Uint8Array }
+  | {
+      approved: true;
+      requestId: Uint8Array;
+      sessionId: Uint8Array;
+      sessionCreatedAt: number;
+      sessionExpiresAt: number;
+      account: AccountReference;
+      permissions: ConnectionPermission[];
+      signature: Uint8Array;
+    };
+
+type PayloadByType = {
+  contact: ContactPayload;
+  address: AddressPayload;
+  account: AccountPayload;
+  mnemonic: MnemonicPayload;
+  'sign-request': SignRequestPayload;
+  'signed-transaction': SignedTransactionPayload;
+  'message-sign-request': MessageSignRequestPayload;
+  signature: SignaturePayload;
+  'connection-request': ConnectionRequestPayload;
+  'connection-response': ConnectionResponsePayload;
+};
+type FormatType = keyof PayloadByType;
+type NetworkByChain = { symbol: SymbolNetwork; nem: NemNetwork };
+type SnifDocument = {
+  [T in FormatType]: {
+    [C in Chain]: { type: T; chain: C; network: NetworkByChain[C]; payload: PayloadByType[T] };
+  }[Chain];
+}[FormatType];
+type SnifHeader = {
+  protocol: 'snif';
+  version: 1;
+  type: FormatType;
+  chain: Chain;
+  network: Network;
+  compression: 'none' | 'zlib';
+  encryption: EncryptionHeader;
+};
+```
+
+`SnifDocument`は`type`を判別fieldとするv1の10 payload typeのdiscriminated unionとする。`chain`、`network`、`payload`を必須とし、payloadはtype固有CDDL mapと同じfield名・必須性を持つ。`network`は`chain: 'symbol'`で`SymbolNetwork`、`chain: 'nem'`で`NemNetwork`だけを許可する。公開型が表す組合せに加え、適合実装はruntime validationを省略してはならない。
+
+`signatureType: 'cosignature'`の最初のbranchはSymbol、2番目のbranchはNEMだけで許可する。秘密payloadである`AccountPayload`と`MnemonicPayload`を`decode`が返した時点で、各`Uint8Array`および文字列に含まれる秘密情報の所有権と消去責任は呼び出し側へ移る。その他のpayloadに秘密情報がないことをcodecは保証しない。
+
+`SnifHeader`は外側エンベロープだけを表す。payload、復号結果、またはpayloadが検証済みであることを示すfieldを含めてはならない。
 
 - `encode`はpayload validation、決定的CBOR、圧縮、暗号化、エンベロープCBORを順番に実行する。外部storageを読み書きしてはならない。
 - `decode`は8.1節のcodec検証を完了してからdocumentを返す。返却documentは構文、field形状、正規化、長さ、列挙値、リソース上限および暗号認証を満たすが、元要求、現在時刻、署名、chain意味、origin、permission、connection、replayまたは搬送路の認証は未実施である。これを認可済みまたは署名要求との対応確認済みとして扱ってはならない。
