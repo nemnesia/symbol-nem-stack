@@ -10,6 +10,11 @@ import { isFormatType, isRecord, validateDocument, validateNetwork, validatePayl
 
 type Envelope = SnifHeader & { payload: Uint8Array };
 
+interface FixtureEncryptionParameters {
+  salt: Uint8Array;
+  nonce: Uint8Array;
+}
+
 const envelopeKeys = ['protocol', 'version', 'type', 'chain', 'network', 'compression', 'encryption', 'payload'];
 
 const validateEnvelope = (value: unknown): Envelope => {
@@ -100,7 +105,11 @@ export const decompress = (payload: Uint8Array): Uint8Array => {
 export const inspect = (data: Uint8Array): SnifHeader =>
   headerOf(validateEnvelope(decodeCanonical(data, 'invalid-envelope')));
 
-export const encodeDocument = async (input: SnifDocument, options: EncodeOptions = {}): Promise<Uint8Array> => {
+const encodeDocumentInternal = async (
+  input: SnifDocument,
+  options: EncodeOptions,
+  fixtureEncryption?: FixtureEncryptionParameters
+): Promise<Uint8Array> => {
   assertNotAborted(options.signal);
   const document = validateDocument(input);
   let payload: Uint8Array<ArrayBufferLike> = encodeCanonical(document.payload, 'invalid-payload');
@@ -117,7 +126,16 @@ export const encodeDocument = async (input: SnifDocument, options: EncodeOptions
     }
   }
   let encryption: EncryptionHeader = { algorithm: 'none' };
-  if (options.password) encryption = { algorithm: 'password-v1', salt: secureRandom(16), nonce: secureRandom(12) };
+  if (fixtureEncryption && !options.password) throw new SnifError('invalid-envelope');
+  if (options.password) {
+    encryption = fixtureEncryption
+      ? {
+          algorithm: 'password-v1',
+          salt: new Uint8Array(requireBytes(fixtureEncryption.salt, 16, 16, 'invalid-envelope')),
+          nonce: new Uint8Array(requireBytes(fixtureEncryption.nonce, 12, 12, 'invalid-envelope')),
+        }
+      : { algorithm: 'password-v1', salt: secureRandom(16), nonce: secureRandom(12) };
+  }
   if (secret && 'password-v1' !== encryption.algorithm) throw new SnifError('password-required');
   const header = {
     protocol: 'snif',
@@ -135,6 +153,16 @@ export const encodeDocument = async (input: SnifDocument, options: EncodeOptions
   assertNotAborted(options.signal);
   return encodeCanonical({ ...header, payload }, 'invalid-envelope');
 };
+
+export const encodeDocument = async (input: SnifDocument, options: EncodeOptions = {}): Promise<Uint8Array> =>
+  encodeDocumentInternal(input, options);
+
+/** @internal Test-only entry point for reviewed fixtures with fixed password-v1 parameters. */
+export const encodeFixtureDocument = async (
+  input: SnifDocument,
+  options: EncodeOptions,
+  encryption?: FixtureEncryptionParameters
+): Promise<Uint8Array> => encodeDocumentInternal(input, options, encryption);
 
 export const decodeDocument = async (data: Uint8Array, options: DecodeOptions = {}): Promise<SnifDocument> => {
   assertNotAborted(options.signal);

@@ -3,6 +3,7 @@ import { NemFacade, TransactionFactory as NemTransactionFactory, models as nemMo
 import { SymbolFacade, SymbolTransactionFactory, models as symbolModels } from '@nemnesia/symbol-sdk/symbol';
 import { gcm } from '@noble/ciphers/aes.js';
 import { argon2idAsync } from '@noble/hashes/argon2.js';
+import { decode as decodeIndependent } from 'cbor-x';
 import { decode as decodeCbor, encode as encodeCbor } from 'cborg';
 import { describe, expect, it } from 'vitest';
 
@@ -13,12 +14,13 @@ import { inflateSync } from 'node:zlib';
 
 import { decode, encode } from '../src/index.js';
 import { validateChainSemantics } from '../src/internal/chain.js';
+import { encodeFixtureDocument } from '../src/internal/codec.js';
 import { validatePayload } from '../src/internal/validation.js';
 import { loadFixtures } from './fixture-loader.js';
 
 const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../doc/fixtures');
 const bytes = (hex: string): Uint8Array =>
-  Uint8Array.from(hex.match(/../g)!.map((value) => Number.parseInt(value, 16)));
+  hex ? Uint8Array.from(hex.match(/../g)!.map((value) => Number.parseInt(value, 16))) : new Uint8Array();
 const hex = (value: Uint8Array): string => Buffer.from(value).toString('hex').toUpperCase();
 const fromDiagnostic = (value: unknown): unknown => {
   if (typeof value === 'string' && value.startsWith('hex:')) return bytes(value.slice(4));
@@ -52,12 +54,14 @@ describe('normative fixture loader', () => {
         type: string;
         kind: 'normal' | 'boundary' | 'invalid';
         document: Record<string, unknown>;
-        expected: { result: 'success' | 'invalid-payload'; passwordFixture?: string };
+        expected: {
+          result: 'success' | 'invalid-payload';
+          payloadCbor?: string;
+          envelopeCbor?: string;
+          encryption?: { password: string; salt: string; nonce: string };
+        };
       }>;
     };
-    const password = (
-      loaded.find((item) => item.entry.id === 'password-v1-fixed-v1')!.data as { constants: { password: string } }
-    ).constants.password;
     const expectedTypes = [
       'contact',
       'address',
@@ -80,17 +84,33 @@ describe('normative fixture loader', () => {
     }
     for (const testCase of fixture.cases) {
       const document = fromDiagnostic(testCase.document);
-      const options = testCase.expected.passwordFixture
-        ? { password, compression: 'none' as const }
+      const options = testCase.expected.encryption
+        ? { password: testCase.expected.encryption.password, compression: 'none' as const }
         : { compression: 'none' as const };
       if ('invalid-payload' === testCase.expected.result) {
         await expect(encode(document as never, options), testCase.id).rejects.toMatchObject({
           code: 'invalid-payload',
         });
       } else {
-        const data = await encode(document as never, options);
+        expect(testCase.expected.payloadCbor).toMatch(/^(?:[0-9A-F]{2})*$/);
+        expect(testCase.expected.envelopeCbor).toMatch(/^(?:[0-9A-F]{2})+$/);
+        const data = await encodeFixtureDocument(
+          document as never,
+          options,
+          testCase.expected.encryption
+            ? { salt: bytes(testCase.expected.encryption.salt), nonce: bytes(testCase.expected.encryption.nonce) }
+            : undefined
+        );
+        expect(hex(data)).toBe(testCase.expected.envelopeCbor);
+        const independentEnvelope = decodeIndependent(bytes(testCase.expected.envelopeCbor!)) as {
+          payload: Uint8Array;
+        };
+        expect(independentEnvelope.payload).toBeInstanceOf(Uint8Array);
         await expect(
-          decode(data, testCase.expected.passwordFixture ? { password } : {}),
+          decode(
+            bytes(testCase.expected.envelopeCbor!),
+            testCase.expected.encryption ? { password: options.password } : {}
+          ),
           testCase.id
         ).resolves.toMatchObject({
           type: testCase.type,

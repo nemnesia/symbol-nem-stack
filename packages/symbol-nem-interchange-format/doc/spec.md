@@ -679,7 +679,7 @@ manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema�
 
 `codec-structural` fixtureはdecoder専用であり、完全なエンコーダー入力またはencoder適合の根拠ではない。各caseの`input`は期待するformat typeを示すselectorであり、期待envelopeの生成に使ってはならない。codecが外部contextなしに受理するdocument構造を表す。decode成功はchain transaction、署名、connection proof、利用者承認または接続の検証成功を意味しない。
 
-現行のcore規範categoryは`codec-structural`、`codec-component-matrix`、`password-v1`、`secret-backup`、`zlib`、`mnemonic-unicode`および`cbor-envelope`とする。`codec-component-matrix`は10タイプの完全な診断用documentについて、各typeの正常・境界・不正caseを登録するencoder/decoder実行matrixである。`hex:`接頭辞は大文字16進の完全byte列を表す。不正caseはserializationより前に指定errorで失敗し、正常・境界caseはencode後のdecode結果が入力typeと一致しなければならない。このmatrixの成功だけでは独立decoderの確認を意味しない。`transaction-primitives`と`mnemonic-derivation`はchain意味検証用の補助資料であり、core codec適合またはrelease判定の根拠にしてはならない。`secret-backup`は`account`と`mnemonic`について、完全SNIF入力、固定password、復号済みpayload、誤password、AAD header改変、tag改変、password未指定および禁止されたzlib圧縮を固定する。秘密typeで`compression`が`"none"`以外であるcaseは各typeにつき少なくとも1件を登録し、decoderはpassword導出、復号、展開または内部payloadのdecodeより前に`invalid-envelope`として拒否しなければならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
+現行のcore規範categoryは`codec-structural`、`codec-component-matrix`、`password-v1`、`secret-backup`、`zlib`、`mnemonic-unicode`および`cbor-envelope`とする。`codec-component-matrix`は10タイプの完全な診断用documentについて、各typeの正常・境界・不正caseを登録する規範encoder/decoder matrixである。`hex:`接頭辞は大文字16進の完全byte列を表す。正常・境界caseは`payloadCbor`および`envelopeCbor`を必須とし、適合encoderは両方とbyte-for-byteで一致しなければならない。password-v1 caseはtest専用のpassword、salt、nonce、導出鍵、AAD、ciphertextおよびtagを必須とする。不正caseはserializationより前に指定errorで失敗しなければならない。期待envelopeは別CBOR decoderで復元してpayload byte stringを確認する。このmatrixの成功だけではNode.js/browser相互運用の確認を意味しない。`transaction-primitives`と`mnemonic-derivation`はchain意味検証用の補助資料であり、core codec適合またはrelease判定の根拠にしてはならない。`secret-backup`は`account`と`mnemonic`について、完全SNIF入力、固定password、復号済みpayload、誤password、AAD header改変、tag改変、password未指定および禁止されたzlib圧縮を固定する。秘密typeで`compression`が`"none"`以外であるcaseは各typeにつき少なくとも1件を登録し、decoderはpassword導出、復号、展開または内部payloadのdecodeより前に`invalid-envelope`として拒否しなければならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
 
 最低限のfixture matrixを次に示す。
 
@@ -712,7 +712,7 @@ zlib componentのPhase 1 fixtureは、展開後16 MiBを受理し、byte長とSH
 
 現行のfixture登録状況は`doc/fixtures/manifest.json`を正とする。全体phaseは、manifestに登録されたfixture、共通loader／test基盤、および上表の完了条件から決定する。ただし、各componentは対応fixtureが先に登録・review済みであれば個別にPhase 1へ進めてよい。fixtureより先に同じcomponentの実装を追加してはならない。
 
-`codec-component-matrix-v1`には全10タイプの正常・境界・不正caseを登録している。これらは本packageのencoder/decoderで実行するreview済み入力であるが、独立decoderによる期待値確認およびNode.js/browser間相互運用は未実施である。したがって、いずれのtype/profileもPhase 1完了、適合済み、またはrelease済みと表示してはならない。
+`codec-component-matrix-v1`には全10タイプの正常・境界・不正caseを登録している。正常・境界caseは期待wire byte列を持ち、別CBOR decoderで復元する。ただし、Node.js/browser間相互運用は未実施である。したがって、package全体をPhase 2完了、適合済み、またはrelease済みと表示してはならない。
 
 v1ではpackage全体を単一のDraftとして扱う。全10タイプと公開codecに必要なwire・profile fixture matrixがPhase 3の完了条件を満たすまで、packageを安定版として公開registryへpublishしてはならず、いずれかのcomponentだけをrelease済みまたは適合済みと表示してはならない。開発用buildでfixture完成済みcomponentを試験することは妨げないが、そのbuildは非公開のpre-releaseとして明示しなければならない。component単位の段階的な公開はv1の対象外とする。
 

@@ -36,17 +36,48 @@
           "expected": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["result"],
             "properties": {
               "result": { "enum": ["success", "invalid-payload"] },
-              "passwordFixture": { "const": "password-v1-fixed-v1" }
-            }
+              "payloadCbor": { "$ref": "#/$defs/hex" },
+              "envelopeCbor": { "$ref": "#/$defs/hex" },
+              "encryption": { "$ref": "#/$defs/encryption" }
+            },
+            "oneOf": [
+              {
+                "required": ["result", "payloadCbor", "envelopeCbor"],
+                "properties": {
+                  "result": { "const": "success" },
+                  "payloadCbor": true,
+                  "envelopeCbor": true
+                }
+              },
+              {
+                "required": ["result"],
+                "properties": { "result": { "const": "invalid-payload" } }
+              }
+            ]
           }
         }
       }
     }
   },
   "$defs": {
+    "hex": { "type": "string", "pattern": "^(?:[0-9A-F]{2})*$" },
+    "encryption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["password", "passwordUtf8", "salt", "nonce", "derivedKey", "aad", "ciphertext", "tag"],
+      "properties": {
+        "password": { "type": "string", "minLength": 1 },
+        "passwordUtf8": { "$ref": "#/$defs/hex" },
+        "salt": { "type": "string", "pattern": "^[0-9A-F]{32}$" },
+        "nonce": { "type": "string", "pattern": "^[0-9A-F]{24}$" },
+        "derivedKey": { "type": "string", "pattern": "^[0-9A-F]{64}$" },
+        "aad": { "$ref": "#/$defs/hex" },
+        "ciphertext": { "$ref": "#/$defs/hex" },
+        "tag": { "type": "string", "pattern": "^[0-9A-F]{32}$" }
+      }
+    },
     "provenance": {
       "type": "object",
       "additionalProperties": false,
