@@ -67,16 +67,16 @@ const headerOf = (envelope: Envelope): SnifHeader => ({
   encryption: envelope.encryption,
 });
 
-const decompress = (payload: Uint8Array): Uint8Array => {
+export const decompress = (payload: Uint8Array): Uint8Array => {
   try {
-    const chunks: Uint8Array[] = [];
+    const result = new Uint8Array(MAX_SNIF_SIZE);
     let length = 0;
     const stream = new Inflate({ windowBits: 15, chunkSize: 64 * 1024 });
     stream.onData = (data) => {
       const chunk = new Uint8Array(data);
       length += chunk.byteLength;
       if (length > MAX_SNIF_SIZE) throw new SnifError('resource-limit');
-      chunks.push(chunk);
+      result.set(chunk, length - chunk.byteLength);
     };
     const succeeded = stream.push(payload, true);
     const state = stream as Inflate & {
@@ -92,13 +92,7 @@ const decompress = (payload: Uint8Array): Uint8Array => {
       length !== state.strm.total_out
     )
       throw new SnifError('invalid-payload');
-    const result = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return result;
+    return result.subarray(0, length);
   } catch (error) {
     if (error instanceof SnifError) throw error;
     throw new SnifError('invalid-payload');

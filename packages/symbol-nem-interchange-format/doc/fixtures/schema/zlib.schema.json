@@ -17,14 +17,24 @@
     },
     "cases": {
       "type": "array",
-      "minItems": 5,
-      "maxItems": 5,
+      "minItems": 7,
+      "maxItems": 7,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "input", "expected"],
         "properties": {
-          "id": { "enum": ["valid", "raw-deflate", "gzip", "trailing-data", "checksum-tamper"] },
+          "id": {
+            "enum": [
+              "valid",
+              "raw-deflate",
+              "gzip",
+              "trailing-data",
+              "checksum-tamper",
+              "limit-16mib",
+              "limit-16mib-plus-one"
+            ]
+          },
           "input": {
             "type": "object",
             "additionalProperties": false,
@@ -42,8 +52,17 @@
               {
                 "type": "object",
                 "additionalProperties": false,
+                "required": ["plaintextBytes", "plaintextSha256"],
+                "properties": {
+                  "plaintextBytes": { "const": 16777216 },
+                  "plaintextSha256": { "$ref": "#/$defs/hash" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
                 "required": ["error"],
-                "properties": { "error": { "const": "invalid-payload" } }
+                "properties": { "error": { "enum": ["invalid-payload", "resource-limit"] } }
               }
             ]
           }
@@ -51,5 +70,8 @@
       }
     }
   },
-  "$defs": { "hex": { "type": "string", "pattern": "^(?:[0-9A-F]{2})+$" } }
+  "$defs": {
+    "hex": { "type": "string", "pattern": "^(?:[0-9A-F]{2})+$" },
+    "hash": { "type": "string", "pattern": "^[0-9A-F]{64}$" }
+  }
 }
