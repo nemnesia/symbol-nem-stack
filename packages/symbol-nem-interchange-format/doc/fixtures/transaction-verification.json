@@ -3,7 +3,7 @@
   "provenance": {
     "source": "@nemnesia/symbol-sdk compatibility vectors",
     "sourceCommit": "5b085ce011cbe4ab3080286660f2b4360760c868",
-    "derivation": "The source SDK compatibility vectors were checked and corrected against the Catbuffer field order and sizes before inclusion. The Symbol unsigned transaction is the 191-byte signed payload with offsets 8..71 replaced by the 64-byte zero signature placeholder; its Catbuffer boundaries are independently checked without the SDK. The detached Symbol cosignature is derived from the fixed signed aggregate payload, private key 22..22, and detached=true; its serialized parent hash equals the separately checked transaction hash. NEM CosignatureV1 was constructed from the fixed fields below and checked against the independent NEM binary field order and sizes. These vectors cover SDK primitives only and do not assert SNIF request-response verification."
+    "derivation": "The vectors fix byte strings and SDK-derived hashes and signatures that a transport consumer can inspect. Symbol values are checked against Catbuffer field order and sizes; NEM values use the fixed target SDK version as their canonical implementation. These vectors do not validate transaction intent, field-level business rules, request-response equivalence, or user approval."
   },
   "constants": {
     "privateKey": "1111111111111111111111111111111111111111111111111111111111111111",

@@ -26,15 +26,15 @@ Symbol NEM Interchange Format（SNIF）は、SymbolおよびNEMのデータを�
 
 SNIFはデータ交換プロトコルであり、ウォレット、dApp、サーバー、ノードそのものではない。責務を次のように分離する。
 
-| 処理             | SNIF codecの責務                                                  | verification helperの責務                                              | ホストアプリケーションの責務                                                              |
-| ---------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| トランザクション | シリアライズ済みbyte列の格納、型・長さ・chain/networkの構造検証   | SDKによるdeserialize、署名対象生成、署名検証、要求と結果の対応検証     | 作成、手数料と期限の判断、利用者への表示、署名承認、ノード送信                            |
-| request/response | requestId、context、署名frameのワイヤ表現                         | 元要求を引数として行うhash、期限、audience、署名、connection proof検証 | requestの保存、一回限り消費、再送、認証済み拒否の確定、監査                               |
-| オンチェーン状態 | なし                                                              | なし                                                                   | 未送信、送信済み、未承認、承認済み、finalized、失敗、期限切れの管理                       |
-| ノード通信       | なし                                                              | なし                                                                   | timeout、再試行、node切替、同期差、WebSocket切断、重複event、chain reorganizationへの対応 |
-| 接続状態         | connection request/responseとproofのワイヤ表現                    | 呼び出し側から渡されたconnection recordに対するproof検証               | session、permission grant、有効期限、失効状態の保存と認可判断                             |
-| 秘密情報         | 暗号化バックアップ形式、復号、形式内で完結する鍵・address整合検証 | 署名検証中に生成した一時秘密bufferの消去                               | 利用者端末内での鍵生成・保存・署名・消去。serverへ送信してはならない                      |
-| 搬送             | 1件の完全なSNIF byte列まで                                        | なし                                                                   | QR、file、NFC、Deep Link等への格納、送信元・送信先の認証                                  |
+| 処理             | SNIF codecの責務                                                      | verification helperの責務                                              | ホストアプリケーションの責務                                                              |
+| ---------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| トランザクション | シリアライズ済みbyte列、chain/network、署名・hashなどの検証材料の格納 | 任意のSDKベースのbyte列整合性確認                                      | 内容の解釈、作成、手数料と期限の判断、利用者への表示、署名承認、ノード送信                |
+| request/response | requestId、context、署名frameのワイヤ表現                             | 元要求を引数として行うhash、期限、audience、署名、connection proof検証 | requestの保存、一回限り消費、再送、認証済み拒否の確定、監査                               |
+| オンチェーン状態 | なし                                                                  | なし                                                                   | 未送信、送信済み、未承認、承認済み、finalized、失敗、期限切れの管理                       |
+| ノード通信       | なし                                                                  | なし                                                                   | timeout、再試行、node切替、同期差、WebSocket切断、重複event、chain reorganizationへの対応 |
+| 接続状態         | connection request/responseとproofのワイヤ表現                        | 呼び出し側から渡されたconnection recordに対するproof検証               | session、permission grant、有効期限、失効状態の保存と認可判断                             |
+| 秘密情報         | 暗号化バックアップ形式、復号、形式内で完結する鍵・address整合検証     | 署名検証中に生成した一時秘密bufferの消去                               | 利用者端末内での鍵生成・保存・署名・消去。serverへ送信してはならない                      |
+| 搬送             | 1件の完全なSNIF byte列まで                                            | なし                                                                   | QR、file、NFC、Deep Link等への格納、送信元・送信先の認証                                  |
 
 通常の`encode`と`decode`は外部storage、session、permission、監査状態を読み書きしない純粋なcodec操作とする。同じ引数と同じ乱数入力に対して同じ結果を返し、失敗時も外部状態を変更してはならない。外部contextを必要とする署名、期限、audience、要求・応答対応、connection proofの検証はverification helperへ分離する。SNIF packageはrequest保存、消費、再送、connection状態遷移または永続化を行うworkflow APIを提供してはならない。
 
@@ -239,11 +239,11 @@ password-v1 = {
 
 ### 4.3 トランザクション
 
-`transactionPayload`は対象チェーンが定義する完全なシリアライズ済みトランザクションである。トランザクションをちょうど1件含まなければならない。codecはbyte stringの型と8 MiB上限を検証する。chain形式のsize、type、version、network、末尾byteおよび再serialize一致はSymbol SDKによるverificationの対象とする。
+`transactionPayload`は対象チェーンが定義する完全なシリアライズ済みトランザクションである。トランザクションをちょうど1件含まなければならない。codecはbyte stringの型と8 MiB上限を検証する。本仕様はtransactionのtype、fee、deadline、recipient、mosaic、messageまたはon-chain有効性を解釈しない。これらを確認するための完全なbyte列、chainおよびnetworkを使用者へ伝達する。
 
 SNIFはSymbolまたはNEMのトランザクション形式、トランザクションハッシュ、署名アルゴリズムを再定義しない。実装は対象チェーンのプロトコル規則を使用しなければならない。Symbol署名ではエンベロープのgeneration hash seedを署名コンテキストとし、アプリケーションが想定するネットワークと一致させる。
 
-verification helperはchain別transaction factoryでpayload全体をdeserializeし、同じmodelを再serializeしたbyte列が入力と完全一致することを確認する。factoryが認識しないtype/version、network不一致、不正なsize、余分な末尾byteを拒否する。公式TypeScript実装は同一リポジトリの`@nemnesia/symbol-sdk`が提供するSymbol/NEM modelとfacadeを使用し、対応するSDK versionをpackage metadataへ記録する。SDK更新時は10章の全transaction fixtureを再実行する。
+使用者は必要に応じてchain別SDKでpayloadをdeserializeし、再serialize一致、transaction hashおよび格納署名を確認してよい。この確認はSNIF codecの受理条件ではなく、使用者が受信した検証材料をどのように扱うかを決めるための補助である。公式TypeScript実装が提供するhelperを利用する場合も、対象SDK versionをpackage metadataへ記録する。SDK更新時は10章のtransaction fixtureを再実行する。
 
 ## 5. フォーマットタイプ
 
@@ -368,16 +368,16 @@ signed-transaction-payload = {
 
 トランザクションは追加連署を必要としてもよい。codecはtransaction payloadを不透明なchain固有byte列として構造検証し、署名検証済みとは扱わない。署名要求への応答として生成する場合は`requestId`を必須とし、独立した署名済みtransactionの搬送に限り省略してよい。
 
-`requestId`が存在する場合、hostは元の`sign-request`を明示的な引数として11節の`verifyResponse`を呼び出さなければならない。verification helperはSymbol SDKのchain固有modelとfacadeを使用し、chain、network、signing type、署名対象、期待signer、および格納済みの全署名を検証する。
+`requestId`が存在する場合、hostは元の`sign-request`を対応付けに使用する。SNIFはrequestId、chain、network、transactionPayload、署名およびhashを伝達するが、transaction内容の妥当性または要求と応答の業務上の同一性を判定しない。
 
-`signingType: "transaction"`では、verification helperは元要求と応答を同じchain／networkのtransaction factoryでdeserializeし、各modelを同じfacadeの`extractSigningPayload`相当処理へ渡して署名対象byte列を算出する。両byte列はbyte-for-byteで一致しなければならない。helperは応答の格納署名を検証するが、fee、deadline、mosaic、message、embedded transaction、既存cosignatureその他のtransaction bodyをfield単位で解釈または比較してはならない。これらの表示、承認およびオンチェーン有効性の判断はhostの責務とする。
+`signingType: "transaction"`では、使用者は元要求と応答のtransactionPayloadからSDKの`extractSigningPayload`相当処理で署名対象byte列またはtransaction hashを算出し、必要な対応確認を行ってよい。SNIFはその判断に必要な完全byte列を変更せず伝達する。表示、承認、署名可否およびオンチェーン有効性の判断はhostの責務とする。
 
 `signingType: "cosignature"`ではchain別に次を必須とする。
 
-- Symbol: 元要求の署名済みAggregate transactionをSDKで再hashし、算出した32-byte transaction hashと応答の`parentHash`または連署対象値をbyte-for-byteで一致させる。応答signer、versionおよびsignatureを検証する。元Aggregate transactionを応答から再構成して比較してはならない。
-- NEM: 元要求と応答のCosignatureV1 transactionを同じNEM transaction factoryでdeserializeし、各modelからSDKの`extractSigningPayload`相当処理で生成した署名対象byte列をbyte-for-byteで一致させる。type、version、network、signer public key、fee、deadline、multisig transaction hashおよびmultisig account addressを一致させ、変更はsignature fieldへの有効な署名の設定だけを許可する。
+- Symbol: 使用者はAggregate transactionをSDKでhashし、応答の`parentHash`、signer、versionおよびsignatureを確認してよい。
+- NEM: 使用者はCosignatureV1 transactionをSDKでdeserializeし、署名対象、signerおよびsignatureを確認してよい。
 
-比較にはSDK modelとfacadeを使用し、SNIF独自のbyte offsetまたは寛容な再serialize比較を定義してはならない。10章のchain／signingType別verification fixtureは上記比較値と期待結果を固定しなければならない。`verifyResponse`の成功はhostによるrequestIdの消費を意味せず、状態遷移はhostが別に実行する。
+SNIFはchain固有の比較規則を定義せず、使用者は対象SDKのmodelとfacadeを使用して必要な確認を行う。10章のtransaction fixtureは、使用者が確認に利用できる完全byte列、hashおよび署名材料を固定する。requestIdの消費と状態遷移はhostが別に実行する。
 
 ### 5.7 メッセージ署名要求: `message-sign-request`
 
