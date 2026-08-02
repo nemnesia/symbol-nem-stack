@@ -16,8 +16,8 @@ Symbol NEM Interchange Format（SNIF）は、SymbolおよびNEMのデータを�
 
 - 対応するタイプについて、正しいv1データを受理する。
 - 決定的にエンコードされたCBORを生成する。
-- codecは構文、schema、暗号認証およびdocument内で完結する不整合を、documentを返す前に拒否する。
-- 外部contextを必要とするタイプを認可・署名検証済みとして扱う実装は、11.2節のverificationを完了する。
+- codecは構文、schema、文字列正規化、長さ、列挙値、リソース上限および暗号認証を、documentを返す前に拒否する。
+- codecは、payloadの意味、チェーン上の有効性、署名、送信者、受信者、origin、permission、connection、replayまたは搬送路を認証済みとして扱ってはならない。
 - 本仕様の検証規則とリソース上限を実装する。
 
 実装が対応するフォーマットタイプは一部のみでもよい。ただし、未対応タイプを明示的に報告し、別タイプとして解釈してはならない。
@@ -26,31 +26,29 @@ Symbol NEM Interchange Format（SNIF）は、SymbolおよびNEMのデータを�
 
 SNIFはデータ交換プロトコルであり、ウォレット、dApp、サーバー、ノードそのものではない。責務を次のように分離する。
 
-| 処理             | SNIF codecの責務                                                      | verification helperの責務                                              | ホストアプリケーションの責務                                                              |
-| ---------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| トランザクション | シリアライズ済みbyte列、chain/network、署名・hashなどの検証材料の格納 | 任意のSDKベースのbyte列整合性確認                                      | 内容の解釈、作成、手数料と期限の判断、利用者への表示、署名承認、ノード送信                |
-| request/response | requestId、context、署名frameのワイヤ表現                             | 元要求を引数として行うhash、期限、audience、署名、connection proof検証 | requestの保存、一回限り消費、再送、認証済み拒否の確定、監査                               |
-| オンチェーン状態 | なし                                                                  | なし                                                                   | 未送信、送信済み、未承認、承認済み、finalized、失敗、期限切れの管理                       |
-| ノード通信       | なし                                                                  | なし                                                                   | timeout、再試行、node切替、同期差、WebSocket切断、重複event、chain reorganizationへの対応 |
-| 接続状態         | connection request/responseとproofのワイヤ表現                        | 呼び出し側から渡されたconnection recordに対するproof検証               | session、permission grant、有効期限、失効状態の保存と認可判断                             |
-| 秘密情報         | 暗号化バックアップ形式、復号、形式内で完結する鍵・address整合検証     | 署名検証中に生成した一時秘密bufferの消去                               | 利用者端末内での鍵生成・保存・署名・消去。serverへ送信してはならない                      |
-| 搬送             | 1件の完全なSNIF byte列まで                                            | なし                                                                   | QR、file、NFC、Deep Link等への格納、送信元・送信先の認証                                  |
+| 処理             | SNIF codecの責務                                         | ホストアプリケーションまたは別仕様の責務                                                             |
+| ---------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| トランザクション | 完全byte列、chain/networkおよび関連fieldの形・長さの格納 | deserialize、再serialize比較、署名・hash・ネットワーク・オンチェーン有効性の検証                     |
+| request/response | requestId、context、署名・proof fieldの形・長さの格納    | 要求・応答対応付け、期限、audience、署名、connection proof、permission grant、replayの検証           |
+| 接続状態         | connection request/responseのワイヤ表現                  | session、permission grant、有効期限、失効状態の保存と認可判断                                        |
+| 秘密情報         | 暗号化バックアップ形式、復号、秘密型の圧縮禁止           | 鍵導出、鍵とaddressの対応、利用者端末内での鍵生成・保存・署名・消去                                  |
+| 搬送             | 1件の完全なSNIF byte列まで                               | QR、file、NFC、Deep Link等への格納、送信元・送信先の認証、再送、永続化、ノード通信、オンチェーン状態 |
 
-通常の`encode`と`decode`は外部storage、session、permission、監査状態を読み書きしない純粋なcodec操作とする。同じ引数と同じ乱数入力に対して同じ結果を返し、失敗時も外部状態を変更してはならない。外部contextを必要とする署名、期限、audience、要求・応答対応、connection proofの検証はverification helperへ分離する。SNIF packageはrequest保存、消費、再送、connection状態遷移または永続化を行うworkflow APIを提供してはならない。
+通常の`encode`と`decode`は外部storage、session、permission、監査状態を読み書きしない純粋なcodec操作とする。同じ引数と同じ乱数入力に対して同じ結果を返し、失敗時も外部状態を変更してはならない。SNIF packageはrequest保存、消費、再送、connection状態遷移または永続化を行うworkflow APIを提供してはならない。
 
 SNIF packageにノード接続、トランザクション送信、DB実装、Cookie、access tokenを含めてはならない。それらを提供する製品は、成功判定、finality、再試行、冪等性、監視、復旧を別の製品仕様で定義しなければならない。ノードによる受理を承認またはfinalizedとみなしてはならない。
 
 ### 1.3 用語
 
-| 用語                | 意味                                                                    |
-| ------------------- | ----------------------------------------------------------------------- |
-| エンベロープ        | ルーティング、コーデック、ネットワークのメタデータを持つ外側CBOR map    |
-| 内部ペイロード      | 圧縮・暗号化前のタイプ固有CBOR map                                      |
-| 処理済みペイロード  | `envelope.payload`へ格納するバイト列                                    |
-| ヘッダー            | エンベロープから`payload`ペアを除いたmap                                |
-| 診断用JSON          | 説明用の可読表現。ワイヤ表現ではない                                    |
-| codec               | SNIF byte列とdocumentを相互変換し、外部状態を変更しないコンポーネント   |
-| verification helper | 外部contextを明示的な引数として暗号学的・意味的検証を行うコンポーネント |
+| 用語               | 意味                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| エンベロープ       | ルーティング、コーデック、ネットワークのメタデータを持つ外側CBOR map               |
+| 内部ペイロード     | 圧縮・暗号化前のタイプ固有CBOR map                                                 |
+| 処理済みペイロード | `envelope.payload`へ格納するバイト列                                               |
+| ヘッダー           | エンベロープから`payload`ペアを除いたmap                                           |
+| 診断用JSON         | 説明用の可読表現。ワイヤ表現ではない                                               |
+| codec              | SNIF byte列とdocumentを相互変換し、外部状態を変更しないコンポーネント              |
+| 内容検査           | chain SDKまたは別仕様に従い、payloadの意味・署名・認可・状態を検査するホスト側処理 |
 
 ## 2. 共通データ規則
 
@@ -217,12 +215,12 @@ password-v1 = {
 
 アドレスはBase32文字列ではなく、デコード済みバイナリアドレスを格納する。
 
-| チェーン |     長さ | 検証                                                |
-| -------- | -------: | --------------------------------------------------- |
-| Symbol   | 24 bytes | ネットワークbyte、本体、3-byte checksumが正しいこと |
-| NEM      | 25 bytes | ネットワークbyte、本体、4-byte checksumが正しいこと |
+| チェーン |     長さ |
+| -------- | -------: |
+| Symbol   | 24 bytes |
+| NEM      | 25 bytes |
 
-アドレスの先頭byteは`network.id`と一致しなければならない。UIは大文字Base32の正規表現で表示し、入力時にハイフンを許容してもよいが、ワイヤ値は常にデコード済みbyte stringとする。
+codecはアドレスの長さだけを検証する。先頭network byte、checksumおよびアドレスの意味的な有効性は検証しない。UIは大文字Base32の正規表現で表示し、入力時にハイフンを許容してもよいが、ワイヤ値は常にデコード済みbyte stringとする。
 
 ### 4.2 鍵、ハッシュ、署名
 
@@ -233,7 +231,7 @@ password-v1 = {
 | SHA3-256ハッシュ | 32 bytes |
 | Ed25519系署名    | 64 bytes |
 
-全byteがゼロの公開鍵、秘密鍵、ハッシュ、署名は不正とする。公開鍵は対象チェーンの規則上正しい鍵でなければならない。導出関係にある値が同時に存在する場合、受信側は再計算して比較しなければならない。
+全byteがゼロの公開鍵、秘密鍵、ハッシュ、署名は不正とする。codecは長さと全ゼロ値だけを検証し、公開鍵の曲線上の有効性、署名の正しさ、または導出関係にある値の再計算・比較を行わない。
 
 本仕様におけるSHA3-256は[FIPS 202](https://csrc.nist.gov/pubs/fips/202/final)のSHA3-256を意味し、Ethereumで通称Keccak-256と呼ばれる関数を意味しない。
 
@@ -241,9 +239,7 @@ password-v1 = {
 
 `transactionPayload`は対象チェーンが定義する完全なシリアライズ済みトランザクションである。トランザクションをちょうど1件含まなければならない。codecはbyte stringの型と8 MiB上限を検証する。本仕様はtransactionのtype、fee、deadline、recipient、mosaic、messageまたはon-chain有効性を解釈しない。これらを確認するための完全なbyte列、chainおよびnetworkを使用者へ伝達する。
 
-SNIFはSymbolまたはNEMのトランザクション形式、トランザクションハッシュ、署名アルゴリズムを再定義しない。実装は対象チェーンのプロトコル規則を使用しなければならない。Symbol署名ではエンベロープのgeneration hash seedを署名コンテキストとし、アプリケーションが想定するネットワークと一致させる。
-
-使用者は必要に応じてchain別SDKでpayloadをdeserializeし、再serialize一致、transaction hashおよび格納署名を確認してよい。この確認はSNIF codecの受理条件ではなく、使用者が受信した検証材料をどのように扱うかを決めるための補助である。公式TypeScript実装が提供するhelperを利用する場合も、対象SDK versionをpackage metadataへ記録する。SDK更新時は10章のtransaction fixtureを再実行する。
+SNIFはSymbolまたはNEMのトランザクション形式、トランザクションハッシュ、署名アルゴリズムを再定義しない。codecは`transactionPayload`をdeserialize、再serialize、署名検証またはnetwork照合してはならない。使用者がこれらを必要とする場合は、対象chainのプロトコル仕様およびSDKに従う別の内容検査を実行しなければならない。
 
 ## 5. フォーマットタイプ
 
@@ -318,9 +314,7 @@ bip39-language =
 
 ```
 
-`mnemonic`と`passphrase`はUnicode NFKD形式とする。ニーモニックは`language`に対応するBIP39単語リストとchecksumの検証に合格しなければならない。単語間はASCII space 1文字とし、日本語でもワイヤ値にはASCII spaceを使用する。`passphrase`はBIP39のpassphraseそのもので、存在しない場合は空文字列としてseedを導出する。UIの暗号化パスワードとは別物である。
-
-鍵導出アルゴリズムとパスはchainとnetworkに対するSymbol SDKの規則で固定し、SNIF payloadでは指定または上書きできない。v1の規範実装は`@nemnesia/symbol-sdk` `3.3.2-pure.2`の`Bip32`、各facadeの`bip32Path(accountId)`、`bip32NodeToKeyPair`とする。復元UIはaccount IDを利用者に選択させてもよいが、独自のcurve、root HMAC key、coin type、非hardened pathを受け付けてはならない。別言語の実装も`doc/fixtures/mnemonic-derivation.json`と同じ結果を生成しなければならない。SDKの導出結果を変更する場合は既存v1を変更せず、新しいワイヤversionを定義する。
+`mnemonic`と`passphrase`はUnicode NFKD形式とする。単語間はASCII space 1文字とし、日本語でもワイヤ値にはASCII spaceを使用する。`passphrase`はニーモニック復元処理へ渡す値であり、UIの暗号化パスワードとは別物である。codecはBIP39単語リスト、checksum、seedまたはchain別の鍵導出を検証しない。これらの意味検証と復元方法は、ホストまたは別仕様が対象chainと利用するニーモニック方式に従って定義する。
 
 ```json
 {
@@ -344,16 +338,7 @@ sign-request-payload = {
 }
 ```
 
-`transaction`では、対象トランザクションがチェーン規則上署名可能な状態でなければならない。`cosignature`はchain別に次の入力だけを許可する。
-
-- Symbol: `transactionPayload`は署名済みのAggregate CompleteまたはAggregate Bonded transactionとする。連署対象はchain規則で算出したtransaction hashとする。
-- NEM: `transactionPayload`は署名前のCosignatureV1 transactionとする。対象multisig transaction hash、multisig account address、fee、deadlineを内部に持ち、CosignatureV1 transaction全体を通常のNEM署名対象とする。
-
-verification helperはSymbol SDKでトランザクションを完全に解析し、未知のtransaction type、deserialize不能、またはSDKが安全に解釈できないfieldがある場合は検証を失敗させる。hostは同じSDK modelからchain、network、transaction type、signer、送受信先、mosaic、amount、fee、deadline、message、Aggregate／multisigの内部transactionと必要連署者を取得して表示する。表示方法と署名可否の最終判断はhostの責務であり、codec適合条件には含めない。
-
-`verifyRequest`は`expectedSignerPublicKey`が存在する場合、その長さと対象chainのSDKが公開鍵として受理する値であることだけを検証する。hostが対応する秘密鍵を利用できるか、および利用者へどのaccountを提示するかはhostの責務とする。実際の応答signerとの一致は`verifyRequest`では検証せず、`verifyResponse`がbyte-for-byte一致を必須とし、不一致を`verification-failed`として拒否する。
-
-verification helperは`context`を5.11節に従って検証し、期限切れ要求を拒否する。消費済みrequestIdの判定はhostの責務とする。contextはchain transaction signatureそのものには含まれないため、verification helperはtransaction payloadのdeadlineとnetworkも独立して検証しなければならない。
+codecは`transactionPayload`を不透明なbyte列として扱う。`signingType`、`context`、`expectedSignerPublicKey`および`connection`は指定されたfield形状・長さ・列挙値だけを検証する。トランザクションが署名可能か、連署対象か、要求者または応答者の鍵と一致するか、期限内か、または接続済みかの判断は、ホストまたは別の検証仕様の責務とする。
 
 ### 5.6 署名済みトランザクション: `signed-transaction`
 
@@ -370,14 +355,7 @@ signed-transaction-payload = {
 
 `requestId`が存在する場合、hostは元の`sign-request`を対応付けに使用する。SNIFはrequestId、chain、network、transactionPayload、署名およびhashを伝達するが、transaction内容の妥当性または要求と応答の業務上の同一性を判定しない。
 
-`signingType: "transaction"`では、使用者は元要求と応答のtransactionPayloadからSDKの`extractSigningPayload`相当処理で署名対象byte列またはtransaction hashを算出し、必要な対応確認を行ってよい。SNIFはその判断に必要な完全byte列を変更せず伝達する。表示、承認、署名可否およびオンチェーン有効性の判断はhostの責務とする。
-
-`signingType: "cosignature"`ではchain別に次を必須とする。
-
-- Symbol: 使用者はAggregate transactionをSDKでhashし、応答の`parentHash`、signer、versionおよびsignatureを確認してよい。
-- NEM: 使用者はCosignatureV1 transactionをSDKでdeserializeし、署名対象、signerおよびsignatureを確認してよい。
-
-SNIFはchain固有の比較規則を定義せず、使用者は対象SDKのmodelとfacadeを使用して必要な確認を行う。10章のtransaction fixtureは、使用者が確認に利用できる完全byte列、hashおよび署名材料を固定する。requestIdの消費と状態遷移はhostが別に実行する。
+`requestId`が存在しても、codecは元の`sign-request`との対応、署名対象、署名者、トランザクションhash、またはオンチェーン有効性を検証しない。対応付け、表示、承認、署名可否、requestIdの消費および状態遷移はホストの責務とする。
 
 ### 5.7 メッセージ署名要求: `message-sign-request`
 
@@ -407,7 +385,7 @@ message-signing-frame = {
 }
 ```
 
-このフレーミングは必須であり、v1では未フレームの生メッセージへの署名を要求できない。verification helperはaudience、purpose、期限とメッセージをhostへ返し、期限を検証する。表示方法、利用者承認およびrequestIdが消費済みかの判定はhostの責務とする。
+このフレーミングは、ホストが署名対象を定義するために使用してよい補助表現である。codecはframeを生成または検証せず、未フレームの生メッセージを署名対象として受理するかどうかも判断しない。表示方法、利用者承認、期限、署名、audienceおよびrequestIdの消費はホストの責務とする。
 
 ```json
 {
@@ -460,18 +438,11 @@ rejected-signature = {
 
 エンベロープの`chain`によって許容する結果を切り替える。Symbolでは`symbol-cosignature`、NEMでは`nem-cosignature`だけを連署結果として許可する。Symbolの`symbol-cosignature.version`はv1では`0`だけを許可する。
 
-`rejected-signature`は5.5節または5.7節の要求を利用者が拒否した結果を表す。情報最小化のためrequestId以外を含めず、署名されない。codecは拒否documentをdecodeできるが、拒否元を認証済みとは扱わない。hostは11節の`verifyResponse`へ`authenticatedRejection: true`を渡した場合だけ拒否を確定してよく、それ以外は`unauthenticated-rejection`として扱う。
+`rejected-signature`は5.5節または5.7節の要求に対する拒否を表す。情報最小化のためrequestId以外を含めず、署名されない。codecは拒否documentをdecodeできるが、拒否元、元要求との対応、または拒否の真正性を確認しない。
 
-`detached-signature.targetHash`は`signatureType`ごとに次のように定義する。
+`detached-signature.targetHash`は、ホストまたは別仕様が定義する署名対象を識別する32-byte値である。
 
-| タイプ        | `targetHash`                                     |
-| ------------- | ------------------------------------------------ |
-| `transaction` | チェーンが定義する正確な署名対象byte列のSHA3-256 |
-| `message`     | 5.7節でフレーム化したbyte列のSHA3-256            |
-
-NEMの`transactionPayload`は完全に署名されたCosignatureV1 transactionとし、verification helperはSymbol SDKのNEM modelを使用して元要求との対応と署名を検証する。Symbolの`parentHash`はSymbol SDKを使用して元Aggregate transactionから再計算する。
-
-hostはrequestIdに対応する元要求を明示的な引数として11節の`verifyResponse`を呼び出し、target hash、signer、chain、network、署名を検証しなければならない。元要求が存在しない場合はverification helperを呼び出さず、host固有の未検出エラーとして扱う。期限切れまたは不一致は検証失敗とし、`requestId`の一致だけで受理してはならない。一回限り消費と冪等性はhostの責務とする。
+NEMの`transactionPayload`、Symbolの`parentHash`、`signerPublicKey`および`signature`は、codecにとって不透明な検証材料である。元要求との対応、target hash、signer、chain、network、署名および期限の検証、一回限り消費と冪等性はホストの責務とする。
 
 ### 5.9 ウォレット接続要求: `connection-request`
 
@@ -510,13 +481,13 @@ connection-request-frame = {
 
 `permissions`は重複を含まず、`account`を必須とする。未知のpermissionを含む要求は全体を拒否する。`challenge`は要求ごとにOS CSPRNGで生成した32 bytesとし、すべてゼロの値と再利用を禁止する。
 
-要求者はchainに対応するSymbolまたはNEMの一時KeyPairをapplication単位で生成し、`connection-request-frame`の決定的CBOR byte列へ署名する。verification helperは`requesterPublicKey`で`signature`を検証する。この自己署名は要求の改ざん防止と同じ接続内での鍵所有継続を証明するが、applicationの名称、法人、domain所有を証明しない。一時秘密鍵は要求者端末のplatform keystoreまたは同等の保護領域へ非export可能な形で保存することを優先し、serverへ送信してはならない。接続失効後は6.5節と同等の規則で消去する。
+`requesterPublicKey`と`signature`は接続要求の検証材料である。codecはその長さと全ゼロ値だけを検証し、`connection-request-frame`の生成、署名検証、鍵所有または要求改ざん防止を保証しない。これらを必要とするホストは、対象chainに対応する署名仕様、鍵管理および検証手順を別途定義しなければならない。
 
 `origin`はapplicationを表すabsolute URI、`iconUrl`は指定する場合HTTPSのabsolute URIとする。ただし、`name`、`origin`、`iconUrl`はすべて要求者の自己申告による表示情報であり、applicationの本人性、domain所有、搬送元、認証済みoriginを証明しない。ウォレットはこの情報だけを根拠に自動承認してはならない。コア実装は`iconUrl`を取得せず、ホストが取得する場合はSSRF、追跡、過大response、redirect、media typeを制限する。
 
 `connection-request`では`context.audience`と`application.origin`をUnicode code point単位で完全一致させなければならない。この一致は要求内部の整合性だけを示し、originの真正性を証明しない。
 
-verification helperはchain、network、application name、origin、要求permissions、有効期限と、originが自己申告値であることをhostへ返す。表示方法と接続承認はhostの責務とする。接続承認は公開情報の開示とローカルなpermission grantを意味するが、秘密鍵の開示、トランザクションの自動署名、サーバー認証、chain上の権限変更を意味しない。
+表示方法と接続承認はhostの責務とする。接続承認は公開情報の開示とローカルなpermission grantを意味するが、秘密鍵の開示、トランザクションの自動署名、サーバー認証、chain上の権限変更を意味しない。
 
 ### 5.10 ウォレット接続応答: `connection-response`
 
@@ -558,13 +529,11 @@ connection-response-frame = {
 }
 ```
 
-承認時、ウォレットは新しい`sessionId`をOS CSPRNGで生成する。`sessionId`は16 bytesで、すべてゼロの値と再利用を禁止する。session時刻はUTCのUnix秒とし、`sessionCreatedAt < sessionExpiresAt`、有効期間は最大30日とする。verification helperは`sessionCreatedAt > now + 300秒`または`sessionExpiresAt <= now`の承認応答を拒否する。`permissions`は要求された集合の空でない部分集合で、`account`を必須とする。`account.publicKey`からaddressを導出し、エンベロープのchain/networkおよび`account.address`と一致しなければならない。
+承認時の`sessionId`、時刻、`account`、`permissions`および`signature`は指定されたfield形状・長さ・列挙値を満たさなければならない。codecは`sessionId`の生成または再利用、現在時刻、有効期限、要求permissionsの部分集合、鍵からのaddress導出、署名または元要求との対応を検証しない。
 
-`signature`の署名対象は、元の`connection-request`から構築した`connection-response-frame`の決定的CBOR byte列とする。SymbolではSymbol、NEMではNEMの選択アカウント鍵で署名する。hostは元要求を明示的な引数として11節の`verifyResponse`を呼び出す。verification helperは要求hashとchallengeを再計算し、permissionsが要求の部分集合であること、account整合性、署名を検証する。応答自身が指定した値だけからframeを構築してはならない。検証後のrequestId消費とconnection保存はhostの責務とする。
+拒否時は情報最小化のため`approved: false`と元の`requestId`以外を含めてはならない。拒否応答には署名がないため、codecは拒否元または拒否の真正性を確認できない。
 
-拒否時は情報最小化のため`approved: false`と元の`requestId`以外を含めてはならない。拒否応答には署名がないため、攻撃者による偽の拒否を暗号学的には判別できない。codecは拒否documentを返してよいが、hostは11節の`verifyResponse`へ`authenticatedRejection: true`を渡した場合だけ拒否を確定してよい。それ以外は`unauthenticated-rejection`として扱い、拒否を承認として解釈できるfallbackを禁止する。
-
-ホストは承認済み接続についてsessionId、requesterPublicKey、requester表示情報、account、permissions、有効期限、失効状態をオフチェーンで管理する。`sessionId`は照合用識別子であり、単独ではbearer tokenまたは認証証明ではない。5.5節または5.7節の要求が`connection`を持つ場合、hostはconnection recordを11節のverification helperへ渡し、proofが有効で、接続が未失効かつ未期限切れで、対応permissionがgrant済みであることを確認する。署名対象の表示、要求contextの検証、利用者承認はhostの責務であり、接続済みであることを理由に省略してはならない。`connection`を持たない署名要求は独立した要求として処理してよい。
+ホストは承認済み接続についてsessionId、requesterPublicKey、requester表示情報、account、permissions、有効期限、失効状態をオフチェーンで管理する。`sessionId`は照合用識別子であり、単独ではbearer tokenまたは認証証明ではない。connection proof、接続状態、permission grant、署名対象の表示、要求contextの検証および利用者承認はホストの責務であり、接続済みであることを理由に省略してはならない。
 
 ### 5.11 共通CDDL定義
 
@@ -584,29 +553,13 @@ connection-proof = {
   "requesterPublicKey": bstr .size 32,
   "signature": bstr .size 64,
 }
-connected-request-frame = {
-  "domain": "SNIF-CONNECTED-REQUEST-V1",
-  "type": "sign-request" / "message-sign-request",
-  "chain": chain,
-  "network": network,
-  "sessionId": request-id,
-  "authorizationHash": bstr .size 32,
-}
 ```
 
 エンベロープのchainによって`chain-address`の分岐を決定する。Symbolエンベロープに25-byteのNEMアドレスを格納すること、およびその逆を禁止する。
 
-requestIdはOS CSPRNGで生成した16 bytesとし、すべてゼロの値を禁止する。時刻はUTCのUnix秒とし、`createdAt < expiresAt`かつ有効期間は最大24時間とする。要求を処理するホストは`createdAt > 現在時刻 + 300秒`の要求と、`expiresAt <= 現在時刻`の要求を拒否する。
+requestIdは衝突耐性を持つ不透明な16-byte識別子で、全ゼロ値を禁止する。時刻はUTCのUnix秒とし、`createdAt < expiresAt`かつ有効期間は最大24時間とする。codecはrequestIdの生成、再利用、現在時刻との比較またはreplayを検証しない。
 
-audienceは要求を生成し、署名結果または接続応答を検証するrequester applicationを一意に示すabsolute URIとする。`connection`を持つ署名要求では、verification helperはaudienceをhostから渡された`ConnectionRecord.application.origin`と完全一致させ、connection proofの検証に成功した場合にaudienceを接続記録による検証済みとする。`connection`を持たない要求のaudienceは自己申告の表示情報であり、真正性を証明しない。認証済み搬送路またはhost設定からtrustedAudienceを取得できる場合だけ照合し、payload自身、application metadata、QR内容からtrustedAudienceを生成してはならない。trustedAudienceがない独立要求では、verification helperはaudienceが未検証であることを結果へ含め、表示方法はhostが決定する。trustedAudienceとconnection recordの両方が与えられた場合は、audienceを両方の値と完全一致させ、いずれか一方だけの一致で成功してはならない。応答とrequestIdを持たない独立`signed-transaction`には検証対象のaudienceがない。
-
-要求hashは、`type`、`chain`、`network`、復号・展開後の`payload`からなるmapを決定的CBORでエンコードし、FIPS 202 SHA3-256を適用した値とする。compression、encryption、salt、nonceは要求hashへ含めない。
-
-応答hashも同じ規則で応答の`type`、`chain`、`network`、復号・展開後の`payload`から算出する。完全な応答SNIF byte列が圧縮、暗号化、salt、nonceの違いで異なっても、同じresponseHashなら意味的に同じ応答とみなす。ただし再送時は再エンコードせず、storeに最初に保存したresponseBytesを使用する。
-
-接続済み署名要求の`authorizationHash`は、要求hashと同じmapから`connection.signature`だけを除いてSHA3-256を適用した値とする。要求者は保存済み一時秘密鍵で`connected-request-frame`の決定的CBOR byte列へchain固有署名を行い、`connection.signature`へ格納する。hostはsessionIdに対応するconnection recordをverification helperへ明示的に渡す。verification helperは保存済みrequesterPublicKeyとproofの値が一致すること、frameの再構築値、署名、有効期限、失効状態、permissionを検証する。proof検証前のdocumentを認可済み要求として業務処理へ渡してはならない。
-
-ホストアプリケーションはrequestIdと要求hashを`expiresAt`まで保持する。同じrequestIdと同じhashの再受信は未処理なら同じ判断結果を返し、異なるhashで同じrequestIdを受信した場合は改ざんとして拒否する。署名済みまたは拒否済みのrequestIdは再処理してはならない。期限後もreplay検知を必要とする製品は、秘密情報を含まないrequestIdと最終状態だけを製品の監査保持期間まで保存する。
+audienceは要求に含まれるabsolute URIである。codecはURI構文と、`connection-request`における`application.origin`との完全一致だけを検証する。`audience`、`origin`、`iconUrl`および接続の署名・proofは自己申告または未検証のpayloadであり、application、domain、送信者、接続またはpermissionを認証しない。ホストは認証済み搬送路または独自の信頼設定を用いて、必要な照合、期限検証、replay防止、request/response対応付けおよびpermission判定を行わなければならない。
 
 ## 6. パスワード暗号化プロファイル
 
@@ -699,40 +652,27 @@ codecの`decode`は次の順序で検証しなければならない。
 5. 認証と復号
 6. 展開と展開後サイズ
 7. 内部CBORの構文、決定性、厳密なスキーマ、リソース上限
-8. document内の値だけで完結する鍵・address・network・checksum整合性
+8. payload fieldの長さ、全ゼロ禁止、列挙値、文字列正規化および型固有の構造規則
 
-verification helperはdecode済みdocumentを受け取り、次の順序で検証しなければならない。
-
-1. request contextの時刻とtrustedAudience
-2. connection request自身のframe、hash、署名
-3. 元要求とのrequestId、chain、network、hash、署名対象の対応
-4. hostから渡されたconnection recordとconnection proof、session状態、permission
-5. Symbol SDKによるtransaction deserialize、署名対象生成、署名検証
-
-codecとverification helperはいずれも外部storageを読み書きしない。いずれかが失敗した場合、部分的な検証結果を返してはならない。hostは利用者向け表現へ変換してもよいが、logへパスワード、秘密鍵、ニーモニック、復号済みペイロード、署名対象challenge全体を出力してはならない。
+codecは外部storageを読み書きしない。hostは利用者向け表現へ変換してもよいが、logへパスワード、秘密鍵、ニーモニック、復号済みペイロード、署名対象challenge全体を出力してはならない。
 
 ### 8.2 エラーカテゴリー
 
 公式TypeScript実装はparser固有メッセージではなく、次の安定したカテゴリーを`SnifError.code`として必ず公開しなければならない。ほかの適合実装も、名称または値が異なっても同等の機械判定可能なカテゴリーを公開しなければならない。
 
-| カテゴリー                  | 意味                                                       |
-| --------------------------- | ---------------------------------------------------------- |
-| `invalid-envelope`          | 外側CBORまたはスキーマが不正・非決定的                     |
-| `unsupported-version`       | `protocol`はSNIFだが`version`が未対応                      |
-| `unsupported-type`          | SNIF versionは正しいがtypeが未実装                         |
-| `unsupported-codec`         | 構文上正しい圧縮または暗号化プロファイルが未対応           |
-| `password-required`         | 暗号化データに対してpasswordが指定されていない             |
-| `decryption-failed`         | パスワード、ciphertext、認証の失敗                         |
-| `resource-limit`            | 宣言値または生成値が上限超過                               |
-| `operation-cancelled`       | 利用者またはAbortSignalによって処理が中断された            |
-| `entropy-unavailable`       | OS CSPRNGから必要な乱数を取得できない                      |
-| `invalid-payload`           | 内部CBOR、タイプ固有スキーマ、または既知codec streamが不正 |
-| `invalid-context`           | request contextの型、期間、audienceが不正                  |
-| `expired-request`           | 要求の期限が切れている                                     |
-| `authorization-failed`      | 接続proof、session状態、またはpermission grantが不正       |
-| `unauthenticated-rejection` | 未署名拒否を認証済み搬送路以外から受信した                 |
-| `network-mismatch`          | アドレス、鍵、トランザクション、応答がエンベロープと不一致 |
-| `verification-failed`       | ハッシュ、署名、鍵導出、checksumが不一致                   |
+| カテゴリー            | 意味                                                       |
+| --------------------- | ---------------------------------------------------------- |
+| `invalid-envelope`    | 外側CBORまたはスキーマが不正・非決定的                     |
+| `unsupported-version` | `protocol`はSNIFだが`version`が未対応                      |
+| `unsupported-type`    | SNIF versionは正しいがtypeが未実装                         |
+| `unsupported-codec`   | 構文上正しい圧縮または暗号化プロファイルが未対応           |
+| `password-required`   | 暗号化データに対してpasswordが指定されていない             |
+| `decryption-failed`   | パスワード、ciphertext、認証の失敗                         |
+| `resource-limit`      | 宣言値または生成値が上限超過                               |
+| `operation-cancelled` | 利用者またはAbortSignalによって処理が中断された            |
+| `entropy-unavailable` | OS CSPRNGから必要な乱数を取得できない                      |
+| `invalid-payload`     | 内部CBOR、タイプ固有スキーマ、または既知codec streamが不正 |
+| `invalid-context`     | request contextまたは同一document内のcontext整合性が不正   |
 
 実装はローカル診断情報を付加してもよいが、暗号処理の詳細な失敗理由をtrust boundaryの外へ公開してはならない。
 
@@ -748,7 +688,7 @@ codecとverification helperはいずれも外部storageを読み書きしない�
 
 Draft 2を安定版へ昇格する前に、本仕様から生成した機械可読な適合fixtureをリポジトリへ追加しなければならない。
 
-規範fixtureの入口は`doc/fixtures/manifest.json`とする。manifestに登録されていないファイルを適合性の根拠にしてはならない。各manifest entryの`category`に対応するJSON Schemaをfixture本体のデータ形状、必須field、および期待値表現の正本とする。loaderはmanifest entryの`id`とfixture本体の`id`が完全一致することを検証しなければならない。鍵導出については`mnemonic-derivation.json`をv1の規範値とし、Symbol SDK自身を含む全実装が一致しなければならない。
+規範fixtureの入口は`doc/fixtures/manifest.json`とする。manifestに登録されていないファイルをcodec適合性の根拠にしてはならない。各manifest entryの`category`に対応するJSON Schemaをfixture本体のデータ形状、必須field、および期待値表現の正本とする。loaderはmanifest entryの`id`とfixture本体の`id`が完全一致することを検証しなければならない。
 
 wire-format fixtureは次を含まなければならない。
 
@@ -760,39 +700,34 @@ wire-format fixtureは次を含まなければならない。
 
 各規範caseは、適合実装が実装固有constant、暗黙のmutation手順、または外部状態を追加せず実行できる完全な入力を含まなければならない。byte列を扱うcaseは入力および変異後の完全byte列を大文字16進で格納しなければならない。`mutation`、`baseCase`、`expression`などの説明だけを規範入力としてはならない。
 
-verification caseは、requestおよびresponseの完全SNIF byte列、またはcategory別schemaで固定した完全なdecode後documentに加え、`now`、`trustedAudience`、`ConnectionRecord`、`authenticatedRejection`など検証APIへ渡す全外部引数と、期待hash／resultまたは期待errorを含まなければならない。署名、proof、transaction、hashまたはframeを検証するcaseは、有効な入力と負のcaseごとの変異後byte列をbyte-for-byteで格納しなければならない。
+署名、proof、transaction、hashまたはframeの意味を検証するcaseはcore codecの適合fixtureに含めてはならない。必要な場合は、対象chainまたはホストの別仕様で、外部引数、期待結果および検証手順を定義する。
 
-mnemonic derivationなどのalgorithm fixtureはwire-format fixtureではない。algorithm fixtureは、category別JSON Schemaが定める入力と期待導出値を含まなければならず、内部ペイロードCBORまたは完全なエンベロープCBORを持つ必要はない。
-
-Unicode mnemonic適合fixtureは、BIP39が参照する公開test vectorから次を採用し、出典repository、取得対象commit、元vectorのentropy、NFKD前の表示値、SNIFへ格納するNFKD／ASCII-space値、および期待BIP39 seedを記録しなければならない。
+Unicode mnemonic適合fixtureは、NFKDおよびASCII spaceの文字列規則を検証する。BIP39 seedまたはchain別導出値はcore codec適合の対象外とする。
 
 - 日本語は`bip32JP/bip32JP.github.io`の`test_JP_BIP39.json`先頭vector（entropy `00000000000000000000000000000000`）を採用する。元vectorのIDEOGRAPHIC SPACEはSNIFワイヤ値でASCII spaceへNFKD正規化し、互換文字を含むpassphrase `㍍ガバヴァぱばぐゞちぢ十人十色`もNFKD正規化したbyte列を格納する。
 - スペイン語は`trezor/python-mnemonic`の`vectors.json`にあるSpanish先頭vector（entropy `00000000000000000000000000000000`）を採用する。mnemonic中のアクセント付き文字はNFKD表現を格納する。
 - 空passphraseは、同じSpanish先頭mnemonicと空文字列を入力とするSNIF固有vectorで固定する。
-- 1,024 UTF-8 bytes境界は、NFKD文字列`e\u0301`を341回連結し、末尾へASCII `a`を1文字連結した値（`3 * 341 + 1 = 1,024 bytes`）をpassphraseとする。末尾の`a`を2文字へ増やした1,025-byte値は`invalid-payload`となり、PBKDF2を実行してはならない。
+- 1,024 UTF-8 bytes境界は、NFKD文字列`e\u0301`を341回連結し、末尾へASCII `a`を1文字連結した値（`3 * 341 + 1 = 1,024 bytes`）をpassphraseとする。末尾の`a`を2文字へ増やした1,025-byte値は`invalid-payload`となる。
 
-NFC入力拒否fixtureでは、上記境界vectorと同じUnicode scalar列をNFCへ変換した値を入力とし、`invalid-payload`を期待する。受信側がNFC入力を暗黙にNFKDへ変換して受理してはならない。正常fixtureの期待BIP39 seedとchain別導出値は、BIP39 test vectorまたは独立した導出手順によるreview済み値をfixture本体へ明記しなければならず、SNIFのencoder、decoderまたはverification実装の出力で上書きしてはならない。
+NFC入力拒否fixtureでは、上記境界vectorと同じUnicode scalar列をNFCへ変換した値を入力とし、`invalid-payload`を期待する。受信側がNFC入力を暗黙にNFKDへ変換して受理してはならない。
 
 manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema対応表が同じ変更で追加された場合にだけ追加してよい。既存categoryのfieldの意味または期待値表現を互換性なく変更してはならない。この変更が必要な場合は、新しいcategory名と新しいcategory別JSON Schemaを追加し、既存categoryを保持しなければならない。loaderは未知のcategoryを推測せず拒否しなければならない。
 
-`codec-structural` fixtureはcodecが外部contextなしに受理するdocument構造を表すだけであり、chain transaction、署名、connection proofまたは利用者承認の検証成功を意味しない。`codec-structural`のcaseを下表の「タイプ」「署名」「接続」の完全適合件数へ算入してはならない。これらのmatrixを満たす正しいfixtureは、必要なverification helperの成功まで含む実行可能なverification fixtureとする。
+`codec-structural` fixtureはcodecが外部contextなしに受理するdocument構造を表す。decode成功はchain transaction、署名、connection proof、利用者承認または接続の検証成功を意味しない。
 
-現行の規範categoryは`codec-structural`、`password-v1`、`secret-backup`、`zlib`、`transaction-primitives`、`mnemonic-unicode`、`mnemonic-derivation`および`cbor-envelope`とする。`secret-backup`は`account`と`mnemonic`について、完全SNIF入力、固定password、復号済みpayload、誤password、AAD header改変、tag改変、password未指定および禁止されたzlib圧縮を固定する。秘密typeで`compression`が`"none"`以外であるcaseは各typeにつき少なくとも1件を登録し、decoderはpassword導出、復号、展開または内部payloadのdecodeより前に`invalid-envelope`として拒否しなければならない。`transaction-primitives`はSDKのserialize、hashおよび署名primitiveだけを検証し、SNIF request／response対応の成功を意味しない。未完成のnegative、transaction verification、messageまたはconnection caseをmanifestへ登録してはならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
+現行のcore規範categoryは`codec-structural`、`password-v1`、`secret-backup`、`zlib`、`mnemonic-unicode`および`cbor-envelope`とする。`transaction-primitives`と`mnemonic-derivation`はchain意味検証用の補助資料であり、core codec適合またはrelease判定の根拠にしてはならない。`secret-backup`は`account`と`mnemonic`について、完全SNIF入力、固定password、復号済みpayload、誤password、AAD header改変、tag改変、password未指定および禁止されたzlib圧縮を固定する。秘密typeで`compression`が`"none"`以外であるcaseは各typeにつき少なくとも1件を登録し、decoderはpassword導出、復号、展開または内部payloadのdecodeより前に`invalid-envelope`として拒否しなければならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
 
 最低限のfixture matrixを次に示す。
 
-| 対象     | 必須ケース                                                                                                                                                  |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| タイプ   | v1の10タイプについて正しいfixture 1件以上                                                                                                                   |
-| チェーン | SymbolとNEMのアドレスおよびトランザクション各1件以上                                                                                                        |
-| 暗号化   | 正しいaccountとmnemonic、誤パスワード、header改変、tag改変                                                                                                  |
-| 圧縮     | 正しいzlib、raw-DEFLATE拒否、末尾データ拒否、展開上限                                                                                                       |
-| CBOR     | 非最短整数、不定長、重複キー、誤ったキー順、末尾item                                                                                                        |
-| 整合性   | 鍵・アドレス不一致、network不一致                                                                                                                           |
-| 署名     | transactionは正常、本文変更、signatureだけ変更をchain別に含む。Symbol／NEM cosignatureは正常、連署対象変更、signer変更を含む。messageとconnection応答も含む |
-| 接続     | 部分grant、未知permission、偽署名、proof不一致、および接続記録照合済みaudienceを含む                                                                        |
-| audience | 独立要求のtrustedAudience一致・不一致・未指定、接続要求のrecord一致、recordとtrustedAudienceの片方だけの不一致、responseの対象外を含む                      |
-| 拒否     | verification fixtureとして認証済み拒否と未認証拒否                                                                                                          |
+| 対象     | 必須ケース                                                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| タイプ   | v1の10タイプについて正しいfixture 1件以上                                                                               |
+| チェーン | SymbolとNEMのアドレスおよびトランザクションの長さ・field構造各1件以上                                                   |
+| 暗号化   | 正しいaccountとmnemonic、誤パスワード、header改変、tag改変                                                              |
+| 圧縮     | 正しいzlib、raw-DEFLATE拒否、末尾データ拒否、展開上限                                                                   |
+| CBOR     | 非最短整数、不定長、重複キー、誤ったキー順、末尾item                                                                    |
+| 構造     | 鍵・アドレス・signature・proofの長さ、全ゼロ値、未知field、未知permission、requestIdおよび同一document内のcontext整合性 |
+| 署名材料 | transaction、message、connectionの署名・proof fieldを不透明なbyte列として往復するcase                                   |
 
 未圧縮の決定的CBORと、固定salt・nonceを使用する暗号化fixtureではbyte-for-byte一致を必要とする。zlibは同じ入力に複数の正しいstreamを生成できるため、圧縮fixtureは展開後のbyte列、zlib profile、末尾data、上限によって適合性を判定し、圧縮byte列そのものの一致は要求しない。全不正fixtureは指定カテゴリーで拒否しなければならない。fixture生成器を独立したプロトコル規則の情報源としてはならず、不一致時は本文を正とする。
 
@@ -807,17 +742,17 @@ zlib componentのPhase 1 fixtureは、展開後16 MiBを受理し、byte長とSH
 | Phase | 着手可能な作業                                                                            | 完了条件                                                                         |
 | ----- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | 0     | 最小package骨格、fixture schema、manifest loader、fixture追加、未実装に対して失敗するtest | fixtureを追加・review・実行できる共通基盤が成功                                  |
-| 1     | fixture登録済みcomponentのcodecまたはverification helper                                  | 当該componentの正常・境界・異常fixtureがすべて成功                               |
-| 2     | 公開codec APIとverification helperのend-to-end統合                                        | Node.jsとbrowserでcomponent間の相互運用、失敗伝播、資源制限のfixtureがすべて成功 |
-| 3     | 安定版公開                                                                                | 10タイプのmatrix、Symbol/NEM相互運用、公開対象componentの全適合testが成功        |
+| 1     | fixture登録済みcodec component                                                            | 当該componentの正常・境界・異常fixtureがすべて成功                               |
+| 2     | 公開codec APIのend-to-end統合                                                             | Node.jsとbrowserでcomponent間の相互運用、失敗伝播、資源制限のfixtureがすべて成功 |
+| 3     | 安定版公開                                                                                | 10タイプのwire・profile matrix、Symbol/NEM相互運用、公開codecの全適合testが成功  |
 
 現行のfixture登録状況は`doc/fixtures/manifest.json`を正とする。全体phaseは、manifestに登録されたfixture、共通loader／test基盤、および上表の完了条件から決定する。ただし、各componentは対応fixtureが先に登録・review済みであれば個別にPhase 1へ進めてよい。fixtureより先に同じcomponentの実装を追加してはならない。
 
-v1ではpackage全体を単一のDraftとして扱う。全10タイプと公開codec／verification helperに必要なfixture matrixがPhase 3の完了条件を満たすまで、packageを安定版として公開registryへpublishしてはならず、いずれかのcomponentだけをrelease済みまたは適合済みと表示してはならない。開発用buildでfixture完成済みcomponentを試験することは妨げないが、そのbuildは非公開のpre-releaseとして明示しなければならない。component単位の段階的な公開はv1の対象外とする。
+v1ではpackage全体を単一のDraftとして扱う。全10タイプと公開codecに必要なwire・profile fixture matrixがPhase 3の完了条件を満たすまで、packageを安定版として公開registryへpublishしてはならず、いずれかのcomponentだけをrelease済みまたは適合済みと表示してはならない。開発用buildでfixture完成済みcomponentを試験することは妨げないが、そのbuildは非公開のpre-releaseとして明示しなければならない。component単位の段階的な公開はv1の対象外とする。
 
 ## 11. TypeScript公開API
 
-公式TypeScript実装は単一のESM-only `@nemnesia/symbol-nem-interchange-format` packageとして公開し、Node.js 20以上とmodule Worker、Web Crypto、AbortSignal、BigIntを利用できるbrowserを対象とする。通常利用者に圧縮・暗号化の手順を委ねず、公開entry pointは副作用のないcodecとverification helperだけを提供する。`./core`または`./workflow` subpathを公開してはならない。
+公式TypeScript実装は単一のESM-only `@nemnesia/symbol-nem-interchange-format` packageとして公開し、Node.js 20以上とmodule Worker、Web Crypto、AbortSignal、BigIntを利用できるbrowserを対象とする。通常利用者に圧縮・暗号化の手順を委ねず、公開entry pointは副作用のないcodecだけを提供する。`./core`または`./workflow` subpathを公開してはならない。
 
 ### 11.1 Codec API
 
@@ -843,115 +778,13 @@ declare function inspect(data: Uint8Array): SnifHeader;
 `SnifDocument`は`type`を判別fieldとするv1の10 payload typeのdiscriminated unionとする。`chain`、`network`、`payload`を必須とし、CDDLの任意fieldだけをTypeScriptでもoptionalとする。
 
 - `encode`はpayload validation、決定的CBOR、圧縮、暗号化、エンベロープCBORを順番に実行する。外部storageを読み書きしてはならない。
-- `decode`は8.1節のcodec検証を完了してからdocumentを返す。返却documentは構文とdocument内で完結する整合性を検証済みだが、元要求、現在時刻、trusted audience、connection状態を必要とする検証は未実施である。これを認可済みまたは署名要求との対応確認済みとして扱ってはならない。
+- `decode`は8.1節のcodec検証を完了してからdocumentを返す。返却documentは構文、field形状、正規化、長さ、列挙値、リソース上限および暗号認証を満たすが、元要求、現在時刻、署名、chain意味、origin、permission、connection、replayまたは搬送路の認証は未実施である。これを認可済みまたは署名要求との対応確認済みとして扱ってはならない。
 - `signal`による中断は`operation-cancelled`とする。暗号処理開始後も可能な最短の安全な境界で中断し、6.5節の消去を実行する。
 - `compression`の既定値は`auto`とする。`auto`は`account`と`mnemonic`で必ず`none`、ほかのtypeではzlib結果が元CBORより短い場合だけ`zlib`を選択する。秘密typeへ明示的に`zlib`を指定した場合は`invalid-envelope`とする。
 - `account`と`mnemonic`のencodeではpasswordを必須とし、未指定なら`password-required`とする。暗号化データのdecodeでpasswordが未指定なら`password-required`、誤passwordなら`decryption-failed`とする。
 - OS CSPRNGが利用不能、失敗、または要求した長さを返さない場合、処理を中断して`entropy-unavailable`を返す。固定値、時刻、非暗号学的乱数へのfallbackを禁止する。
 - `inspect`は外側エンベロープだけをstrictに検証し、payloadを復号・展開せずheaderを返す。返却値をpayloadが正しい証拠として使用してはならない。
 - 入力`Uint8Array`を無断で変更しない。内部copyは6.5節に従って消去する。返却された秘密payloadの所有権と消去責任は呼び出し側へ移る。
-
-### 11.2 Verification API
-
-```ts
-type RequestDocument = SignRequestDocument | MessageSignRequestDocument | ConnectionRequestDocument;
-type ResponseDocument = SignatureDocument | SignedTransactionDocument | ConnectionResponseDocument;
-
-interface ConnectionRecord {
-  sessionId: Uint8Array;
-  chain: Chain;
-  network: Network;
-  requesterPublicKey: Uint8Array;
-  application: ApplicationMetadata;
-  account: AccountReference;
-  permissions: ConnectionPermission[];
-  sessionCreatedAt: number;
-  sessionExpiresAt: number;
-  state: 'active' | 'revoked';
-}
-
-interface VerifyRequestOptions {
-  now: number;
-  trustedAudience?: string;
-  connection?: ConnectionRecord;
-}
-
-interface VerifyResponseOptions {
-  now: number;
-  authenticatedRejection?: boolean;
-}
-
-type AudienceVerification =
-  | { status: 'verified'; evidence: 'trusted-audience' | 'connection' | 'trusted-audience-and-connection' }
-  | { status: 'unverified'; evidence: 'self-asserted' }
-  | { status: 'not-applicable'; evidence: 'no-audience' };
-
-interface RequestVerificationResult<T extends RequestDocument> {
-  document: T;
-  requestHash: Uint8Array;
-  audience: AudienceVerification;
-}
-
-interface ResponseVerificationResult<T extends ResponseDocument> {
-  document: T;
-  responseHash: Uint8Array;
-  audience: { status: 'not-applicable'; evidence: 'no-audience' };
-}
-
-interface StandaloneTransactionVerificationResult {
-  document: SignedTransactionDocument;
-  documentHash: Uint8Array;
-  audience: { status: 'not-applicable'; evidence: 'no-audience' };
-}
-
-declare function verifyRequest<T extends RequestDocument>(
-  request: T,
-  options: VerifyRequestOptions
-): Promise<RequestVerificationResult<T>>;
-
-declare function verifyResponse<T extends ResponseDocument>(
-  response: T,
-  originalRequest: RequestDocument,
-  options: VerifyResponseOptions
-): Promise<ResponseVerificationResult<T>>;
-
-declare function verifySignedTransaction(
-  document: SignedTransactionDocument
-): Promise<StandaloneTransactionVerificationResult>;
-```
-
-- `now`はhostが取得したUTC Unix秒とする。verification helper自身がwall clockまたは外部serviceを参照してはならない。
-- 返却hashは厳密に32 bytesとし、5.11節のmap構成とSHA3-256で算出する。`verifyRequest`の`requestHash`は要求hash、`verifyResponse`の`responseHash`は応答hashを表す。`verifySignedTransaction`の`documentHash`は同じ規則によるdocument hashだが、元要求との対応を意味しない。
-- audience結果は次の決定表に従う。`evidence`は検証根拠を示し、`verified`だけを見て認証方式を推測してはならない。
-
-| API／入力                                            | 成功条件                                       | `status`         | `evidence`                        |
-| ---------------------------------------------------- | ---------------------------------------------- | ---------------- | --------------------------------- |
-| `verifyRequest`、connectionなし、trustedAudienceあり | audienceがtrustedAudienceと完全一致            | `verified`       | `trusted-audience`                |
-| `verifyRequest`、connectionなし、trustedAudienceなし | URI構文だけを検証                              | `unverified`     | `self-asserted`                   |
-| `verifyRequest`、connectionあり、trustedAudienceなし | audienceがrecord originと一致し、proof検証成功 | `verified`       | `connection`                      |
-| `verifyRequest`、connectionあり、trustedAudienceあり | audienceが両方と一致し、proof検証成功          | `verified`       | `trusted-audience-and-connection` |
-| `verifyResponse`                                     | audienceなし                                   | `not-applicable` | `no-audience`                     |
-| `verifySignedTransaction`                            | audienceなし                                   | `not-applicable` | `no-audience`                     |
-
-`trustedAudience`が指定された場合、それ自身を2.2節の`absolute-URI`として検証する。payload自身から`trustedAudience`を生成してはならない。不一致は`invalid-context`として拒否し、成功結果を返してはならない。
-
-- 接続済み要求では`connection`を必須とし、chain、network、requesterPublicKey、有効期限、失効状態、permission、proof署名を検証する。不足または不一致は`authorization-failed`とし、connectionの存在を外部向け詳細で区別してはならない。
-- `verifyResponse`が許容する組合せと結果を次に固定する。表にない組合せ、signature variantの不一致、requestId不一致は`verification-failed`とする。元要求の取得はhostの責務であり、見つからない場合はverification helperを呼び出さず、host固有の未検出エラーとして扱う。
-
-| 元要求                                               | 許容する応答                                                                                               |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `sign-request`、`signingType: "transaction"`         | `signatureType: "transaction"`の`signature`、`rejected-signature`、またはrequestId付き`signed-transaction` |
-| `sign-request`、`signingType: "cosignature"`、Symbol | `symbol-cosignature`、`rejected-signature`、またはrequestId付き`signed-transaction`                        |
-| `sign-request`、`signingType: "cosignature"`、NEM    | `nem-cosignature`、`rejected-signature`、またはrequestId付き`signed-transaction`                           |
-| `message-sign-request`                               | `signatureType: "message"`の`signature`または`rejected-signature`                                          |
-| `connection-request`                                 | `connection-response`                                                                                      |
-
-- requestIdを持たない`signed-transaction`は`verifyResponse`で必ず`verification-failed`とし、`verifySignedTransaction`だけで受理する。
-
-- requestIdを持たない独立した`signed-transaction`は`verifySignedTransaction`でchain、network、deserialize、および格納済み署名を検証できる。元要求との対応、利用者承認、オンチェーンでの有効性またはfinalityは検証しない。
-- `signed-transaction`、transaction signature、cosignatureのdeserialize、署名対象生成および署名検証は同一リポジトリの`@nemnesia/symbol-sdk`へ委譲し、署名前後比較は5.6節に従う。SNIF独自のbyte offsetまたは寛容な再serialize比較を追加してはならない。
-- 未署名拒否は`authenticatedRejection: true`の場合だけ検証成功とする。このoptionの既定値はfalseとし、搬送プロファイルが応答peerを認証した場合だけtrueを指定してよい。
-- verification helperは外部storageを読み書きせず、requestIdを消費せず、connectionを作成または失効させない。
 
 ### 11.3 エラー型
 
@@ -967,12 +800,7 @@ type SnifErrorCode =
   | 'operation-cancelled'
   | 'entropy-unavailable'
   | 'invalid-payload'
-  | 'invalid-context'
-  | 'expired-request'
-  | 'authorization-failed'
-  | 'unauthenticated-rejection'
-  | 'network-mismatch'
-  | 'verification-failed';
+  | 'invalid-context';
 
 declare class SnifError extends Error {
   readonly code: SnifErrorCode;
@@ -987,10 +815,8 @@ declare class SnifError extends Error {
 2. エンベロープ解析とheader/AAD構築
 3. 上限付きzlib圧縮・展開
 4. `password-v1`暗号化プロファイル
-5. チェーン固有のアドレス、鍵、トランザクション、ハッシュ、署名検証
-6. フォーマットタイプごとのvalidator
-7. connection request/responseとsession proof検証。失効状態の保存はhost
-8. 公開encode/decode境界での適合fixture実行
+5. フォーマットタイプごとの構造validator
+6. 公開encode/decode境界での適合fixture実行
 
 通常codec APIは外部状態を変更せず、搬送処理と暗号処理をinterfaceの背後に分離する。browser、Node.js、mobile、hardware wallet、offline実装で同じスキーマと検証動作を共有し、状態管理を必要としない利用を妨げてはならない。
 

@@ -1,6 +1,6 @@
 # Symbol NEM Interchange Format
 
-Symbol NEM Interchange Format（SNIF）v1 Draft 2のTypeScript実装です。SymbolおよびNEMのデータを、搬送手段に依存しない決定的なバイト列として生成・解析・検証します。
+Symbol NEM Interchange Format（SNIF）v1 Draft 2のTypeScript実装です。SymbolおよびNEMのデータを、搬送手段に依存しない決定的なバイト列として生成・解析します。
 
 このパッケージは規範fixtureマトリクスが未完成の非公開プレリリースです。仕様書のPhase 3ゲートを満たすまでは公開せず、SNIF適合実装として扱わないでください。
 
@@ -8,30 +8,21 @@ Symbol NEM Interchange Format（SNIF）v1 Draft 2のTypeScript実装です。Sym
 
 ## 対象範囲
 
-このパッケージは、SNIFバイト列のcodecと、署名・トランザクション・要求／応答のverification helperを提供します。QR、ファイル、deep linkなどの搬送、永続化、requestIdの消費、接続状態の管理、利用者への表示と承認、ノード通信はホストアプリケーションの責務です。
+このパッケージはSNIFバイト列のcodecだけを提供します。QR、ファイル、deep linkなどの搬送、永続化、requestIdの消費、接続状態の管理、利用者への表示と承認、ノード通信、チェーン意味・署名・要求／応答対応の検証はホストアプリケーションまたは別仕様の責務です。
 
-`decode`の成功は構造とdocument内で完結する整合性だけを示します。要求との対応、現在時刻、trusted audience、connection状態、署名を必要とする判断には、対応するverification helperを使用してください。
+`decode`の成功は、コンテナ構文、field形状、正規化、長さ、列挙値、リソース上限および暗号化時の認証だけを示します。payloadの意味、オンチェーン有効性、署名、送信者、origin、permission、connection、replayまたは搬送路の認証を示しません。
 
 ## TypeScriptでの利用
 
 Node.js 20以上、またはmodule Worker、Web Crypto、AbortSignal、BigIntを利用できるブラウザを対象とするESM-onlyパッケージです。
 
 ```ts
-import {
-  decode,
-  encode,
-  inspect,
-  verifyRequest,
-  verifyResponse,
-  verifySignedTransaction,
-} from '@nemnesia/symbol-nem-interchange-format';
+import { decode, encode, inspect } from '@nemnesia/symbol-nem-interchange-format';
 ```
 
 - `encode(document, options)`：検証、内部CBOR、圧縮、暗号化、外側CBORの順にエンコードします。
 - `decode(bytes, options)`：認証と復号を展開より先に行い、厳格に検証したdocumentを返します。
 - `inspect(bytes)`：外側エンベロープだけを検証します。payloadの正当性は保証しません。
-- `verifyRequest`、`verifyResponse`：ホストから明示された時刻、元要求、trusted audience、connection recordを使って検証します。
-- `verifySignedTransaction`：元要求を持たない署名済みトランザクションを検証しますが、利用者承認やfinalityは保証しません。
 
 ## 他言語へ移植するためのワイヤ形式
 
@@ -129,7 +120,7 @@ Symbolの`network`には`id`と`generationHashSeed`が必要です。NEMでは`g
 
 [`doc/fixtures/manifest.json`](doc/fixtures/manifest.json)に登録された規範fixtureをcategory別schemaで検証し、期待されるバイト列または拒否カテゴリーと一致させてください。fixtureの診断用JSONやTypeScript実装の出力から期待値を作り直してはいけません。
 
-現行fixtureは一部componentだけを対象とします。`codec-structural`や`transaction-primitives`の成功を、10タイプすべてのverification、要求／応答対応、接続proof、またはSNIF全体への適合と解釈しないでください。
+現行fixtureは一部componentだけを対象とします。`codec-structural`や`transaction-primitives`の成功を、10タイプすべてのwire形式、要求／応答対応、接続proof、またはSNIF全体への適合と解釈しないでください。`transaction-primitives`はcore codec適合の根拠ではありません。
 
 ## 開発
 
