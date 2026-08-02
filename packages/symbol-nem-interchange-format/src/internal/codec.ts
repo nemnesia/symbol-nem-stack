@@ -5,7 +5,6 @@ import { SnifError } from '../errors.js';
 import type { DecodeOptions, EncodeOptions, EncryptionHeader, SnifDocument, SnifHeader } from '../types.js';
 import { MAX_SNIF_SIZE, assertNotAborted, requireBytes } from './bytes.js';
 import { decodeCanonical, encodeCanonical } from './cbor.js';
-import { validateChainSemantics } from './chain.js';
 import { decrypt, encrypt, secureRandom } from './crypto.js';
 import { isFormatType, isRecord, validateDocument, validateNetwork, validatePayload } from './validation.js';
 
@@ -105,7 +104,6 @@ export const inspect = (data: Uint8Array): SnifHeader =>
 export const encodeDocument = async (input: SnifDocument, options: EncodeOptions = {}): Promise<Uint8Array> => {
   assertNotAborted(options.signal);
   const document = validateDocument(input);
-  validateChainSemantics(document);
   let payload: Uint8Array<ArrayBufferLike> = encodeCanonical(document.payload, 'invalid-payload');
   const secret = 'account' === document.type || 'mnemonic' === document.type;
   if (secret && !options.password) throw new SnifError('password-required');
@@ -162,6 +160,5 @@ export const decodeDocument = async (data: Uint8Array, options: DecodeOptions = 
   const validated = validatePayload(envelope.type, envelope.chain, decodedPayload);
   if (secret && 'password-v1' !== envelope.encryption.algorithm) throw new SnifError('invalid-envelope');
   const document = { type: envelope.type, chain: envelope.chain, network: envelope.network, payload: validated };
-  validateChainSemantics(document);
   return document;
 };
