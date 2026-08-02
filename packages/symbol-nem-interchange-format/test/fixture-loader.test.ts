@@ -1,9 +1,9 @@
-import { Bip32 } from '@nemnesia/symbol-sdk';
-import { NemFacade } from '@nemnesia/symbol-sdk/nem';
-import { SymbolFacade } from '@nemnesia/symbol-sdk/symbol';
+import { Bip32, PrivateKey, Signature } from '@nemnesia/symbol-sdk';
+import { NemFacade, TransactionFactory as NemTransactionFactory, models as nemModels } from '@nemnesia/symbol-sdk/nem';
+import { SymbolFacade, SymbolTransactionFactory, models as symbolModels } from '@nemnesia/symbol-sdk/symbol';
 import { gcm } from '@noble/ciphers/aes.js';
 import { argon2idAsync } from '@noble/hashes/argon2.js';
-import { encode as encodeCbor } from 'cborg';
+import { decode as decodeCbor, encode as encodeCbor } from 'cborg';
 import { describe, expect, it } from 'vitest';
 
 import { pbkdf2Sync } from 'node:crypto';
@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
 import { decode, encode } from '../src/index.js';
+import { validateChainSemantics } from '../src/internal/chain.js';
+import { validatePayload } from '../src/internal/validation.js';
 import { loadFixtures } from './fixture-loader.js';
 
 const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../doc/fixtures');
@@ -53,6 +55,29 @@ describe('normative fixture loader', () => {
     for (const { expected } of fixture.cases) {
       expect(expected.payloadCbor).toMatch(/^[0-9A-F]+$/);
       expect(expected.envelopeCbor).toMatch(/^[0-9A-F]+$/);
+    }
+  });
+
+  it('decodes every reviewed structural envelope and payload', async () => {
+    const loaded = await loadFixtures(fixtures);
+    const structural = loaded.find((item) => item.entry.id === 'codec-structural-matrix-v1')!.data as {
+      constants: { passwordFixture: string };
+      cases: Array<{ id: string; expected: { payloadCbor: string; envelopeCbor: string } }>;
+    };
+    const passwordFixture = loaded.find((item) => item.entry.id === structural.constants.passwordFixture)!.data as {
+      constants: { password: string };
+    };
+    for (const testCase of structural.cases) {
+      expect(hex(new Uint8Array(encodeCbor(decodeCbor(bytes(testCase.expected.payloadCbor)))))).toBe(
+        testCase.expected.payloadCbor
+      );
+      await expect(
+        decode(bytes(testCase.expected.envelopeCbor), {
+          ...(testCase.id === 'account' || testCase.id === 'mnemonic'
+            ? { password: passwordFixture.constants.password }
+            : {}),
+        })
+      ).resolves.toMatchObject({ type: testCase.id });
     }
   });
 
@@ -109,6 +134,34 @@ describe('normative fixture loader', () => {
     }
   });
 
+  it('applies every normative Unicode mnemonic validation result', async () => {
+    const loaded = await loadFixtures(fixtures);
+    const fixture = loaded.find((item) => item.entry.id === 'mnemonic-unicode-v1')!.data as {
+      cases: Array<{
+        input: { mnemonic: string; passphrase: string };
+        expected: { error?: string };
+      }>;
+    };
+    for (const testCase of fixture.cases) {
+      const payload = {
+        scheme: 'bip39',
+        language: testCase.input.mnemonic.startsWith('あ') ? 'japanese' : 'spanish',
+        mnemonic: testCase.input.mnemonic,
+        passphrase: testCase.input.passphrase,
+      };
+      if (testCase.expected.error) {
+        expect(() => validatePayload('mnemonic', 'nem', payload)).toThrowError(
+          expect.objectContaining({ code: testCase.expected.error })
+        );
+      } else {
+        const validated = validatePayload('mnemonic', 'nem', payload);
+        expect(() =>
+          validateChainSemantics({ type: 'mnemonic', chain: 'nem', network: { id: 0x68 }, payload: validated })
+        ).not.toThrow();
+      }
+    }
+  });
+
   it('independently reproduces the password-v1 key, ciphertext, and tag', async () => {
     const loaded = await loadFixtures(fixtures);
     const fixture = loaded.find((item) => item.entry.id === 'password-v1-fixed-v1')!.data as {
@@ -116,7 +169,7 @@ describe('normative fixture loader', () => {
       cases: Array<{
         id: string;
         input: { plaintext: string };
-        expected: { derivedKey: string; aad: string; ciphertext: string; tag: string };
+        expected: { derivedKey: string; aad: string; ciphertext: string; tag: string; envelopeCbor: string };
       }>;
     };
     const testCase = fixture.cases.find(({ id }) => 'valid-symbol-address' === id)!;
@@ -137,6 +190,63 @@ describe('normative fixture loader', () => {
     );
     expect(hex(encrypted.subarray(0, -16))).toBe(testCase.expected.ciphertext);
     expect(hex(encrypted.subarray(-16))).toBe(testCase.expected.tag);
+    await expect(
+      decode(bytes(testCase.expected.envelopeCbor), { password: fixture.constants.password })
+    ).resolves.toMatchObject({
+      type: 'address',
+      chain: 'symbol',
+    });
+  });
+
+  it('executes every normative transaction primitive', async () => {
+    const loaded = await loadFixtures(fixtures);
+    const fixture = loaded.find((item) => item.entry.id === 'transaction-primitives-v1')!.data as {
+      constants: { privateKey: string; symbolCosignaturePrivateKey: string };
+      cases: Array<{
+        id: string;
+        input: Record<string, unknown>;
+        expected: Record<string, string>;
+      }>;
+    };
+    const privateKey = new PrivateKey(bytes(fixture.constants.privateKey));
+
+    const symbolTransaction = fixture.cases.find(({ id }) => id === 'symbol-transaction')!;
+    const symbolFacade = new SymbolFacade('mainnet');
+    const symbolAccount = symbolFacade.createAccount(privateKey);
+    const symbolModel = SymbolTransactionFactory.deserialize(bytes(symbolTransaction.input.unsignedPayload as string));
+    const symbolSignature = symbolAccount.signTransaction(symbolModel);
+    expect(symbolSignature.toString()).toBe(symbolTransaction.expected.signature);
+    symbolModel.signature = new symbolModels.Signature(symbolSignature.bytes);
+    expect(hex(symbolModel.serialize())).toBe(symbolTransaction.expected.signedPayload);
+    expect(symbolFacade.verifyTransaction(symbolModel, symbolSignature)).toBe(true);
+
+    const nemTransaction = fixture.cases.find(({ id }) => id === 'nem-transaction')!;
+    const nemFacade = new NemFacade('mainnet');
+    const nemAccount = nemFacade.createAccount(privateKey);
+    const nemModel = NemTransactionFactory.deserialize(bytes(nemTransaction.input.unsignedPayload as string));
+    const nemSignature = nemAccount.signTransaction(nemModel);
+    expect(nemSignature.toString()).toBe(nemTransaction.expected.signature);
+    nemModel.signature = new nemModels.Signature(nemSignature.bytes);
+    expect(hex(nemModel.serialize())).toBe(nemTransaction.expected.signedPayload);
+    expect(nemFacade.verifyTransaction(nemModel, nemSignature)).toBe(true);
+
+    const symbolCosignature = fixture.cases.find(({ id }) => id === 'symbol-cosignature')!;
+    const aggregate = SymbolTransactionFactory.deserialize(bytes(symbolCosignature.input.aggregatePayload as string));
+    expect(symbolFacade.hashTransaction(aggregate).toString()).toBe(symbolCosignature.expected.parentHash);
+    const symbolCosignatureAccount = symbolFacade.createAccount(
+      new PrivateKey(bytes(fixture.constants.symbolCosignaturePrivateKey))
+    );
+    expect(
+      hex(
+        symbolCosignatureAccount.cosignTransaction(aggregate, symbolCosignature.input.detached as boolean).serialize()
+      )
+    ).toBe(symbolCosignature.expected.serializedCosignature);
+
+    const nemCosignature = fixture.cases.find(({ id }) => id === 'nem-cosignature-v1')!;
+    const signedCosignature = NemTransactionFactory.deserialize(bytes(nemCosignature.expected.signedPayload));
+    expect(signedCosignature.signerPublicKey.toString()).toBe(nemCosignature.expected.publicKey);
+    expect(signedCosignature.signature.toString()).toBe(nemCosignature.expected.signature);
+    expect(nemFacade.verifyTransaction(signedCosignature, new Signature(signedCosignature.signature.bytes))).toBe(true);
   });
 
   it('executes every registered zlib stream byte-for-byte', async () => {

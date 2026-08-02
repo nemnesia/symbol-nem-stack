@@ -15,7 +15,15 @@
         "derivation": { "type": "string" }
       }
     },
-    "constants": { "type": "object" },
+    "constants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["privateKey", "symbolCosignaturePrivateKey"],
+      "properties": {
+        "privateKey": { "$ref": "#/$defs/hex32" },
+        "symbolCosignaturePrivateKey": { "$ref": "#/$defs/hex32" }
+      }
+    },
     "cases": {
       "type": "array",
       "minItems": 4,
@@ -60,9 +68,10 @@
               "properties": {
                 "input": {
                   "type": "object",
-                  "required": ["sourceTest", "aggregatePayload"],
+                  "required": ["sourceTest", "detached", "aggregatePayload"],
                   "properties": {
                     "sourceTest": { "type": "string" },
+                    "detached": { "const": true },
                     "aggregatePayload": { "$ref": "#/$defs/hex" }
                   }
                 },
@@ -119,6 +128,7 @@
     }
   },
   "$defs": {
+    "hex32": { "type": "string", "pattern": "^[0-9A-F]{64}$" },
     "hex": { "type": "string", "pattern": "^(?:[0-9A-F]{2})+$" },
     "hash": { "type": "string", "pattern": "^[0-9A-F]{64}$" },
     "signature": { "type": "string", "pattern": "^[0-9A-F]{128}$" }
