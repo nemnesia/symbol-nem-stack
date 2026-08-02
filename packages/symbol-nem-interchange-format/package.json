@@ -1,0 +1,47 @@
+{
+  "name": "@nemnesia/symbol-nem-interchange-format",
+  "version": "0.1.0",
+  "description": "Transport-independent interchange format for Symbol and NEM data",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "doc/fixtures",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "pnpm run clean && tsup",
+    "clean": "rimraf dist",
+    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "format": "prettier --write \"{src,test}/**/*.ts\" \"doc/**/*.{md,json}\" \"*.{json,md}\"",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@nemnesia/symbol-sdk": "workspace:3.3.2-pure.2",
+    "@noble/ciphers": "2.2.0",
+    "@noble/hashes": "2.2.0",
+    "@scure/bip39": "2.2.0",
+    "cborg": "6.1.1",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "ajv": "8.17.1"
+  }
+}
