@@ -359,7 +359,7 @@ signed-transaction-payload = {
 
 ### 5.7 メッセージ署名要求: `message-sign-request`
 
-任意のbyte列に対するドメイン分離済み署名を要求する。
+任意のbyte列への署名要求に関連する検証材料を格納する。
 
 ```cddl
 message-sign-request-payload = {
@@ -371,21 +371,7 @@ message-sign-request-payload = {
 }
 ```
 
-対象チェーンの署名処理へ渡す正確なbyte列は、次の`message-signing-frame` mapを決定的CBORでエンコードした値とする。
-
-```cddl
-message-signing-frame = {
-  "domain": "SNIF-MESSAGE-V1",
-  "chain": chain,
-  "network": network,
-  "context": request-context,
-  "purpose": text .size (1..256),
-  "message": bstr .size (0..1048576),
-  ? "connection": connection-proof,
-}
-```
-
-このフレーミングは、ホストが署名対象を定義するために使用してよい補助表現である。codecはframeを生成または検証せず、未フレームの生メッセージを署名対象として受理するかどうかも判断しない。表示方法、利用者承認、期限、署名、audienceおよびrequestIdの消費はホストの責務とする。
+SNIF coreはメッセージの署名対象byte列、domain分離、hash関数、対象chainの署名方式、署名者または元要求との照合を定義しない。codecは`message`、`purpose`、`context`および任意の`connection`を構造的に搬送するだけである。本仕様には署名プロファイルを含まないため、ホストはこれらの値を署名済み、認証済みまたはreplay防止済みとして扱ってはならない。将来の別仕様は、名前付きプロファイル、署名対象、検証者、期限、audienceおよびrequestIdの消費を一意に定義しなければならない。
 
 ```json
 {
@@ -440,7 +426,7 @@ rejected-signature = {
 
 `rejected-signature`は5.5節または5.7節の要求に対する拒否を表す。情報最小化のためrequestId以外を含めず、署名されない。codecは拒否documentをdecodeできるが、拒否元、元要求との対応、または拒否の真正性を確認しない。
 
-`detached-signature.targetHash`は、ホストまたは別仕様が定義する署名対象を識別する32-byte値である。
+`detached-signature.targetHash`は、別の名前付き署名プロファイルが定義する署名対象を識別する32-byte値である。SNIF coreはその導出・照合を行わない。
 
 NEMの`transactionPayload`、Symbolの`parentHash`、`signerPublicKey`および`signature`は、codecにとって不透明な検証材料である。元要求との対応、target hash、signer、chain、network、署名および期限の検証、一回限り消費と冪等性はホストの責務とする。
 
@@ -467,21 +453,11 @@ application-metadata = {
 connection-permission =
   "account" / "sign-transaction" / "sign-message"
 
-connection-request-frame = {
-  "domain": "SNIF-CONNECTION-REQUEST-V1",
-  "chain": chain,
-  "network": network,
-  "application": application-metadata,
-  "permissions": [1*3 connection-permission],
-  "challenge": bstr .size 32,
-  "context": request-context,
-  "requesterPublicKey": bstr .size 32,
-}
 ```
 
 `permissions`は重複を含まず、`account`を必須とする。未知のpermissionを含む要求は全体を拒否する。`challenge`は要求ごとにOS CSPRNGで生成した32 bytesとし、すべてゼロの値と再利用を禁止する。
 
-`requesterPublicKey`と`signature`は接続要求の検証材料である。codecはその長さと全ゼロ値だけを検証し、`connection-request-frame`の生成、署名検証、鍵所有または要求改ざん防止を保証しない。これらを必要とするホストは、対象chainに対応する署名仕様、鍵管理および検証手順を別途定義しなければならない。
+`requesterPublicKey`と`signature`は接続要求の検証材料である。codecはその長さと全ゼロ値だけを検証し、署名対象の生成、署名検証、鍵所有または要求改ざん防止を保証しない。本仕様にはconnection profileを含まないため、ホストはこの要求から接続状態、permission grantまたは自動署名の権限を作成してはならない。将来の別仕様は、名前付きprofile、署名対象、対象chainの方式、署名者、要求・応答対応、challenge、requestId、permissionおよびreplayの検証手順を一意に定義しなければならない。
 
 `origin`はapplicationを表すabsolute URI、`iconUrl`は指定する場合HTTPSのabsolute URIとする。ただし、`name`、`origin`、`iconUrl`はすべて要求者の自己申告による表示情報であり、applicationの本人性、domain所有、搬送元、認証済みoriginを証明しない。ウォレットはこの情報だけを根拠に自動承認してはならない。コア実装は`iconUrl`を取得せず、ホストが取得する場合はSSRF、追跡、過大response、redirect、media typeを制限する。
 
@@ -515,25 +491,13 @@ account-reference = {
   "publicKey": bstr .size 32,
 }
 
-connection-response-frame = {
-  "domain": "SNIF-CONNECTION-RESPONSE-V1",
-  "chain": chain,
-  "network": network,
-  "requestHash": bstr .size 32,
-  "challenge": bstr .size 32,
-  "sessionId": request-id,
-  "sessionCreatedAt": uint .le 253402300799,
-  "sessionExpiresAt": uint .le 253402300799,
-  "account": account-reference,
-  "permissions": [1*3 connection-permission],
-}
 ```
 
-承認時の`sessionId`、時刻、`account`、`permissions`および`signature`は指定されたfield形状・長さ・列挙値を満たさなければならない。codecは`sessionId`の生成または再利用、現在時刻、有効期限、要求permissionsの部分集合、鍵からのaddress導出、署名または元要求との対応を検証しない。
+承認時の`sessionId`、時刻、`account`、`permissions`および`signature`は指定されたfield形状・長さ・列挙値を満たさなければならない。`sessionCreatedAt < sessionExpiresAt`とし、有効期間は最大30日とする。codecは`sessionId`の生成または再利用、現在時刻、有効期限、要求permissionsの部分集合、鍵からのaddress導出、署名または元要求との対応を検証しない。
 
 拒否時は情報最小化のため`approved: false`と元の`requestId`以外を含めてはならない。拒否応答には署名がないため、codecは拒否元または拒否の真正性を確認できない。
 
-ホストは承認済み接続についてsessionId、requesterPublicKey、requester表示情報、account、permissions、有効期限、失効状態をオフチェーンで管理する。`sessionId`は照合用識別子であり、単独ではbearer tokenまたは認証証明ではない。connection proof、接続状態、permission grant、署名対象の表示、要求contextの検証および利用者承認はホストの責務であり、接続済みであることを理由に省略してはならない。
+将来のconnection profileを実装するホストは、sessionId、requesterPublicKey、requester表示情報、account、permissions、有効期限、失効状態をオフチェーンで管理する。`sessionId`は照合用識別子であり、単独ではbearer tokenまたは認証証明ではない。profileは、期限切れ、失効済みまたは消費済みrequestIdのresponseを拒否し、承認responseのpermissionsが保存済みrequestの重複なしの部分集合であることを必須にしなければならない。connection proof、接続状態、permission grant、署名対象の表示、要求contextの検証および利用者承認はホストの責務であり、接続済みであることを理由に省略してはならない。
 
 ### 5.11 共通CDDL定義
 
@@ -559,7 +523,7 @@ connection-proof = {
 
 requestIdは衝突耐性を持つ不透明な16-byte識別子で、全ゼロ値を禁止する。時刻はUTCのUnix秒とし、`createdAt < expiresAt`かつ有効期間は最大24時間とする。codecはrequestIdの生成、再利用、現在時刻との比較またはreplayを検証しない。
 
-audienceは要求に含まれるabsolute URIである。codecはURI構文と、`connection-request`における`application.origin`との完全一致だけを検証する。`audience`、`origin`、`iconUrl`および接続の署名・proofは自己申告または未検証のpayloadであり、application、domain、送信者、接続またはpermissionを認証しない。ホストは認証済み搬送路または独自の信頼設定を用いて、必要な照合、期限検証、replay防止、request/response対応付けおよびpermission判定を行わなければならない。
+audienceはUTF-8で1から256 bytesのabsolute URIである。CDDLの`.size`は構造表現であり、適合codecはこのUTF-8 byte上限を別途検証しなければならない。codecはURI構文と、`connection-request`における`application.origin`との完全一致だけを検証する。`audience`、`origin`、`iconUrl`および接続の署名・proofは自己申告または未検証のpayloadであり、application、domain、送信者、接続またはpermissionを認証しない。ホストは認証済み搬送路または独自の信頼設定を用いて、必要な照合、期限検証、replay防止、request/response対応付けおよびpermission判定を行わなければならない。
 
 ## 6. パスワード暗号化プロファイル
 
@@ -690,7 +654,7 @@ Draft 2を安定版へ昇格する前に、本仕様から生成した機械可�
 
 規範fixtureの入口は`doc/fixtures/manifest.json`とする。manifestに登録されていないファイルをcodec適合性の根拠にしてはならない。各manifest entryの`category`に対応するJSON Schemaをfixture本体のデータ形状、必須field、および期待値表現の正本とする。loaderはmanifest entryの`id`とfixture本体の`id`が完全一致することを検証しなければならない。
 
-wire-format fixtureは次を含まなければならない。
+encoder適合用wire-format fixtureは次を含まなければならない。
 
 - 診断用入力値
 - 内部ペイロードの決定的CBOR（16進）
@@ -713,7 +677,7 @@ NFC入力拒否fixtureでは、上記境界vectorと同じUnicode scalar列をNF
 
 manifestの`category`は、対応するcategory別JSON Schemaとloaderのschema対応表が同じ変更で追加された場合にだけ追加してよい。既存categoryのfieldの意味または期待値表現を互換性なく変更してはならない。この変更が必要な場合は、新しいcategory名と新しいcategory別JSON Schemaを追加し、既存categoryを保持しなければならない。loaderは未知のcategoryを推測せず拒否しなければならない。
 
-`codec-structural` fixtureはcodecが外部contextなしに受理するdocument構造を表す。decode成功はchain transaction、署名、connection proof、利用者承認または接続の検証成功を意味しない。
+`codec-structural` fixtureはdecoder専用であり、完全なエンコーダー入力またはencoder適合の根拠ではない。各caseの`input`は期待するformat typeを示すselectorであり、期待envelopeの生成に使ってはならない。codecが外部contextなしに受理するdocument構造を表す。decode成功はchain transaction、署名、connection proof、利用者承認または接続の検証成功を意味しない。
 
 現行のcore規範categoryは`codec-structural`、`password-v1`、`secret-backup`、`zlib`、`mnemonic-unicode`および`cbor-envelope`とする。`transaction-primitives`と`mnemonic-derivation`はchain意味検証用の補助資料であり、core codec適合またはrelease判定の根拠にしてはならない。`secret-backup`は`account`と`mnemonic`について、完全SNIF入力、固定password、復号済みpayload、誤password、AAD header改変、tag改変、password未指定および禁止されたzlib圧縮を固定する。秘密typeで`compression`が`"none"`以外であるcaseは各typeにつき少なくとも1件を登録し、decoderはpassword導出、復号、展開または内部payloadのdecodeより前に`invalid-envelope`として拒否しなければならない。具体的な入力と期待値はmanifestから参照されるfixture本体を正とし、本文の例または実装内のtest constantで置き換えてはならない。
 

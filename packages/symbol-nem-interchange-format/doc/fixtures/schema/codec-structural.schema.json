@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "provenance", "constants", "cases"],
+  "required": ["id", "mode", "provenance", "constants", "cases"],
   "properties": {
     "id": { "const": "codec-structural-matrix-v1" },
+    "mode": { "const": "decode-only" },
     "provenance": { "$ref": "#/$defs/provenance" },
     "constants": { "type": "object" },
     "cases": {
@@ -32,6 +33,7 @@
           },
           "input": {
             "type": "object",
+            "description": "Decoder expectation selector, not an encoder input document.",
             "required": ["formatType"],
             "properties": { "formatType": { "type": "string" } }
           },

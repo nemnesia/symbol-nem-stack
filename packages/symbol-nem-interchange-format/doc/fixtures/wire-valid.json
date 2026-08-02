@@ -1,8 +1,9 @@
 {
   "id": "codec-structural-matrix-v1",
+  "mode": "decode-only",
   "provenance": {
     "source": "SNIF v1 Draft 2 sections 3 and 5",
-    "derivation": "Payload and envelope maps were encoded independently with RFC 8949 deterministic CBOR; account and mnemonic use the fixed password-v1 vector. These cases assert codec structure only and do not assert transaction or signature verification."
+    "derivation": "Payload and envelope maps were encoded independently with RFC 8949 deterministic CBOR; account and mnemonic use the fixed password-v1 vector. These cases are decoder-only structural vectors. The input field identifies the expected format type and is not a complete encoder document."
   },
   "constants": {
     "chain": "nem",
