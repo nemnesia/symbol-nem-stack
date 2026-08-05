@@ -1,5 +1,5 @@
 ---
-name: blockchain-requirements-review
+name: requirements-review
 description: ブロックチェーン、ウォレット、署名、暗号化、トランザクション、QR・データ交換形式などに関する要件定義書を、目的の明確性、対象範囲、完全性、一貫性、検証可能性、セキュリティ、相互運用性の観点から独立レビューする。仕様書作成へ進める状態かの判定、要件漏れ、曖昧さ、設計詳細の混入、受け入れ条件の不足を確認する場合に使用する。コードレビューや詳細仕様書レビューには使用しない。
 ---
 
@@ -650,7 +650,7 @@ REQ-REVIEW-003
 リポジトリでファイル連携を行う場合は、次を使用する。
 
 ```text
-.requirements-review/
+.reviews/
 ├── request.md
 ├── findings.md
 ├── response.md
@@ -659,7 +659,7 @@ REQ-REVIEW-003
 
 ### レビュー依頼
 
-要件作成者は `.requirements-review/request.md` に次を記載する。
+要件作成者は `.reviews/request.md` に次を記載する。
 
 * 対象要件定義書
 * 対象機能
@@ -671,11 +671,11 @@ REQ-REVIEW-003
 
 ### レビュー結果
 
-レビュー結果は `.requirements-review/findings.md` に保存する。
+レビュー結果は `.reviews/findings.md` に保存する。
 
 ### 作成者の回答
 
-要件作成者は `.requirements-review/response.md` に指摘への対応を記録する。
+要件作成者は `.reviews/response.md` に指摘への対応を記録する。
 
 各指摘の回答状態は次のいずれかとする。
 
