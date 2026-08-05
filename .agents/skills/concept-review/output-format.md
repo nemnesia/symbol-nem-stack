@@ -1,6 +1,6 @@
 # Output Format
 
-Review Board Chair は `.reviews/concept-review-findings.md` だけを生成する。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
+Review Board Chair は、選択したコンセプトシートと同じディレクトリの `reviews/` にある、コンセプトシートのベース名へ `-review-findings.md` を付加したファイルだけを生成する。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
 
 ```markdown
 # Concept Review Findings

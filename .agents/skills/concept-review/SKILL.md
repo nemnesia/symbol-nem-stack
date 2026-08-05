@@ -1,6 +1,6 @@
 ---
 name: concept-review
-description: コンセプトシートを複数の観点でレビューし、要件定義へ安全に進める品質かを判定する。採用した指摘と品質ゲートの結果を .reviews/concept-review-findings.md に生成する場合に使用する。
+description: コンセプトシートを複数の観点でレビューし、要件定義へ安全に進める品質かを判定する。採用した指摘と品質ゲートの結果を、対象コンセプトシートと同じディレクトリの reviews/<コンセプトシートのベース名>-review-findings.md に生成する場合に使用する。
 ---
 
 # Concept Review Board
@@ -10,9 +10,9 @@ description: コンセプトシートを複数の観点でレビューし、要�
 ## 対象と成果物
 
 - レビュー対象は、ユーザーが明示したコンセプトシート1件とする。
-- 明示されない場合は、`concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順で候補を探す。`concept-review-findings.md`、要件定義書、設計書、実装コード、過去のレビュー結果は除外する。
+- 明示されない場合は、`concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順で候補を探す。`reviews/` ディレクトリ、`*-review-findings.md`、要件定義書、設計書、実装コード、過去のレビュー結果は除外する。
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
-- 成果物はリポジトリ直下の `.reviews/concept-review-findings.md` とし、レビューごとに上書きする。製作者へ公開するレビュー成果物はこのファイルだけとする。
+- 選択したコンセプトシートの拡張子を除いたベース名に `-review-findings.md` を付加し、コンセプトシートと同じディレクトリの `reviews/` に成果物を作成する。たとえば `doc/concept-sheet.md` の成果物は `doc/reviews/concept-sheet-review-findings.md` とする。`reviews/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。製作者へ公開するレビュー成果物はこのファイルだけとする。
 
 ## 実行順序
 
