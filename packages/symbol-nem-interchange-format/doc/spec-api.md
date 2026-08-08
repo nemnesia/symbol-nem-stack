@@ -431,9 +431,9 @@ export type SnifErrorCode =
 | `INVALID_JSON_VALUE` | `undefined`、function、symbol、Date、Map、Set、typed array、class instance、sparse array等、SNIF APIが受理するJSON値モデル外の値を含む。 |
 | `NON_FINITE_NUMBER` | `NaN`、`Infinity`、`-Infinity` を含む。 |
 | `CIRCULAR_REFERENCE` | JavaScript object / Arrayに循環参照が存在する。 |
-| `UNSUPPORTED_VERSION` | `version` がAPIの対応versionではない。 |
-| `MISSING_REQUIRED_FIELD` | 通常の必須フィールドが存在しない。例: `/network`、`/payload/address`。 |
-| `INVALID_FIELD_TYPE` | フィールドは存在するがJSON型が仕様と異なる。例: `network` がnumber、`permissions` がArray以外。 |
+| `UNSUPPORTED_VERSION` | `version` が存在し、APIの対応versionではない。v1では `version` が `1` 以外の場合に使用し、`/version` を設定する。 |
+| `MISSING_REQUIRED_FIELD` | 通常の必須フィールドが存在しない。`version` が欠落した場合もこれに分類し、`/version` を設定する。その他の例: `/network`、`/payload/address`。 |
+| `INVALID_FIELD_TYPE` | フィールドは存在するがJSON型が仕様と異なる。`version` がnumber以外の場合もこれに分類し、`/version` を設定する。その他の例: `network` がnumber、`permissions` がArray以外。 |
 | `INVALID_FIELD_VALUE` | 型は正しいが、非空等の一般的な形式制約を満たさない、または条件付きで禁止されたフィールドが存在する。専用コードがある場合はそちらを優先する。 |
 | `INVALID_HEX` | hexフィールドが奇数長、`0x` prefix付き、非hex文字を含む等、SNIFのhex表現規則を満たさない。`sign-response` の承認時に指定する `/payload/signature` も含む。 |
 | `PAYLOAD_MISSING` | そのtypeで必要な `payload` または `protectedPayload` のいずれも存在しない。 |
@@ -445,14 +445,14 @@ export type SnifErrorCode =
 | `RESOURCE_LIMIT_EXCEEDED` | パラメータ自体は解釈可能だが、KDFコスト等がproviderの安全ポリシー上限を超える。 |
 | `PROTECTION_FAILED` | 保護処理またはprovider内部処理が失敗し、他の専用コードに分類できない。 |
 | `AUTHENTICATION_FAILED` | 認証付き暗号の検証に失敗した。誤secret、ciphertext破損、tag不一致等を外部から区別しない。 |
-| `DECRYPTED_PAYLOAD_INVALID` | 復元されたbyte列はJSONとして解釈できても、元typeのpayload構造として不正である。 |
+| `DECRYPTED_PAYLOAD_INVALID` | 認証成功後の復元byte列が不正UTF-8、JSON構文不正、または元typeのpayload構造不正である。これらを外部から区別せず、`path` は設定しない。 |
 
 ### 8.1 エラー判定規則
 
 同一入力に複数の不正が存在しても、同じ実装で安定した結果になるよう検証順序を固定する。
 
 1. JSON構文またはJavaScript値モデルを検証する。
-2. ルートobjectと `version` を検証する。
+2. ルートobjectと `version` を検証する。`version` 欠落は `MISSING_REQUIRED_FIELD` /version、型不正は `INVALID_FIELD_TYPE` /version、存在するが `1` 以外は `UNSUPPORTED_VERSION` /version とする。
 3. 共通エンベロープの必須フィールド、型、値表現を検証する。
 4. `payload` / `protectedPayload` の存在、排他、使用可能typeを検証する。
 5. 標準typeの場合はtype固有payloadを仕様上のフィールド順で検証する。
@@ -473,6 +473,35 @@ export type SnifErrorCode =
 `RESOURCE_LIMIT_EXCEEDED` は `ProtectionProvider` が自身の安全ポリシーに基づいて暗号処理を拒否した場合に使用する。`parse` / `validate` / `serialize` の入力サイズ上限をSNIFコアが固定するためのエラーではない。
 
 エラー `message` は固定またはテンプレート化した安全な説明とし、元データを文字列連結して生成しない。
+
+### 8.2 provider由来失敗の公開変換
+
+`ProtectionProvider` が `SnifResult` の失敗を返した場合、SNIFコアは次のallowlistに基づいて公開結果を変換する。
+
+| providerが返した `error.code` | 公開する `code` |
+| --- | --- |
+| `UNSUPPORTED_PROTECTION` | `UNSUPPORTED_PROTECTION` |
+| `INVALID_PROTECTION_PARAMETERS` | `INVALID_PROTECTION_PARAMETERS` |
+| `RESOURCE_LIMIT_EXCEEDED` | `RESOURCE_LIMIT_EXCEEDED` |
+| `AUTHENTICATION_FAILED` | `AUTHENTICATION_FAILED` |
+| `PROTECTION_FAILED` | `PROTECTION_FAILED` |
+| 上記以外 | `PROTECTION_FAILED` |
+
+公開messageは、公開codeごとに次の固定文字列を使用する。
+
+| 公開する `code` | 固定 `message` |
+| --- | --- |
+| `UNSUPPORTED_PROTECTION` | `The protection profile is not supported.` |
+| `INVALID_PROTECTION_PARAMETERS` | `Protection parameters are invalid.` |
+| `RESOURCE_LIMIT_EXCEEDED` | `Protection parameters exceed the provider policy.` |
+| `AUTHENTICATION_FAILED` | `Authentication failed.` |
+| `PROTECTION_FAILED` | `Protection processing failed.` |
+
+provider由来の失敗では、`path` を常に省略する。providerの `message`、`cause` およびその他の診断情報は破棄し、公開 `message` は公開codeに対応する本仕様の固定messageを使用する。providerが例外をthrowした場合も `PROTECTION_FAILED`、固定message、`path` なしとして扱う。
+
+`provider.supports` が `false` を返した場合は、provider失敗結果のallowlist変換ではなく、コアが `UNSUPPORTED_PROTECTION`、固定message、`path` なしを返す。`supports` 自体が例外をthrowした場合はprovider例外として `PROTECTION_FAILED` に変換する。
+
+この変換規則は `provider.validate`、`provider.protect` および `provider.unprotect` の失敗結果に同じく適用する。コアAPI自身が形式検証で生成したエラーだけが、問題のあるフィールドを示すJSON Pointer形式の `path` を持つことができる。
 
 ## 9. parse
 
@@ -595,7 +624,7 @@ providerの責務:
 - secret、導出鍵、平文、復号済みpayloadをログ・例外・診断出力へ含めない。
 - 認証失敗時に入力値や内部鍵情報を返さない。
 
-SNIFコアはprovider固有の例外をそのまま外部へ公開せず、対応する `SnifErrorCode` へ変換する。
+SNIFコアはproviderの失敗結果およびprovider固有の例外をそのまま外部へ公開せず、8.2のallowlistと固定messageへ変換する。provider由来の `path`、`message`、`cause` は公開しない。
 
 ## 14. protect
 
@@ -620,7 +649,7 @@ export async function protect<TSecret>(
 1. `data` が平文の `account` または `mnemonic` であることを形式検証する。
 2. type固有の `payload` JSON全体をJSON文字列化し、UTF-8 byte列へ変換する。
 3. byte列と `secret` をproviderへ渡す。
-4. providerが返した `ProtectedPayload` を形式検証する。
+4. providerの失敗結果または例外を8.2に従って公開結果へ変換する。成功時だけ、providerが返した `ProtectedPayload` を形式検証する。
 5. 元の共通エンベロープを保持し、`payload` を除去して `protectedPayload` を設定した新しいオブジェクトを返す。
 
 `protect` は元オブジェクトを変更しない。`id`、`replyTo`、`chain`、`network`、`generationHashSeed` を自動変更しない。
@@ -638,16 +667,16 @@ export async function unprotect<TSecret>(
 処理規則:
 
 1. `data` が保護済み `account` / `mnemonic` であることを形式検証する。
-2. `provider.supports` で対象プロファイルを扱えることを確認する。
-3. `provider.validate` を暗号処理開始前に実行する。
-4. providerで復号する。
-5. 復号byte列をUTF-8 JSONとして解析する。
-6. 元のtypeに対応するpayload構造だけを検証する。
+2. `provider.supports` で対象プロファイルを扱えることを確認する。`false` は `UNSUPPORTED_PROTECTION` とし、例外は `PROTECTION_FAILED` とする。
+3. `provider.validate` を暗号処理開始前に実行し、失敗結果または例外を8.2に従って公開結果へ変換する。
+4. providerで復号し、失敗結果または例外を8.2に従って公開結果へ変換する。
+5. 復号byte列をUTF-8としてデコードし、JSONとして解析する。UTF-8 decode失敗またはJSON構文解析失敗は `DECRYPTED_PAYLOAD_INVALID` とし、`path` を設定しない。
+6. 元のtypeに対応するpayload構造だけを検証する。構造不正も `DECRYPTED_PAYLOAD_INVALID` とし、`path` を設定しない。
 7. 元の共通エンベロープを保持し、`protectedPayload` を除去して `payload` を設定した新しいオブジェクトを返す。
 
 認証タグ不一致、誤ったsecret、ciphertext破損等を外部から一意に識別する必要はなく、認証付き暗号の検証失敗は `AUTHENTICATION_FAILED` として安全にまとめてよい。
 
-復号後payloadが対象typeの構造として不正な場合は `DECRYPTED_PAYLOAD_INVALID` とする。
+復号後のUTF-8 decode、JSON構文解析または対象typeのpayload構造検証に失敗した場合は、すべて `DECRYPTED_PAYLOAD_INVALID` とする。これらの失敗では復号済みbyte列、JSON内容、provider由来情報をerrorへ含めず、`path` も設定しない。
 
 ## 16. 機密データのメモリ取り扱い
 
@@ -702,7 +731,7 @@ KDF work factor、暗号方式固有サイズ等の許容上限はprovider側の
 
 - コアAPIは内部loggerを持たず、受領SNIFデータを自動ログ出力しない。
 - 公開エラーに入力値を含めない。
-- providerがthrowした場合、コアはproviderのmessage/causeを公開エラーへコピーしない。
+- providerの失敗結果およびproviderがthrowした例外について、8.2のallowlist、固定message、`path` 省略の規則を適用する。providerの `message`、`path`、`cause` を公開エラーへコピーしない。
 - `privateKey`、`mnemonic`、`secret`、導出鍵、復号済みpayload、ciphertextの全文を診断出力しない。
 - 呼び出し側が独自にログを取る場合の安全性は呼び出し側の責任である。
 
@@ -767,7 +796,12 @@ v1のルート公開exportは次のカテゴリに限定する。
 - provider未対応時の `UNSUPPORTED_PROTECTION`
 - providerの安全ポリシー超過時の `RESOURCE_LIMIT_EXCEEDED`
 - 認証失敗時の `AUTHENTICATION_FAILED`
-- 復号後payload構造不正時の `DECRYPTED_PAYLOAD_INVALID`
+- providerがallowlist内の各codeを返した場合に同じ公開code、対応する固定message、`path` なしへ変換すること
+- providerがallowlist外のcodeや秘密情報を含む `path` / `message` を返した場合に `PROTECTION_FAILED`、固定message、`path` なしへ変換すること
+- provider例外が `PROTECTION_FAILED`、固定message、`path` なしへ変換されること
+- `provider.supports` がfalseの場合に `UNSUPPORTED_PROTECTION`、固定message、`path` なしへ変換されること
+- 復号後の不正UTF-8、不正JSON、payload構造不正がすべて `DECRYPTED_PAYLOAD_INVALID`、固定message、`path` なしになること
+- version欠落が `MISSING_REQUIRED_FIELD` /version、version型不正が `INVALID_FIELD_TYPE` /version、version=2が `UNSUPPORTED_VERSION` /versionになること
 - 標準暗号providerの固定fixtureをNode.js、ブラウザ、React Native、Expoで相互に生成・復元できること
 - エラーに秘密情報が含まれないこと
 

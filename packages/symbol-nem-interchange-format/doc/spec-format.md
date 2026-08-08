@@ -412,6 +412,8 @@ SNIF v1の標準タイプ以外の `type` をどのように扱うかは使用�
 
 アプリケーション固有の `type` と `payload` を利用する場合、そのpayloadの意味、フィールド構造、相互運用性はSNIFでは定義しない。SNIFの標準タイプとして扱ったり、未知の `type` に対して暗黙の処理を実行したりしてはならない。
 
+アプリケーション固有typeの `payload` はJSON objectでなければならない。SNIFはobject内部のプロパティ、値の意味および業務上の妥当性を検証しない。
+
 ## 6. 機密payloadの保護表現
 
 `account` および `mnemonic` は、平文時には `payload`、暗号化時には `protectedPayload` を使用する。
@@ -556,7 +558,7 @@ AES-GCMのv1標準値は次のとおり固定する。
 3. 外側の `type` に対応する平文payloadとして、5.3または5.4で定義した必須項目、JSON型およびhex表現を検証する。
 4. 検証に成功した場合だけ、復元されたobjectを対応するtypeのpayloadとして受理する。
 
-UTF-8 decode、JSON解析または対応するpayload検証に失敗した場合、protectedPayloadは形式上受理してはならない。これは暗号認証の成功とは別の形式検証であり、SNIFは復号後payloadのチェーン上・業務上の意味や秘密情報の妥当性を検証しない。
+UTF-8 decode、JSON構文解析または対応するpayload検証に失敗した場合、protectedPayloadは形式上受理してはならない。これら3種類の失敗は、暗号認証の成功とは別の復号後形式検証の失敗である。API仕様では3種類すべてを `DECRYPTED_PAYLOAD_INVALID` として公開し、復号済みbyte列、JSON内容および問題箇所の `path` を公開しない。SNIFは復号後payloadのチェーン上・業務上の意味や秘密情報の妥当性を検証しない。
 
 ## 7. フォーマットの責任境界
 
@@ -569,6 +571,7 @@ SNIF v1の形式検証は、少なくとも次を判定する。
 - JSONとして解釈でき、共通エンベロープの必須項目が定義されたJSON型で存在すること。
 - `version` が `1` であること。
 - 標準typeの平文 `payload` がobjectであり、各typeで定義した必須項目、JSON型およびhex表現を満たすこと。`account` / `mnemonic` の保護時は `protectedPayload` の検証を行う。
+- 標準type以外のアプリケーション固有typeの `payload` がJSON objectであること。object内部の意味は検証しない。
 - `account` / `mnemonic` では `payload` と `protectedPayload` の一方だけが存在すること。その他のtypeでは `protectedPayload` を使用しないこと。
 - 標準暗号プロファイルでは、`protectedPayload` の必須項目、`kdf.params` の4つのinteger項目、hex表現およびnonce/tagのbyte長を満たすこと。
 - `transaction` の `action` が `sign` の場合、`id` が存在し、署名要求として `payload.payload` がhex文字列であること。
@@ -933,6 +936,22 @@ SNIF v1の実装間相互運用性を確認するため、本章のfixtureを仕
 
 ```json
 [
+  {
+    "id": "reject-missing-version",
+    "input": {
+      "type": "address",
+      "chain": "symbol",
+      "network": "mainnet",
+      "payload": {
+        "address": "X"
+      }
+    },
+    "expected": {
+      "result": "reject",
+      "reason": "missing-required-field",
+      "path": "/version"
+    }
+  },
   {
     "id": "reject-unsupported-version",
     "input": {
