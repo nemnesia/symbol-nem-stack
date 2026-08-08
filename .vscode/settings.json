@@ -6,5 +6,11 @@
         "source.organizeImports": "never"
     },
     "vitest.disableWorkspaceWarning": true,
-    "cmake.ignoreCMakeListsMissing": true
+    "cmake.ignoreCMakeListsMissing": true,
+    "markdownlint.config": {
+        "default": true, // すべてのルールを有効にする
+        "MD018": false, // 複数の空白を許可しないルールを無効にする
+        "MD024": false, // 同一文書内に複数の同じ見出しが存在することを許可しないルールを無効にする
+        "MD025": false // 同一文書内に複数の最上位見出しが存在することを許可しないルールを無効にする
+    }
 }

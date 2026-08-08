@@ -1,0 +1,65 @@
+{
+  "name": "@nemnesia/snif",
+  "version": "1.0.0",
+  "description": "Transport-independent interchange format for Symbol and NEM data",
+  "keywords": [
+    "symbol",
+    "nem",
+    "blockchain",
+    "interchange-format",
+    "snif",
+    "json",
+    "wallet",
+    "transaction"
+  ],
+  "author": "ccHarvestasya",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nemnesia/symbol-tools.git",
+    "directory": "packages/symbol-nem-interchange-format"
+  },
+  "bugs": {
+    "url": "https://github.com/nemnesia/symbol-tools/issues"
+  },
+  "homepage": "https://github.com/nemnesia/symbol-tools/tree/main/packages/symbol-nem-interchange-format#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "pnpm run clean && tsup",
+    "clean": "rimraf dist",
+    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "format": "prettier --write \"{src,test}/**/*.ts\"",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm test",
+    "publish:dryrun": "pnpm publish --dry-run",
+    "publish:release": "pnpm run build && pnpm publish"
+  },
+  "packageManager": "pnpm@11.18.0",
+  "dependencies": {
+    "@noble/ciphers": "2.2.0",
+    "@noble/hashes": "2.2.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

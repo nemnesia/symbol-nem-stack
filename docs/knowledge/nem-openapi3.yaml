@@ -1,0 +1,255 @@
+openapi: 3.0.2
+info:
+  version: 0.0.1
+  title: NEM Rest Endpoints
+  description: OpenAPI Specification of NEM nodes.
+  license:
+    name: Apache 2.0
+    url: 'http://www.apache.org/licenses/LICENSE-2.0.html'
+tags:
+  - name: Node
+  - name: Chain
+paths:
+  /node/info:
+    get:
+      tags:
+        - Node
+      summary: Gets basic node information.
+      description: Gets basic information about the node.
+      operationId: nodeInfo
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeDTO'
+  /node/peer-list/reachable:
+    get:
+      tags:
+        - Node
+      summary: Gets an array all reachable nodes.
+      description: Gets an array of all nodes with status 'active' in the neighborhood.
+      operationId: nodePeerListReachable
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeListDTO'
+  /node/peer-list/active:
+    get:
+      tags:
+        - Node
+      summary: Gets an array with all the active nodes.
+      description: Gets an array of active nodes in the neighborhood that are selected for broadcasts.
+      operationId: nodePeerListActive
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeListDTO'
+  /node/peer-list/all:
+    get:
+      tags:
+        - Node
+      summary: Gets all the peer nodes.
+      description: Gets an array of all known nodes in the neighborhood.
+      operationId: nodePeerListAll
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllNodesDTO'
+  /chain/height:
+    get:
+      tags:
+        - Chain
+      summary: Chain Height
+      description: Gets the current height of the block chain.
+      operationId: chainHeight
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockHeightDTO'
+  /chain/score:
+    get:
+      tags:
+        - Chain
+      summary: Chain Score
+      description: Gets the current score of the block chain.
+      operationId: chainScore
+      responses:
+        '200':
+          description: success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChainScoreDTO'
+externalDocs:
+  description: NEM Developers
+  url: 'https://nemproject.github.io/'
+servers:
+  - url: 'http://localhost:7890'
+    description: Local development
+  - url: 'http://54.170.97.221:7890'
+    description: Mainnet NGL Node - SuperAlice
+components:
+  parameters: {}
+  requestBodies: {}
+  schemas:
+    AllNodesDTO:
+      type: object
+      description: A NodeCollection object holds arrays of nodes with different statuses.
+      required:
+        - active
+        - inactive
+        - failure
+        - busy
+      properties:
+        active:
+          type: array
+          description: Denotes the beginning of the array of active nodes.
+          items:
+            $ref: '#/components/schemas/NodeDTO'
+        inactive:
+          type: array
+          description: Denotes the beginning of the array of inactive nodes.
+          items:
+            $ref: '#/components/schemas/NodeDTO'
+        failure:
+          type: array
+          description: Denotes the beginning of the array of failure nodes.
+          items:
+            $ref: '#/components/schemas/NodeDTO'
+        busy:
+          type: array
+          description: Denotes the beginning of the array of busy nodes.
+          items:
+            $ref: '#/components/schemas/NodeDTO'
+    BlockHeightDTO:
+      type: object
+      description: |
+        The block height describes the position of the block within the block chain. The first block of the chain has height one. Each subsequent block has a height which is one higher than the previous block.
+      required:
+        - height
+      properties:
+        height:
+          $ref: '#/components/schemas/Height'
+    ChainScore:
+      type: string
+      description: The score is an integer greater or equal to zero. It is submitted in hexadecimal format.
+      example: 12ba672a4969562b74
+      pattern: '^([0-9A-Fa-f])+$'
+    ChainScoreDTO:
+      type: object
+      description: 'The block chain score is a measure how good the block chain is. The higher the score, the better the block chain is.'
+      required:
+        - score
+      properties:
+        score:
+          $ref: '#/components/schemas/ChainScore'
+    Height:
+      type: integer
+      description: Block height
+      example: 42799
+    NetworkId:
+      type: integer
+      enum:
+        - 104
+        - -104
+      description: |
+        The network id. The following network ids are supported: * `104 (hex 0x68)` - The main network id. * `-104 (hex 0x98)` - The test network id.
+      example: 104
+    NodeDTO:
+      type: object
+      description: |
+        Nodes are the entities that perform communication in the network like sending and receiving data. A node has an identity which is tied to an account through which the node can identify itself to the network. The communication is done through the endpoint of the node. Additionally a node provides meta data information
+      required:
+        - metaData
+        - endpoint
+        - identity
+      properties:
+        metaData:
+          type: object
+          required:
+            - features
+            - networkId
+            - version
+            - platform
+          properties:
+            features:
+              type: integer
+              description: The number of features the nodes has.
+              example: 3
+            application:
+              type: string
+              description: The application name.
+              example: NIS
+            networkId:
+              $ref: '#/components/schemas/NetworkId'
+            version:
+              type: string
+              description: The version of the node.
+              example: 0.6.97-BETA
+            platform:
+              type: string
+              description: The platform where the node is running.
+              example: Oracle Corporation (1.8.0_221) on Linux
+        endpoint:
+          type: object
+          required:
+            - protocol
+            - port
+            - host
+          properties:
+            protocol:
+              type: string
+              description: The protocol to use (only HTTP supported as for now).
+              example: http
+            port:
+              type: integer
+              description: The port to use.
+              example: 7890
+            host:
+              type: string
+              description: The IP address or hostname to use.
+              example: 54.170.97.221
+        identity:
+          type: object
+          required:
+            - name
+            - public-key
+          properties:
+            name:
+              type: string
+              description: The name of the node.
+              example: SuperAlice
+            public-key:
+              $ref: '#/components/schemas/PublicKey'
+    NodeListDTO:
+      type: object
+      description: |
+        Simple list with Node items.
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeDTO'
+    PublicKey:
+      type: string
+      format: hex
+      description: Public key
+      example: 74375c15c6ce6bdbde59be88a069745a0de34444ea933f8c9f46ef407cf30196
+      pattern: '^([0-9A-Fa-f]){64}$'
+  responses: {}
