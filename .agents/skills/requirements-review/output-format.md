@@ -8,7 +8,7 @@ Review Board Chair は、選択した要件定義書と同じディレクトリ�
 ## Review Target
 
 - 対象: <要件定義書のパス>
-- 確認日: <YYYY-MM-DD>
+- 確認日: <YYYY-MM-DD HH:mm>
 
 ## Evidence Used
 

@@ -8,7 +8,7 @@ Review Board Chair は、選択した仕様書と同じディレクトリの `re
 ## Review Target
 
 - 対象: <仕様書のパス>
-- 確認日: <YYYY-MM-DD>
+- 確認日: <YYYY-MM-DD HH:mm>
 
 ## Evidence Used
 

@@ -8,7 +8,7 @@ Review Board Chair は、選択したコンセプトシートと同じディレ�
 ## Review Target
 
 - 対象: <コンセプトシートのパス>
-- 確認日: <YYYY-MM-DD>
+- 確認日: <YYYY-MM-DD HH:mm>
 
 ## Evidence Used
 
