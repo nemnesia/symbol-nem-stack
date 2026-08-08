@@ -1,0 +1,4 @@
+interface:
+  display_name: '公開前再チェック'
+  short_description: '公開パッケージのリリース準備とSemVerを再チェック'
+  default_prompt: '$release-readiness-review を使って、指定パッケージの公開準備を再チェックしてください。'
