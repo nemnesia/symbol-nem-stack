@@ -1,0 +1,38 @@
+{
+  "name": "@nemnesia/symbol-nem-interchange-format",
+  "version": "1.0.0",
+  "description": "Transport-independent interchange format for Symbol and NEM data",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "pnpm run clean && tsup",
+    "clean": "rimraf dist",
+    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "format": "prettier --write \"{src,test}/**/*.ts\"",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.2.0",
+    "@noble/hashes": "2.2.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
