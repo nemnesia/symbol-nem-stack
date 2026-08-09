@@ -16,6 +16,19 @@ Review Board Chair は、指定された出力先にレビュー結果ファイ�
 - レビュー範囲: <確認した範囲>
 - 未確認範囲: <未確認事項。なければ「なし」>
 
+## Execution Audit
+
+- 実行モード: `multi_agent_v1__spawn_agent` で起動した4つの独立した Reviewer サブエージェント
+- Reviewer A agent_id: <返却された agent_id>
+- Reviewer B agent_id: <返却された agent_id>
+- Reviewer C agent_id: <返却された agent_id>
+- Reviewer D agent_id: <返却された agent_id>
+- Phase 1: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
+- Phase 2: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
+- Chair 統合: <完了>
+
+4つの `agent_id` は相互に異なる値でなければならない。起動、送信、完了、または統合を確認できない場合は、レビュー結果ファイルを生成または更新しない。プロンプト、討議内容、投票、内部の思考過程は記載しない。
+
 ## Evidence Used
 
 | 種別                 | 参照箇所                                 | 用途                                     |

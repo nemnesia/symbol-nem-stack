@@ -1,6 +1,10 @@
 # Reviewers
 
-本レビューは Reviewer A、Reviewer B、Reviewer C、Review Board Chair で構成する。各 Reviewer は Phase 1 では独立し、Phase 2 でだけ他の指摘を評価する。
+本レビューは、メインエージェントが務める Review Board Chair と、別々に起動する Reviewer A、Reviewer B、Reviewer C のサブエージェントで構成する。各 Reviewer は Phase 1 では独立し、Phase 2 でだけ他の指摘を評価する。Reviewer は最終成果物を作成せず、指摘メモだけを Chair に返す。
+
+Chair は `multi_agent` の `spawn_agent` を3回の別々の呼び出しで実行し、`fork_context: false` を指定して、3つの Reviewer サブエージェントを同じ対象資料に対して並列起動する。返された3つの `agent_id` を A/B/C に対応付け、値がすべて存在し相互に異なることを Phase 1 前に検証する。検証できない場合はレビューを中止し、findings を作成しない。
+
+各 Reviewer に他の Reviewer の指摘や結論を Phase 1 の開始前に渡してはならない。Phase 1 完了後、Chair は同じ `agent_id` の Reviewer サブエージェントへ全指摘を渡し、Phase 2 の評価を依頼する。Phase 1/2 の完了状態は `agent_id` ごとに確認し、失敗・タイムアウト・未確認があれば findings を作成しない。
 
 ## Reviewer A: 品質
 
@@ -30,6 +34,6 @@
 
 ## Review Board Chair
 
-採用指摘の確定、重複統合、重大度の確定、品質ゲートの適用、最終判定、findings の作成を行う。議長は新しい指摘を追加しない。
+採用指摘の確定、重複統合、重大度の確定、品質ゲートの適用、最終判定、findings の作成を行う。議長は新しい指摘を追加しない。3つの `agent_id` と Phase 1/2 の完了を検証できた場合だけ、Chair が `reviews/<コンセプトシートのベース名>-review-findings.md` を作成または上書きする。findings には実行監査情報を記録する。
 
 各指摘について、レビュー範囲、根拠、影響、重大度、重複を確認する。討議で示された根拠と影響に基づいてのみ重大度を変更し、根拠不足の指摘は採用しない。

@@ -10,6 +10,18 @@ Review Board Chair は、選択した仕様書と同じディレクトリの `re
 - 対象: <仕様書のパス>
 - 確認日: <YYYY-MM-DD HH:mm>
 
+## Execution Audit
+
+- 実行モード: `multi_agent_v1__spawn_agent` で起動した3つの独立した Reviewer サブエージェント
+- Reviewer A agent_id: <返却された agent_id>
+- Reviewer B agent_id: <返却された agent_id>
+- Reviewer C agent_id: <返却された agent_id>
+- Phase 1: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
+- Phase 2: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
+- Chair 統合: <完了>
+
+3つの `agent_id` は相互に異なる値でなければならない。起動、送信、完了、または統合を確認できない場合は、この findings ファイル自体を生成しない。プロンプト、討議内容、投票、内部の思考過程は記載しない。
+
 ## Evidence Used
 
 | 種別                           | 参照箇所                                                                       | 用途                                                                   |
