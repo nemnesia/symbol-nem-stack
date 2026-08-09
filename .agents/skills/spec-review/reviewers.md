@@ -1,6 +1,8 @@
 # Reviewers
 
-本レビューは Reviewer A、Reviewer B、Reviewer C、Review Board Chair で構成する。各 Reviewer は Phase 1 では独立し、Phase 2 でだけ他の指摘を評価する。
+本レビューは、トップレベルのメインエージェントが務める Review Board Chair と、`multi_agent_v1__spawn_agent` で起動する独立した Reviewer A、Reviewer B、Reviewer C の3つのサブエージェントで構成する。各 Reviewer は Phase 1 では独立し、Phase 2 でだけ他の指摘を評価する。Reviewer は担当観点のメモだけを返し、レビュー対象や成果物を編集しない。
+
+Chair は Reviewer A、B、C をそれぞれ別の `multi_agent_v1__spawn_agent` 呼び出しで起動し、各呼び出しに `fork_context: false` を指定する。返却された3つの `agent_id` が存在し、相互に異なることを確認できるまで Phase 1 を開始してはならない。Phase 1 後は、その同じ `agent_id` へ `multi_agent_v1__send_input` で全メモを個別に送り、各 `submission_id` の完了を `multi_agent_v1__wait_agent` で確認する。起動、送信、完了のいずれかを確認できない場合は、自己レビューへフォールバックせず、findings を生成しない。
 
 すべての Reviewer は「不足していると望ましいもの」ではなく、「既存のコンセプト・要件・仕様を満たすために不足しているもの」だけを指摘する。レビューを新規設計の入口にしてはならない。
 
@@ -28,6 +30,6 @@
 
 ## Review Board Chair
 
-採用指摘の確定、重複統合、重大度の確定、品質ゲートの適用、最終判定、findings の作成を行う。議長は新しい指摘を追加しない。
+採用指摘の確定、重複統合、重大度の確定、品質ゲートの適用、最終判定、findings の作成を行う。3つのサブエージェントの `agent_id` と Phase 1・Phase 2 の完了を監査できた場合だけ、Chair が `reviews/<仕様書のベース名>-review-findings.md` を生成する。議長は新しい指摘を追加しない。
 
 各指摘について、レビュー範囲、根拠、影響、重大度、重複に加え、その指摘が既存要求の欠陥修正か、新規設計の提案かを確認する。新規設計、新規要求、予防的な将来拡張に該当する指摘は採用しない。討議で示された根拠と影響に基づいてのみ重大度を変更し、根拠不足の指摘は採用しない。

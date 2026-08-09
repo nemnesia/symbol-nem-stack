@@ -10,6 +10,18 @@ Review Board Chair は、選択した要件定義書と同じディレクトリ�
 - 対象: <要件定義書のパス>
 - 確認日: <YYYY-MM-DD HH:mm>
 
+## Execution Audit
+
+- 実行モード: `multi_agent_v1__spawn_agent` で起動した3つの独立した Reviewer サブエージェント
+- Reviewer A agent_id: <実行時に返された ID>
+- Reviewer B agent_id: <実行時に返された ID>
+- Reviewer C agent_id: <実行時に返された ID>
+- Phase 1: <完了。`multi_agent_v1__wait_agent` で確認>
+- Phase 2: <完了。`multi_agent_v1__wait_agent` で確認>
+- Chair 統合: <完了>
+
+3つの `agent_id` は相互に異なる値を記載する。起動・完了を確認できない場合は、このファイル自体を生成しない。プロンプト、個人の意見、討議、投票、却下理由、思考過程は記載しない。
+
 ## Evidence Used
 
 | 種別 | 参照箇所 | 用途 |
