@@ -1,4 +1,6 @@
 import { PrivateKey } from './CryptoTypes.js';
+// import Mnemonic from 'bitcore-mnemonic';
+// import crypto from 'crypto';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { generateMnemonic, mnemonicToSeedSync } from '@scure/bip39';
@@ -37,6 +39,9 @@ export class Bip32Node {
 	 * @param {Uint8Array} data BIP32 seed.
 	 */
 	constructor(hmacKey, data) {
+		// const hmac = crypto.createHmac('sha512', hmacKey);
+		// hmac.update(data);
+		// const hmacResult = hmac.digest();
 		const hmacResult = hmac(sha512, hmacKey, data);
 
 		/**
@@ -100,6 +105,7 @@ export class Bip32 {
 		/**
 		 * @private
 		 */
+		// this._rootHmacKey = Buffer.from(`${curveName} seed`);
 		this._rootHmacKey = new TextEncoder().encode(`${curveName} seed`);
 
 		/**
@@ -124,6 +130,8 @@ export class Bip32 {
 	 * @returns {Bip32Node} BIP32 root node.
 	 */
 	fromMnemonic(mnemonic, password) {
+		// const wordlist = Mnemonic.Words[this._mnemonicLanguage.toUpperCase()];
+		// return this.fromSeed(new Mnemonic(mnemonic, wordlist).toSeed(password));
 		const seed = mnemonicToSeedSync(mnemonic, password);
 		return this.fromSeed(seed);
 	}
@@ -134,6 +142,8 @@ export class Bip32 {
 	 * @returns {string} Random mnemonic created with the specified entropy.
 	 */
 	random(seedLength = 32) {
+		// const wordlist = Mnemonic.Words[this._mnemonicLanguage.toUpperCase()];
+		// return new Mnemonic(seedLength * 8, wordlist).phrase;
 		const wordlist = WORDLISTS[this._mnemonicLanguage] || english;
 		return generateMnemonic(wordlist, seedLength * 8);
 	}

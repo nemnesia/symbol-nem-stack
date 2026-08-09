@@ -5,6 +5,7 @@ import { concatArrays, decodeAesGcm, encodeAesGcm } from '../impl/CipherHelpers.
 import { deepCompare } from '../utils/arrayHelpers.js';
 import { hexToUint8, isHexString, uint8ToHex } from '../utils/converter.js';
 
+// const DELEGATION_MARKER = Uint8Array.from(Buffer.from('FE2A8061577301E2', 'hex'));
 const DELEGATION_MARKER = Uint8Array.from(hexToUint8('FE2A8061577301E2'));
 
 const filterExceptions = async (statement, exceptions) => {
@@ -12,6 +13,7 @@ const filterExceptions = async (statement, exceptions) => {
 		const message = await statement();
 		return [true, message];
 	} catch (exception) {
+		// if (!exceptions.some(exceptionMessage => exception.message.includes(exceptionMessage)))
 		const exceptionMessage = exception.message || exception.toString();
 		if (!exceptions.some(msg => exceptionMessage.includes(msg)))
 			throw exception;

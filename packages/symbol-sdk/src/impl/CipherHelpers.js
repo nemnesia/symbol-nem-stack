@@ -1,6 +1,7 @@
 // this file contains implementation details and is not intended to be used directly
 
 import { AesCbcCipher, AesGcmCipher } from '../Cipher.js';
+// import crypto from 'crypto';
 import { randomBytes } from '@noble/hashes/utils.js';
 
 const GCM_IV_SIZE = 12;
@@ -55,10 +56,12 @@ const encodeAesGcm = async (deriveSharedKey, keyPair, recipientPublicKey, messag
 };
 
 const encodeAesCbc = async (deriveSharedKey, keyPair, recipientPublicKey, message) => {
+	// const salt = new Uint8Array(crypto.randomBytes(SALT_SIZE));
 	const salt = new Uint8Array(randomBytes(SALT_SIZE));
 	const sharedKey = deriveSharedKey(keyPair, recipientPublicKey, salt);
 	const cipher = new AesCbcCipher(sharedKey);
 
+	// const initializationVector = new Uint8Array(crypto.randomBytes(CBC_IV_SIZE));
 	const initializationVector = new Uint8Array(randomBytes(CBC_IV_SIZE));
 	const cipherText = await cipher.encrypt(message, initializationVector);
 

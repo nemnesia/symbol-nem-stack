@@ -6,13 +6,13 @@ import { utf8ToBytes } from '@noble/hashes/utils.js';
  * @param {string} seed Mosaic restriction key seed.
  * @returns {bigint} Mosaic restriction key.
  */
-const mosaicRestrictionGenerateKey = (seed) => {
-  const hashResult = sha3_256(utf8ToBytes(seed));
+const mosaicRestrictionGenerateKey = seed => {
+	const hashResult = sha3_256(utf8ToBytes(seed));
 
-  const keyBytes = hashResult.subarray(0, 8);
+	const keyBytes = hashResult.subarray(0, 8);
 
-  const keys = new BigUint64Array(keyBytes.buffer);
-  return keys[0];
+	const keys = new BigUint64Array(keyBytes.buffer);
+	return keys[0];
 };
 
 export { mosaicRestrictionGenerateKey };
