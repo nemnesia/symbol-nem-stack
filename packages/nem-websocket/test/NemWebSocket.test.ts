@@ -72,6 +72,7 @@ describe('NemWebSocket', () => {
       'IPv6 hosts must be enclosed in brackets and ports are not supported'
     );
     expect(() => new NemWebSocket({ host: '[invalid]' })).toThrow('host must be a valid hostname or IP address');
+    expect(() => new NemWebSocket({ host: 'node%41' })).toThrow('host must be a valid hostname or IP address');
     expect(() => new NemWebSocket({ host: 'node.example', timeout: 0 })).toThrow(
       'timeout must be a positive finite number'
     );

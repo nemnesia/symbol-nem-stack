@@ -105,6 +105,18 @@ export class NemWebSocket {
     };
   }
 
+  private createEndpoint(protocol: 'ws' | 'wss', host: string, port: string): string {
+    try {
+      const endpoint = new URL(protocol + '://' + host + ':' + port + '/w/messages/websocket');
+      if (endpoint.username || endpoint.password || endpoint.hostname.toLowerCase() !== host.toLowerCase()) {
+        throw new TypeError('host must be a valid hostname or IP address');
+      }
+      return endpoint.toString();
+    } catch {
+      throw new TypeError('host must be a valid hostname or IP address');
+    }
+  }
+
   private notify<T>(callbacks: ReadonlySet<(value: T) => void>, value: T, eventName: string): void {
     callbacks.forEach((callback) => {
       try {
@@ -125,12 +137,13 @@ export class NemWebSocket {
 
     const protocol = ssl ? 'wss' : 'ws';
     const endPointPort = ssl ? '7779' : '7778';
+    const endpoint = this.createEndpoint(protocol, endPointHost, endPointPort);
 
     // クライアントを作成
     const client = new Client({
       connectionTimeout: timeout,
       reconnectDelay: 0, // 手動で再接続を管理
-      webSocketFactory: () => new WebSocket(`${protocol}://${endPointHost}:${endPointPort}/w/messages/websocket`),
+      webSocketFactory: () => new WebSocket(endpoint),
     });
     this._client = client;
 
