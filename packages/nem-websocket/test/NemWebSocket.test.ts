@@ -5,13 +5,14 @@ import type { NemWebSocketOptions } from '../src/nem.types.js';
 
 // モック用
 vi.mock('@stomp/stompjs', () => ({
-  Client: function ClientMock() {
+  Client: function ClientMock(config: { webSocketFactory: () => unknown }) {
     return {
       activate: vi.fn(),
       subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
       publish: vi.fn(),
       unsubscribe: vi.fn(),
       deactivate: vi.fn(),
+      webSocketFactory: config.webSocketFactory,
       onWebSocketError: undefined,
       onWebSocketClose: undefined,
       onConnect: undefined,
@@ -19,8 +20,8 @@ vi.mock('@stomp/stompjs', () => ({
   },
 }));
 vi.mock('isomorphic-ws', () => ({
-  default: function WebSocketMock() {
-    return {};
+  default: function WebSocketMock(url: string) {
+    return { url };
   },
 }));
 
@@ -312,9 +313,14 @@ describe('NemWebSocket', () => {
       clientMock = monitor.client;
     });
 
-    it('SSL=true でインスタンス化でき、例外をスローしない', () => {
-      const options: NemWebSocketOptions = { host: 'example', timeout: 1234, ssl: true };
-      expect(() => new NemWebSocket(options)).not.toThrow();
+    it.each([
+      { ssl: false, endpoint: 'ws://example:7778/w/messages/websocket' },
+      { ssl: true, endpoint: 'wss://example:7779/w/messages/websocket' },
+    ])('ssl=$ssl の接続endpointが正しい', ({ ssl, endpoint }) => {
+      const options: NemWebSocketOptions = { host: 'example', timeout: 1234, ssl };
+      const sslMonitor = new NemWebSocket(options);
+
+      expect((sslMonitor.client as any).webSocketFactory()).toEqual({ url: endpoint });
     });
 
     it('切断すると、すべてのサブスクリプションが解除され、クライアントが無効化されます', () => {

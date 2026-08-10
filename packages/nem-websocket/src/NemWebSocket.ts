@@ -428,7 +428,7 @@ export class NemWebSocket {
 
     // サブスクライブパスを決定
     const subscribePath =
-      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address) : channelPath.subscribe;
+      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address!) : channelPath.subscribe;
     if (!subscribePath) {
       throw new Error(`Subscribe path could not be determined for channel: ${channel}`);
     }
@@ -528,7 +528,7 @@ export class NemWebSocket {
 
     // サブスクライブパスを決定
     const subscribePath =
-      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address) : channelPath.subscribe;
+      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address!) : channelPath.subscribe;
     if (!subscribePath) {
       throw new Error(`Subscribe path could not be determined for channel: ${channel}`);
     }
