@@ -5,6 +5,7 @@ import type { NemWebSocketOptions } from '../src/nem.types.js';
 
 const mockStompState = vi.hoisted(() => ({
   clients: [] as Array<Record<string, any>>,
+  sockets: [] as Array<Record<string, any>>,
 }));
 
 // モック用
@@ -16,10 +17,12 @@ vi.mock('@stomp/stompjs', () => ({
       publish: vi.fn(),
       unsubscribe: vi.fn(),
       deactivate: vi.fn(),
+      forceDisconnect: vi.fn(),
       webSocketFactory: config.webSocketFactory,
       onWebSocketError: undefined,
       onWebSocketClose: undefined,
       onConnect: undefined,
+      onStompError: undefined,
     };
     mockStompState.clients.push(client);
     return client;
@@ -27,7 +30,20 @@ vi.mock('@stomp/stompjs', () => ({
 }));
 vi.mock('isomorphic-ws', () => ({
   default: function WebSocketMock(url: string) {
-    return { url };
+    const socket = {
+      url,
+      readyState: 1,
+      binaryType: 'arraybuffer',
+      onopen: undefined,
+      onerror: undefined,
+      onclose: undefined,
+      onmessage: undefined,
+      send: vi.fn(),
+      close: vi.fn(),
+      terminate: vi.fn(),
+    };
+    mockStompState.sockets.push(socket);
+    return socket;
   },
 }));
 
@@ -43,6 +59,7 @@ describe('NemWebSocket', () => {
 
   beforeEach(() => {
     mockStompState.clients.length = 0;
+    mockStompState.sockets.length = 0;
     monitor = new NemWebSocket(defaultOptions);
     clientMock = monitor.client;
   });
@@ -84,8 +101,8 @@ describe('NemWebSocket', () => {
     expect(() => new NemWebSocket({ host: 'node.example', timeout: 0 })).toThrow(
       'timeout must be a positive finite number'
     );
-    expect(() => new NemWebSocket({ host: 'node.example', reconnectInterval: -1 })).toThrow(
-      'reconnectInterval must be a non-negative finite number'
+    expect(() => new NemWebSocket({ host: 'node.example', reconnectInterval: 0 })).toThrow(
+      'reconnectInterval must be a positive finite number'
     );
     expect(() => new NemWebSocket({ host: 'node.example', maxReconnectAttempts: 1.5 })).toThrow(
       'maxReconnectAttempts must be a non-negative integer or Infinity'
@@ -338,6 +355,37 @@ describe('NemWebSocket', () => {
     warnSpy.mockRestore();
   });
 
+  it('STOMP ERRORをfatalとして通知し、自動再接続を停止するべきである', () => {
+    const errorCallback = vi.fn();
+    const reconnectCallback = vi.fn();
+    monitor.onError(errorCallback);
+    monitor.onReconnect(reconnectCallback);
+
+    // @ts-ignore
+    monitor.client.onStompError({ headers: { message: 'authentication failed' } });
+    // @ts-ignore
+    monitor.client.onWebSocketClose({ type: 'close' });
+
+    expect(errorCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'connection',
+        severity: 'fatal',
+        message: 'STOMP server error: authentication failed',
+      })
+    );
+    expect(clientMock.forceDisconnect).toHaveBeenCalled();
+    expect(reconnectCallback).not.toHaveBeenCalled();
+  });
+
+  it('巨大なアドレスはuppercase化する前に拒否するべきである', () => {
+    const address = 'T' + 'A'.repeat(10_000_000);
+    const toUpperCase = vi.spyOn(String.prototype, 'toUpperCase');
+
+    expect(() => monitor.on('account', address, vi.fn())).toThrow('address must be a valid NEM testnet address');
+    expect(toUpperCase).not.toHaveBeenCalled();
+    toUpperCase.mockRestore();
+  });
+
   it('接続時にuidが設定され、取得できるべきである', () => {
     // @ts-ignore
     monitor.client.onConnect({ headers: { session: 'session-1' } });
@@ -369,6 +417,7 @@ describe('NemWebSocket', () => {
 
     beforeEach(() => {
       mockStompState.clients.length = 0;
+      mockStompState.sockets.length = 0;
       monitor = new NemWebSocket(defaultOptions);
       clientMock = monitor.client;
     });
@@ -380,7 +429,22 @@ describe('NemWebSocket', () => {
       const options: NemWebSocketOptions = { host: 'example', timeout: 1234, ssl };
       const sslMonitor = new NemWebSocket(options);
 
-      expect((sslMonitor.client as any).webSocketFactory()).toEqual({ url: endpoint });
+      expect((sslMonitor.client as any).webSocketFactory().url).toBe(endpoint);
+    });
+
+    it('STOMPフレームを転送し、上限超過時はWebSocketを切断する', () => {
+      const socketFactory = (monitor.client as any).webSocketFactory;
+      const guardedSocket = socketFactory();
+      const messageHandler = vi.fn();
+      guardedSocket.onmessage = messageHandler;
+      const rawSocket = mockStompState.sockets.at(-1)!;
+
+      rawSocket.onmessage({ data: 'MESSAGE\n\nbody\0' });
+      expect(messageHandler).toHaveBeenCalledTimes(1);
+
+      rawSocket.onmessage({ data: 'MESSAGE\ncontent-length:999999999999\n\n' });
+      expect(rawSocket.close).toHaveBeenCalledWith(1009, 'STOMP frame exceeds the maximum size');
+      expect(messageHandler).toHaveBeenCalledTimes(1);
     });
 
     it('切断すると、すべてのサブスクリプションが解除され、クライアントが無効化されます', () => {
@@ -417,9 +481,11 @@ describe('NemWebSocket', () => {
   describe('再接続機能', () => {
     beforeEach(() => {
       vi.useFakeTimers();
+      vi.spyOn(Math, 'random').mockReturnValue(0);
     });
 
     afterEach(() => {
+      vi.restoreAllMocks();
       vi.useRealTimers();
     });
 
@@ -444,6 +510,22 @@ describe('NemWebSocket', () => {
       vi.advanceTimersByTime(1000);
 
       expect(reconnectCallback).toHaveBeenCalledWith(1);
+    });
+
+    it('接続が30秒間安定した場合だけ再接続試行回数をリセットするべきである', () => {
+      // @ts-ignore
+      monitor._isConnected = false;
+      // @ts-ignore
+      monitor.reconnectAttempts = 2;
+      // @ts-ignore
+      monitor.client.onConnect();
+
+      vi.advanceTimersByTime(29_999);
+      // @ts-ignore
+      expect(monitor.reconnectAttempts).toBe(2);
+      vi.advanceTimersByTime(1);
+      // @ts-ignore
+      expect(monitor.reconnectAttempts).toBe(0);
     });
 
     it('再接続callback内で切断した場合はタイマーを登録しないべきである', () => {

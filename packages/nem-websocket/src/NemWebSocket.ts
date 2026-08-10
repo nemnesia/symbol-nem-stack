@@ -11,10 +11,65 @@ import {
 import { normalizeNemTestnetAddress } from './nemAddress.js';
 import { nemChannelPaths } from './nemChannelPaths.js';
 import type { NemAddressChannel, NemChannel, NemGlobalChannel } from './nemChannelPaths.js';
+import { StompFrameSizeGuard } from './stompFrameSizeGuard.js';
 
 type NemWebSocketPublishRequest = { destination: string; body: string };
 
 const ADDRESS_REGISTRATION_DESTINATION = '/w/api/account/subscribe';
+const MAX_STOMP_FRAME_SIZE = 4 * 1024 * 1024;
+const MAX_RECONNECT_INTERVAL = 60_000;
+const STABLE_CONNECTION_RESET_DELAY = 30_000;
+const RECONNECT_JITTER_RATIO = 0.2;
+
+type StompSocketEventHandler<T> = ((event: T) => void) | null;
+
+/** WebSocket adapter that bounds a STOMP frame before StompJS parses it. */
+class BoundedStompWebSocket {
+  public binaryType = 'arraybuffer';
+  public onopen: StompSocketEventHandler<WebSocket.Event> = null;
+  public onerror: StompSocketEventHandler<WebSocket.ErrorEvent> = null;
+  public onclose: StompSocketEventHandler<WebSocket.CloseEvent> = null;
+  public onmessage: StompSocketEventHandler<WebSocket.MessageEvent> = null;
+  private readonly frameSizeGuard = new StompFrameSizeGuard(MAX_STOMP_FRAME_SIZE);
+
+  public constructor(private readonly socket: WebSocket) {
+    this.socket.binaryType = 'arraybuffer';
+    this.socket.onopen = (event) => this.onopen?.(event);
+    this.socket.onerror = (event) => this.onerror?.(event);
+    this.socket.onclose = (event) => this.onclose?.(event);
+    this.socket.onmessage = (event) => {
+      if (!this.frameSizeGuard.acceptChunk(event.data)) {
+        this.socket.close(1009, 'STOMP frame exceeds the maximum size');
+        return;
+      }
+      this.onmessage?.(event);
+    };
+  }
+
+  public get url(): string {
+    return this.socket.url;
+  }
+
+  public get readyState(): number {
+    return this.socket.readyState;
+  }
+
+  public send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+    this.socket.send(data);
+  }
+
+  public close(): void {
+    this.socket.close();
+  }
+
+  public terminate(): void {
+    if (typeof this.socket.terminate === 'function') {
+      this.socket.terminate();
+    } else {
+      this.socket.close();
+    }
+  }
+}
 
 /**
  * NEM NIS1 ノードの STOMP WebSocket クライアント。
@@ -36,6 +91,7 @@ export class NemWebSocket {
   private options: Required<NemWebSocketOptions>;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableConnectionTimer: ReturnType<typeof setTimeout> | null = null;
   private isManualDisconnect = false;
   private activeSubscriptions: Map<string, Set<(message: string) => void>> = new Map();
   private activePublishRequests: Map<string, NemWebSocketPublishRequest[]> = new Map();
@@ -50,7 +106,7 @@ export class NemWebSocket {
       timeout: 5000,
       ssl: false,
       autoReconnect: true,
-      maxReconnectAttempts: Infinity,
+      maxReconnectAttempts: 10,
       reconnectInterval: 3000,
       ...options,
     });
@@ -96,8 +152,8 @@ export class NemWebSocket {
     ) {
       throw new RangeError('maxReconnectAttempts must be a non-negative integer or Infinity');
     }
-    if (!Number.isFinite(options.reconnectInterval) || (options.reconnectInterval ?? -1) < 0) {
-      throw new RangeError('reconnectInterval must be a non-negative finite number');
+    if (!Number.isFinite(options.reconnectInterval) || (options.reconnectInterval ?? 0) <= 0) {
+      throw new RangeError('reconnectInterval must be a positive finite number');
     }
 
     return {
@@ -105,7 +161,7 @@ export class NemWebSocket {
       timeout: options.timeout ?? 5000,
       ssl: options.ssl ?? false,
       autoReconnect: options.autoReconnect ?? true,
-      maxReconnectAttempts: options.maxReconnectAttempts ?? Infinity,
+      maxReconnectAttempts: options.maxReconnectAttempts ?? 10,
       reconnectInterval: options.reconnectInterval ?? 3000,
     };
   }
@@ -148,7 +204,8 @@ export class NemWebSocket {
     const client = new Client({
       connectionTimeout: timeout,
       reconnectDelay: 0, // 手動で再接続を管理
-      webSocketFactory: () => new WebSocket(endpoint),
+      webSocketFactory: () =>
+        new BoundedStompWebSocket(new WebSocket(endpoint, undefined, { maxPayload: MAX_STOMP_FRAME_SIZE })),
     });
     this._client = client;
 
@@ -177,6 +234,7 @@ export class NemWebSocket {
       }
       this._isConnected = false;
       this._uid = null;
+      this.clearStableConnectionTimer();
       this.subscriptions.clear();
       this.notify(this.closeCallbacks, event, 'close');
 
@@ -185,14 +243,40 @@ export class NemWebSocket {
       }
     };
 
+    // STOMP ERROR はプロトコル/接続エラーとして扱い、同じノードへの自動再接続を停止する。
+    client.onStompError = (frame: IFrame) => {
+      if (this._client !== client) {
+        return;
+      }
+      this.isManualDisconnect = true;
+      this.clearReconnectTimer();
+      const serverMessage = frame.headers?.message;
+      const message =
+        typeof serverMessage === 'string' && serverMessage.length > 0
+          ? `STOMP server error: ${serverMessage.slice(0, 256)}`
+          : 'STOMP server error';
+      const contextualError = this.createContextualError('connection', 'fatal', new Error(message), message);
+      if (this.errorCallbacks.size > 0) {
+        this.notify(this.errorCallbacks, contextualError, 'error');
+      } else {
+        console.warn('[NemWebSocket]', contextualError);
+      }
+      client.forceDisconnect();
+    };
+
     // クライアント接続時の処理
     client.onConnect = (frame?: IFrame) => {
       if (this._client !== client) {
         return;
       }
       this._isConnected = true;
-      // 再接続成功時はカウンターをリセット
-      this.reconnectAttempts = 0;
+      this.clearStableConnectionTimer();
+      this.stableConnectionTimer = setTimeout(() => {
+        if (this._client === client && this._isConnected) {
+          this.reconnectAttempts = 0;
+        }
+        this.stableConnectionTimer = null;
+      }, STABLE_CONNECTION_RESET_DELAY);
 
       const connectionId = frame?.headers?.session ?? frame?.headers?.server ?? `${endPointHost}:${endPointPort}`;
       this._uid = connectionId;
@@ -217,6 +301,7 @@ export class NemWebSocket {
       }
       this._isConnected = false;
       this._uid = null;
+      this.clearStableConnectionTimer();
       // サブスクリプションをクリア（再接続時に復元される）
       this.subscriptions.clear();
     };
@@ -336,13 +421,34 @@ export class NemWebSocket {
       return;
     }
 
-    const interval = this.options.reconnectInterval ?? 3000;
+    const baseInterval = Math.min(
+      MAX_RECONNECT_INTERVAL,
+      (this.options.reconnectInterval ?? 3000) * 2 ** Math.max(0, this.reconnectAttempts - 1)
+    );
+    const interval = Math.min(
+      MAX_RECONNECT_INTERVAL,
+      baseInterval + baseInterval * RECONNECT_JITTER_RATIO * Math.random()
+    );
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (!this.isManualDisconnect) {
         this.createConnection();
       }
     }, interval);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private clearStableConnectionTimer(): void {
+    if (this.stableConnectionTimer) {
+      clearTimeout(this.stableConnectionTimer);
+      this.stableConnectionTimer = null;
+    }
   }
 
   /**
@@ -578,10 +684,8 @@ export class NemWebSocket {
     this.isManualDisconnect = true;
 
     // 再接続タイマーをクリア
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.clearReconnectTimer();
+    this.clearStableConnectionTimer();
 
     // すべてのサブスクリプションを解除
     this.subscriptions.forEach((subscriptions) => subscriptions.forEach((subscription) => subscription.unsubscribe()));
