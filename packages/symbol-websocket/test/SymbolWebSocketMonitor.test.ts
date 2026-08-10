@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import { SymbolWebSocket } from '../src/SymbolWebSocket.js';
 import type { SymbolWebSocketOptions } from '../src/symbol.types.js';
+import type { SymbolNotificationMap } from '../src/symbolNotifications.types.js';
 
 // WebSocketのモック
 const sendMock = vi.fn();
@@ -159,6 +160,29 @@ describe('SymbolWebSocketMonitor', () => {
     expect(cb2).toHaveBeenCalledWith(expect.objectContaining({ topic: 'block', foo: 'bar' }));
   });
 
+  it('アドレス指定通知のtopicはアドレス付き形式で配送されるべきである', () => {
+    expectTypeOf<SymbolNotificationMap['confirmedAdded']['topic']>().toEqualTypeOf<
+      'confirmedAdded' | `confirmedAdded/${string}`
+    >();
+    expectTypeOf<SymbolNotificationMap['block']['topic']>().toEqualTypeOf<'block'>();
+
+    const address = 'TB6BPSISSTI4RKEBKY7OWN2O3HWN2FC3C7XLZ4Y';
+    const callback = vi.fn<(message: SymbolNotificationMap['confirmedAdded']) => void>();
+    // @ts-ignore
+    monitor._uid = 'test-uid';
+    // @ts-ignore
+    monitor.client.readyState = 1;
+    // @ts-ignore
+    monitor.isFirstMessage = false;
+    // @ts-ignore
+    monitor.on('confirmedAdded', address, callback);
+
+    // @ts-ignore
+    monitor.client.onmessage({ data: JSON.stringify({ topic: `confirmedAdded/${address}`, data: {} }) });
+
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ topic: `confirmedAdded/${address}` }));
+  });
+
   it('登録されていないトピックの場合、コールバックが呼び出されないべきである', () => {
     // @ts-ignore
     monitor.isFirstMessage = false;
@@ -306,6 +330,7 @@ describe('SymbolWebSocketMonitor', () => {
       monitor.disconnect();
       sendMock.mockClear();
 
+      // @ts-ignore
       oldClient.onmessage({ data: JSON.stringify({ uid: 'late-uid' }) });
 
       expect(monitor.uid).toBeNull();
