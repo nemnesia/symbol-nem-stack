@@ -57,11 +57,24 @@ export class NemWebSocket {
     if (typeof options.host !== 'string' || options.host.trim() === '') {
       throw new TypeError('host must be a non-empty hostname or IP address');
     }
-    if (/[\s/?#]/.test(options.host) || options.host.includes('://')) {
-      throw new TypeError('host must not include a protocol, path, or port');
+    if (/[\s\\/@?#]/.test(options.host) || options.host.includes('://')) {
+      throw new TypeError('host must not include a protocol, path, port, userinfo, or URL separators');
     }
     if (options.host.includes(':') && !(options.host.startsWith('[') && options.host.endsWith(']'))) {
       throw new TypeError('IPv6 hosts must be enclosed in brackets and ports are not supported');
+    }
+    if (options.host.includes('[') || options.host.includes(']')) {
+      if (!(options.host.startsWith('[') && options.host.endsWith(']'))) {
+        throw new TypeError('IPv6 hosts must be enclosed in brackets and ports are not supported');
+      }
+      try {
+        const endpoint = new URL('ws://' + options.host + ':7778/');
+        if (endpoint.hostname.toLowerCase() !== options.host.toLowerCase()) {
+          throw new TypeError('host must be a valid hostname or IP address');
+        }
+      } catch {
+        throw new TypeError('host must be a valid hostname or IP address');
+      }
     }
     if (options.ssl !== undefined && typeof options.ssl !== 'boolean') {
       throw new TypeError('ssl must be a boolean');

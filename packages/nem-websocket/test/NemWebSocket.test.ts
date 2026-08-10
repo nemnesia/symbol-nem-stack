@@ -62,9 +62,16 @@ describe('NemWebSocket', () => {
   it('不正な接続オプションを拒否するべきである', () => {
     expect(() => new NemWebSocket({ host: '' })).toThrow('host must be a non-empty hostname or IP address');
     expect(() => new NemWebSocket({ host: 'wss://node.example' })).toThrow('host must not include a protocol');
+    expect(() => new NemWebSocket({ host: 'user@127.0.0.1' })).toThrow(
+      'host must not include a protocol, path, port, userinfo, or URL separators'
+    );
+    expect(() => new NemWebSocket({ host: 'node\\example' })).toThrow(
+      'host must not include a protocol, path, port, userinfo, or URL separators'
+    );
     expect(() => new NemWebSocket({ host: 'node.example:7778' })).toThrow(
       'IPv6 hosts must be enclosed in brackets and ports are not supported'
     );
+    expect(() => new NemWebSocket({ host: '[invalid]' })).toThrow('host must be a valid hostname or IP address');
     expect(() => new NemWebSocket({ host: 'node.example', timeout: 0 })).toThrow(
       'timeout must be a positive finite number'
     );
