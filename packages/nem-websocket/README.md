@@ -94,7 +94,7 @@ E2Eテストは全チャネルを1接続で購読し、アドレスの初期通�
 
 ## API
 
-#### コンストラクタ
+### コンストラクタ
 
 ```typescript
 new NemWebSocket(options: NemWebSocketOptions);
