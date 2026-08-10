@@ -39,6 +39,14 @@ export interface BlockInfoNotificationData {
     stateHash: HexString;
     beneficiaryAddress: HexString;
     feeMultiplier: number;
+    /** RESTのブロックヘッダーに含まれる投票資格アカウント数。 */
+    votingEligibleAccountsCount?: number;
+    /** RESTのブロックヘッダーに含まれるハーベスティング資格アカウント数。 */
+    harvestingEligibleAccountsCount?: UInt64String;
+    /** RESTのブロックヘッダーに含まれる総投票残高。 */
+    totalVotingBalance?: UInt64String;
+    /** RESTのブロックヘッダーに含まれる直前のImportanceブロックハッシュ。 */
+    previousImportanceBlockHash?: HexString;
     proofGamma: HexString;
     proofVerificationHash: HexString;
     proofScalar: HexString;
@@ -136,9 +144,17 @@ export type SymbolNotificationDataMap = {
   status: StatusData;
 };
 
+type AddressableSymbolChannel = Exclude<SymbolChannel, 'block' | 'finalizedBlock'>;
+
+/**
+ * チャネルで受け取る通知 topic の型。
+ * アドレス指定可能なチャネルは、アドレス付き購読の topic も表します。
+ */
+type SymbolNotificationTopic<K extends SymbolChannel> = K extends AddressableSymbolChannel ? K | `${K}/${string}` : K;
+
 /**
  * 通知チャネルと、そのチャネルで受け取る通知エンベロープ型の対応表。
  */
 export type SymbolNotificationMap = {
-  [K in SymbolChannel]: SymbolNotificationEnvelope<K, SymbolNotificationDataMap[K]>;
+  [K in SymbolChannel]: SymbolNotificationEnvelope<SymbolNotificationTopic<K>, SymbolNotificationDataMap[K]>;
 };

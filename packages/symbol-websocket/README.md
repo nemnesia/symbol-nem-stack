@@ -60,9 +60,33 @@ ws.onClose((event) => {
 ws.disconnect();
 ```
 
+## E2Eテスト
+
+実Symbolテストネットへ接続するE2Eテストは、パッケージディレクトリの`.env`から設定を読み込みます。
+設定項目の例は[`.env.example`](./.env.example)にあります。
+
+```dotenv
+SYMBOL_E2E_HOST=<テストネットノードのホスト>
+SYMBOL_E2E_SSL=true
+SYMBOL_E2E_REST_URL=https://<テストネットRESTノードのホスト>:3000
+SYMBOL_E2E_PRIVATE_KEY=<テストネット用の秘密鍵>
+```
+
+```bash
+cp .env.example .env
+```
+
+通常のユニットテストは実Symbolノードへ接続せず、E2Eテストは次のコマンドで明示的に実行します。
+
+```bash
+pnpm --filter @nemnesia/symbol-websocket test:e2e
+```
+
+`SYMBOL_E2E_HOST`、`SYMBOL_E2E_REST_URL`、または`SYMBOL_E2E_PRIVATE_KEY`のいずれかが未設定の場合、E2Eテストはスキップされます。秘密鍵はSDKによるテストネットトランザクションの署名にだけ使用し、ログへ出力しません。
+
 ## API
 
-#### プロパティ
+### プロパティ
 
 - `uid: string | null`
   - 現在の Gateway UID。接続完了前・切断中・切断後は `null`。
@@ -71,7 +95,7 @@ ws.disconnect();
 - `client: WebSocket`
   - 現在の内部 WebSocket クライアント。自動再接続後は別インスタンスに置き換わります。直接操作せず、公開メソッドを使用してください。
 
-#### コンストラクタ
+### コンストラクタ
 
 ```typescript
 new SymbolWebSocket(options: SymbolWebSocketOptions);
@@ -79,7 +103,6 @@ new SymbolWebSocket(options: SymbolWebSocketOptions);
 
 - `options`: 接続設定。
   - `host`: プロトコル・ポートを含まない接続先ホスト名または IP アドレス。
-    IPv6 は `[2001:db8::1]` の形式で指定します。
   - `ssl`: SSL を使用するかどうか（デフォルト: `true`）。有効時は `wss://{host}:3001/ws`、無効時は `ws://{host}:3000/ws` に接続します。
   - `timeout`: Gateway UID を受信するまでの接続タイムアウト（ミリ秒、デフォルト: `10000`）。各接続試行に適用され、`0` で無効化できます。
   - `autoReconnect`: 自動再接続を有効にするか（デフォルト: `true`）。
@@ -95,11 +118,11 @@ new SymbolWebSocket(options: SymbolWebSocketOptions);
 - `on<K extends SymbolChannel>(channel: K, callback: (message: SymbolNotificationMap[K]) => void): SymbolWebSocketUnsubscribe`
   - 指定したチャネルにサブスクライブします。接続完了前または再接続待機中なら、接続完了後に送信されます。返り値を呼ぶと、その callback だけを解除します。
 - `on<K extends SymbolChannel>(channel: K, address: string, callback: (message: SymbolNotificationMap[K]) => void): SymbolWebSocketUnsubscribe`
-  - アドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
+  - アドレスを指定してチャネルにサブスクライブします。対象は `confirmedAdded`、`unconfirmedAdded`、`unconfirmedRemoved`、`partialAdded`、`partialRemoved`、`cosignature`、`status` です。`address` にはエンコード済み Symbol アドレスまたは16桁の16進数形式の namespace ID を指定できます。返り値を呼ぶと、その callback だけを解除します。
 - `off(channel: SymbolChannel): void`
   - 指定したチャネルのサブスクリプションと、そのチャネルに登録したすべてのコールバックを解除します。
 - `off(channel: SymbolChannel, address: string): void`
-  - アドレスを指定してチャネルのサブスクリプションと、そのパスに登録したすべてのコールバックを解除します。
+  - アドレスを指定してチャネルのサブスクリプションと、そのパスに登録したすべてのコールバックを解除します。対象チャネルと `address` の形式は、アドレス指定付きの `on` と同じです。
 - `onConnect(callback: (uid: string) => void): SymbolWebSocketUnsubscribe`
   - 接続完了時のコールバックを追加します。初回接続・自動再接続で呼ばれ、すでに接続済みなら登録時に直ちに呼ばれます。
 - `onReconnect(callback: (attemptCount: number) => void): SymbolWebSocketUnsubscribe`
@@ -181,6 +204,7 @@ ws.onError((err) => {
 - `off()`は指定チャネルのすべてのコールバックを解除（subscribePath単位）
 - `disconnect()` / `close()` の後に接続を再開する場合は、新しい `SymbolWebSocket` インスタンスを作成
 - `host`、タイムアウト、再接続設定、アドレスは実行時にも検証されます。不正な値は接続前に例外になります。
+- `block` と `finalizedBlock` はアドレス指定に対応していません。非空のアドレスを指定すると例外になります。
 
 ## ライセンス
 

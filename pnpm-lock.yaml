@@ -251,6 +251,10 @@ importers:
       ws:
         specifier: ^8.21.1
         version: 8.21.1
+    devDependencies:
+      '@nemnesia/symbol-sdk':
+        specifier: workspace:*
+        version: link:../symbol-sdk
 
   packages/test-package:
     dependencies:

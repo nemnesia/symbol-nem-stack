@@ -24,6 +24,17 @@ describe('Channel path definitions', () => {
       expect(symbolChannelPaths.finalizedBlock.subscribe()).toBe('finalizedBlock');
     });
 
+    it('アドレスを受け付けないchannelへのアドレス指定を拒否する', () => {
+      expect(() => symbolChannelPaths.block.subscribe('A'.repeat(39))).toThrow(
+        'address is not supported for channel: block'
+      );
+      expect(() => symbolChannelPaths.finalizedBlock.subscribe('A'.repeat(39))).toThrow(
+        'address is not supported for channel: finalizedBlock'
+      );
+      expect(symbolChannelPaths.block.subscribe('')).toBe('block');
+      expect(symbolChannelPaths.finalizedBlock.subscribe('')).toBe('finalizedBlock');
+    });
+
     it('indexはモニターと型をエクスポートする', () => {
       expect(index.SymbolWebSocket).toBeDefined();
     });

@@ -1,24 +1,28 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import { SymbolWebSocket } from '../src/SymbolWebSocket.js';
 import type { SymbolWebSocketOptions } from '../src/symbol.types.js';
+import type { SymbolNotificationMap } from '../src/symbolNotifications.types.js';
 
 // WebSocketのモック
 const sendMock = vi.fn();
-const oncloseMock = vi.fn();
-const onerrorMock = vi.fn();
-const onmessageMock = vi.fn();
+const webSocketConstructorMock = vi.fn();
+const webSocketClients: any[] = [];
 
 vi.mock('isomorphic-ws', () => {
   return {
-    default: function WebSocketMock() {
-      return {
-        send: sendMock,
-        onclose: oncloseMock,
-        onerror: onerrorMock,
-        onmessage: onmessageMock,
+    default: function WebSocketMock(url: string) {
+      webSocketConstructorMock(url);
+      const client = {
+        url,
+        send: vi.fn((...args: unknown[]) => sendMock(...args)),
+        onclose: null,
+        onerror: null,
+        onmessage: null,
         close: vi.fn(),
       };
+      webSocketClients.push(client);
+      return client;
     },
   };
 });
@@ -34,12 +38,40 @@ describe('SymbolWebSocketMonitor', () => {
 
   beforeEach(() => {
     sendMock.mockClear();
+    webSocketConstructorMock.mockClear();
+    webSocketClients.length = 0;
     // @ts-ignore
     monitor = new SymbolWebSocket(defaultOptions);
   });
 
   it('エラーなくインスタンス化されるべきである', () => {
     expect(monitor).toBeInstanceOf(SymbolWebSocket);
+  });
+
+  describe('host validation', () => {
+    it.each([
+      'trusted.example@attacker.example',
+      'trusted.example\\attacker.example',
+      'node.example:3000',
+      'node.example/path',
+    ])('URL authority の混入を拒否するべきである: %s', (host) => {
+      webSocketConstructorMock.mockClear();
+      expect(() => new SymbolWebSocket({ host, timeout: 0, ssl: false })).toThrow();
+      expect(webSocketConstructorMock).not.toHaveBeenCalled();
+    });
+
+    it('hostname、IPv4、IPv6 を接続 URLへ正しく変換するべきである', () => {
+      webSocketConstructorMock.mockClear();
+
+      new SymbolWebSocket({ host: 'node.example', timeout: 0, ssl: false });
+      expect(webSocketConstructorMock).toHaveBeenLastCalledWith('ws://node.example:3000/ws');
+
+      new SymbolWebSocket({ host: '127.0.0.1', timeout: 0, ssl: false });
+      expect(webSocketConstructorMock).toHaveBeenLastCalledWith('ws://127.0.0.1:3000/ws');
+
+      new SymbolWebSocket({ host: '[2001:db8::1]', timeout: 0, ssl: true });
+      expect(webSocketConstructorMock).toHaveBeenLastCalledWith('wss://[2001:db8::1]:3001/ws');
+    });
   });
 
   it('エラーコールバックが登録され、エラー時に呼び出されるべきである', () => {
@@ -87,6 +119,92 @@ describe('SymbolWebSocketMonitor', () => {
     expect(sendMock).toHaveBeenCalled();
   });
 
+  describe('Wire payloads', () => {
+    it('基底channelのsubscribeとunsubscribeを完全なJSONで送信するべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const unsubscribe = monitor.on('block', vi.fn());
+
+      expect(sendMock).toHaveBeenLastCalledWith(JSON.stringify({ uid: 'test-uid', subscribe: 'block' }));
+
+      sendMock.mockClear();
+      unsubscribe();
+
+      expect(sendMock).toHaveBeenCalledWith(JSON.stringify({ uid: 'test-uid', unsubscribe: 'block' }));
+    });
+
+    it('アドレス付きchannelのsubscribeとunsubscribeを完全なJSONで送信するべきである', () => {
+      const address = 'TB6BPSISSTI4RKEBKY7OWN2O3HWN2FC3C7XLZ4Y';
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const unsubscribe = monitor.on('confirmedAdded', address, vi.fn());
+
+      expect(sendMock).toHaveBeenLastCalledWith(
+        JSON.stringify({ uid: 'test-uid', subscribe: `confirmedAdded/${address}` })
+      );
+
+      sendMock.mockClear();
+      unsubscribe();
+
+      expect(sendMock).toHaveBeenCalledWith(
+        JSON.stringify({ uid: 'test-uid', unsubscribe: `confirmedAdded/${address}` })
+      );
+    });
+
+    it('空アドレスのchannelを基底pathとして完全なJSONで送信するべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const unsubscribe = monitor.on('confirmedAdded', '', vi.fn());
+
+      expect(sendMock).toHaveBeenLastCalledWith(JSON.stringify({ uid: 'test-uid', subscribe: 'confirmedAdded' }));
+
+      sendMock.mockClear();
+      unsubscribe();
+
+      expect(sendMock).toHaveBeenCalledWith(JSON.stringify({ uid: 'test-uid', unsubscribe: 'confirmedAdded' }));
+    });
+
+    it('アドレスを受け付けないchannelではsubscribeとunsubscribeを送信しない', () => {
+      const address = 'TB6BPSISSTI4RKEBKY7OWN2O3HWN2FC3C7XLZ4Y';
+
+      expect(() => monitor.on('block', address, vi.fn())).toThrow('address is not supported for channel: block');
+      expect(() => monitor.off('block', address)).toThrow('address is not supported for channel: block');
+      expect(() => monitor.on('finalizedBlock', address, vi.fn())).toThrow(
+        'address is not supported for channel: finalizedBlock'
+      );
+      expect(() => monitor.off('finalizedBlock', address)).toThrow(
+        'address is not supported for channel: finalizedBlock'
+      );
+      expect(sendMock).not.toHaveBeenCalled();
+    });
+
+    it('購読解除関数はcallback単位で解除し、最後の解除時だけunsubscribeを送信するべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const firstUnsubscribe = monitor.on('block', vi.fn());
+      const secondUnsubscribe = monitor.on('block', vi.fn());
+      sendMock.mockClear();
+
+      firstUnsubscribe();
+      expect(sendMock).not.toHaveBeenCalled();
+
+      secondUnsubscribe();
+      expect(sendMock).toHaveBeenCalledWith(JSON.stringify({ uid: 'test-uid', unsubscribe: 'block' }));
+    });
+  });
+
   it('JSONパースエラー時にエラーコールバックが呼び出されるべきである', () => {
     const cb = vi.fn();
     monitor.onError(cb);
@@ -128,6 +246,29 @@ describe('SymbolWebSocketMonitor', () => {
     monitor.client.onmessage({ data: JSON.stringify({ topic: 'block', foo: 'bar' }) });
     expect(cb1).toHaveBeenCalledWith(expect.objectContaining({ topic: 'block', foo: 'bar' }));
     expect(cb2).toHaveBeenCalledWith(expect.objectContaining({ topic: 'block', foo: 'bar' }));
+  });
+
+  it('アドレス指定通知のtopicはアドレス付き形式で配送されるべきである', () => {
+    expectTypeOf<SymbolNotificationMap['confirmedAdded']['topic']>().toEqualTypeOf<
+      'confirmedAdded' | `confirmedAdded/${string}`
+    >();
+    expectTypeOf<SymbolNotificationMap['block']['topic']>().toEqualTypeOf<'block'>();
+
+    const address = 'TB6BPSISSTI4RKEBKY7OWN2O3HWN2FC3C7XLZ4Y';
+    const callback = vi.fn<(message: SymbolNotificationMap['confirmedAdded']) => void>();
+    // @ts-ignore
+    monitor._uid = 'test-uid';
+    // @ts-ignore
+    monitor.client.readyState = 1;
+    // @ts-ignore
+    monitor.isFirstMessage = false;
+    // @ts-ignore
+    monitor.on('confirmedAdded', address, callback);
+
+    // @ts-ignore
+    monitor.client.onmessage({ data: JSON.stringify({ topic: `confirmedAdded/${address}`, data: {} }) });
+
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ topic: `confirmedAdded/${address}` }));
   });
 
   it('登録されていないトピックの場合、コールバックが呼び出されないべきである', () => {
@@ -269,6 +410,22 @@ describe('SymbolWebSocketMonitor', () => {
       // @ts-ignore
       expect(monitor.isFirstMessage).toBe(true);
     });
+
+    it('disconnect後に旧clientからUIDを受信しても接続状態を復活させないべきである', () => {
+      // @ts-ignore
+      const oldClient = monitor.client;
+
+      monitor.disconnect();
+      sendMock.mockClear();
+
+      // @ts-ignore
+      oldClient.onmessage({ data: JSON.stringify({ uid: 'late-uid' }) });
+
+      expect(monitor.uid).toBeNull();
+      // @ts-ignore
+      expect(monitor.isFirstMessage).toBe(true);
+      expect(sendMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('Reconnection functionality', () => {
@@ -302,6 +459,31 @@ describe('SymbolWebSocketMonitor', () => {
       vi.advanceTimersByTime(1000);
 
       expect(reconnectCallback).toHaveBeenCalledWith(1);
+    });
+
+    it('onReconnect callback内でdisconnectした場合、再接続タイマーを作成しないべきである', () => {
+      const options: SymbolWebSocketOptions = {
+        host: 'localhost',
+        timeout: 1000,
+        ssl: false,
+        autoReconnect: true,
+        reconnectInterval: 1000,
+      };
+      // @ts-ignore
+      const reconnectMonitor = new SymbolWebSocket(options);
+      // @ts-ignore
+      const oldClient = reconnectMonitor.client;
+      reconnectMonitor.onReconnect(() => reconnectMonitor.disconnect());
+
+      // @ts-ignore
+      reconnectMonitor.isManualDisconnect = false;
+      // @ts-ignore
+      reconnectMonitor.client.onclose({ type: 'close' });
+
+      // @ts-ignore
+      expect(reconnectMonitor.reconnectTimer).toBeNull();
+      // @ts-ignore
+      expect(reconnectMonitor.client).toBe(oldClient);
     });
 
     it('maxReconnectAttemptsに達したら再接続を停止するべきである', () => {
@@ -360,31 +542,45 @@ describe('SymbolWebSocketMonitor', () => {
       expect(reconnectCallback).not.toHaveBeenCalled();
     });
 
-    it('再接続成功時にactiveSubscriptionsを復元するべきである', () => {
+    it('再接続成功時に新しいclientへactiveSubscriptionsを1回ずつ復元するべきである', () => {
+      const options: SymbolWebSocketOptions = {
+        host: 'localhost',
+        timeout: 1000,
+        ssl: false,
+        autoReconnect: true,
+        reconnectInterval: 500,
+      };
       // @ts-ignore
-      monitor._uid = 'initial-uid';
+      const reconnectMonitor = new SymbolWebSocket(options);
+      const oldClient = reconnectMonitor.client as any;
       // @ts-ignore
-      monitor.client.readyState = 1;
-      // @ts-ignore
-      monitor.isFirstMessage = false;
+      oldClient.readyState = 1;
 
-      // 既にサブスクライブ済み
+      reconnectMonitor.on('block', vi.fn());
+      reconnectMonitor.on('confirmedAdded', vi.fn());
       // @ts-ignore
-      monitor.activeSubscriptions.add('block');
-      // @ts-ignore
-      monitor.activeSubscriptions.add('confirmedAdded');
+      oldClient.onmessage({ data: JSON.stringify({ uid: 'old-uid' }) });
+      expect(oldClient.send).toHaveBeenCalledWith(JSON.stringify({ uid: 'old-uid', subscribe: 'block' }));
+      expect(oldClient.send).toHaveBeenCalledWith(JSON.stringify({ uid: 'old-uid', subscribe: 'confirmedAdded' }));
+      oldClient.send.mockClear();
 
-      sendMock.mockClear();
-
-      // 再接続をシミュレート
       // @ts-ignore
-      monitor.isFirstMessage = true;
+      oldClient.readyState = 3;
       // @ts-ignore
-      monitor.client.onmessage({ data: JSON.stringify({ uid: 'new-uid' }) });
+      oldClient.onclose({ type: 'close' });
+      vi.advanceTimersByTime(500);
 
-      // activeSubscriptionsの復元を確認
-      expect(sendMock).toHaveBeenCalledWith(expect.stringContaining('"subscribe":"block"'));
-      expect(sendMock).toHaveBeenCalledWith(expect.stringContaining('"subscribe":"confirmedAdded"'));
+      // @ts-ignore
+      const newClient = reconnectMonitor.client as any;
+      expect(newClient).not.toBe(oldClient);
+
+      // @ts-ignore
+      newClient.onmessage({ data: JSON.stringify({ uid: 'new-uid' }) });
+
+      expect(newClient.send).toHaveBeenCalledTimes(2);
+      expect(newClient.send).toHaveBeenCalledWith(JSON.stringify({ uid: 'new-uid', subscribe: 'block' }));
+      expect(newClient.send).toHaveBeenCalledWith(JSON.stringify({ uid: 'new-uid', subscribe: 'confirmedAdded' }));
+      expect(oldClient.send).not.toHaveBeenCalled();
     });
 
     it('再接続待機中に追加した購読を新しい接続で送信するべきである', () => {
@@ -475,6 +671,94 @@ describe('SymbolWebSocketMonitor', () => {
 
       expect(connectCallback).toHaveBeenCalledWith('existing-uid');
     });
+
+    it('接続callback内で追加登録したcallbackを同じ接続イベントで二重に呼び出さない', () => {
+      const firstCallback = vi.fn();
+      const secondCallback = vi.fn();
+      firstCallback.mockImplementation(() => {
+        if (firstCallback.mock.calls.length === 1) {
+          monitor.onConnect(secondCallback);
+        }
+      });
+      monitor.onConnect(firstCallback);
+
+      // @ts-ignore
+      monitor.client.onmessage({ data: JSON.stringify({ uid: 'first-uid' }) });
+
+      expect(firstCallback).toHaveBeenCalledTimes(1);
+      expect(secondCallback).toHaveBeenCalledTimes(1);
+
+      // @ts-ignore
+      monitor.isFirstMessage = true;
+      // @ts-ignore
+      monitor.client.onmessage({ data: JSON.stringify({ uid: 'second-uid' }) });
+
+      expect(firstCallback).toHaveBeenCalledTimes(2);
+      expect(secondCallback).toHaveBeenCalledTimes(2);
+    });
+
+    it('onConnectの解除関数は対象callbackだけを解除するべきである', () => {
+      const firstCallback = vi.fn();
+      const secondCallback = vi.fn();
+      const unsubscribe = monitor.onConnect(firstCallback);
+      monitor.onConnect(secondCallback);
+
+      unsubscribe();
+      // @ts-ignore
+      monitor.client.onmessage({ data: JSON.stringify({ uid: 'test-uid' }) });
+
+      expect(firstCallback).not.toHaveBeenCalled();
+      expect(secondCallback).toHaveBeenCalledWith('test-uid');
+    });
+
+    it('onReconnectの解除関数は対象callbackだけを解除するべきである', () => {
+      vi.useFakeTimers();
+      const firstCallback = vi.fn();
+      const secondCallback = vi.fn();
+      const unsubscribe = monitor.onReconnect(firstCallback);
+      monitor.onReconnect(secondCallback);
+
+      unsubscribe();
+      // @ts-ignore
+      monitor.isManualDisconnect = false;
+      // @ts-ignore
+      monitor.client.onclose({ type: 'close' });
+
+      expect(firstCallback).not.toHaveBeenCalled();
+      expect(secondCallback).toHaveBeenCalledWith(1);
+      monitor.disconnect();
+      vi.useRealTimers();
+    });
+
+    it('onErrorの解除関数は対象callbackだけを解除するべきである', () => {
+      const firstCallback = vi.fn();
+      const secondCallback = vi.fn();
+      const unsubscribe = monitor.onError(firstCallback);
+      monitor.onError(secondCallback);
+
+      unsubscribe();
+      // @ts-ignore
+      monitor.client.onerror({ type: 'error', message: 'network error' });
+
+      expect(firstCallback).not.toHaveBeenCalled();
+      expect(secondCallback).toHaveBeenCalled();
+    });
+
+    it('onCloseの解除関数は対象callbackだけを解除するべきである', () => {
+      const firstCallback = vi.fn();
+      const secondCallback = vi.fn();
+      const unsubscribe = monitor.onClose(firstCallback);
+      monitor.onClose(secondCallback);
+
+      unsubscribe();
+      // @ts-ignore
+      monitor.isManualDisconnect = true;
+      // @ts-ignore
+      monitor.client.onclose({ type: 'close' });
+
+      expect(firstCallback).not.toHaveBeenCalled();
+      expect(secondCallback).toHaveBeenCalledWith({ type: 'close' });
+    });
   });
 
   describe('Connection state', () => {
@@ -511,6 +795,64 @@ describe('SymbolWebSocketMonitor', () => {
       expect(sendMock).toHaveBeenCalledWith(
         expect.stringContaining('unconfirmedAdded/TB6BPSISSTI4RKEBKY7OWN2O3HWN2FC3C7XLZ4Y')
       );
+    });
+
+    it('16進 namespace ID を指定してsubscribeできるべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const callback = vi.fn();
+      // @ts-ignore
+      monitor.on('confirmedAdded', 'C0FB8AA409916260', callback);
+
+      expect(sendMock).toHaveBeenCalledWith(expect.stringContaining('confirmedAdded/C0FB8AA409916260'));
+    });
+
+    it('空のアドレスはアドレスなし購読として処理されるべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const callback = vi.fn();
+      // @ts-ignore
+      monitor.on('confirmedAdded', '', callback);
+
+      expect(sendMock).toHaveBeenCalledWith(expect.stringContaining('"subscribe":"confirmedAdded"'));
+      expect(sendMock).not.toHaveBeenCalledWith(expect.stringContaining('confirmedAdded/'));
+    });
+
+    it.each(['NAAAA', 'not-a-symbol-address', 'T' + 'A'.repeat(37) + '0', 'C0FB8AA40991626G'])(
+      '不正なアドレスを送信前に拒否するべきである: %s',
+      (address) => {
+        // @ts-ignore
+        monitor._uid = 'test-uid';
+        // @ts-ignore
+        monitor.client.readyState = 1;
+        sendMock.mockClear();
+
+        expect(() => {
+          // @ts-ignore
+          monitor.on('confirmedAdded', address, vi.fn());
+        }).toThrow('address must be empty');
+        expect(sendMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it('offでも不正なアドレスを送信前に拒否するべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+      sendMock.mockClear();
+
+      expect(() => {
+        // @ts-ignore
+        monitor.off('confirmedAdded', 'NAAAA');
+      }).toThrow('address must be empty');
+      expect(sendMock).not.toHaveBeenCalled();
     });
 
     it('addressを指定してunsubscribeできるべきである', () => {
@@ -593,6 +935,22 @@ describe('SymbolWebSocketMonitor', () => {
       expect(defaultMonitor.options.maxReconnectAttempts).toBe(Infinity);
       // @ts-ignore
       expect(defaultMonitor.options.reconnectInterval).toBe(3000);
+    });
+  });
+
+  describe('Options validation', () => {
+    const invalidOptions = (override: Record<string, unknown>): SymbolWebSocketOptions =>
+      ({ host: 'test-host', timeout: 0, ssl: false, ...override }) as unknown as SymbolWebSocketOptions;
+
+    it.each([
+      [{ timeout: -1 }, 'timeout must be a non-negative finite number'],
+      [{ timeout: Infinity }, 'timeout must be a non-negative finite number'],
+      [{ ssl: 'true' }, 'ssl must be a boolean'],
+      [{ autoReconnect: 'true' }, 'autoReconnect must be a boolean'],
+      [{ maxReconnectAttempts: 1.5 }, 'maxReconnectAttempts must be a non-negative integer or Infinity'],
+      [{ reconnectInterval: -1 }, 'reconnectInterval must be a non-negative finite number'],
+    ])('不正な接続オプションを拒否するべきである: %j', (override, message) => {
+      expect(() => new SymbolWebSocket(invalidOptions(override))).toThrow(message);
     });
   });
 

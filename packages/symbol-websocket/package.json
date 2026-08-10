@@ -39,7 +39,8 @@
     "build": "pnpm run clean && tsup",
     "lint": "eslint \"{src,test,e2e}/**/*.ts\"",
     "format": "prettier --write \"{src,test,e2e}/**/*.ts\"",
-    "test": "vitest run",
+    "test": "vitest run --dir test",
+    "test:e2e": "vitest run --dir e2e --testTimeout 120000",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui --coverage",
@@ -51,6 +52,9 @@
     "@types/ws": "^8.5.16",
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@nemnesia/symbol-sdk": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
