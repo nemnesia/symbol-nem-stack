@@ -69,6 +69,24 @@ ws.onClose((event) => {
 ws.disconnect();
 ```
 
+## E2Eテスト
+
+実NIS1テストネットへ接続するE2Eテストは、パッケージディレクトリの`.env`から設定を読み込みます。
+
+```dotenv
+NEM_E2E_HOST=<テストネットノードのホスト>
+NEM_E2E_ADDRESS=<テストネットアカウントのアドレス>
+NEM_E2E_SSL=false
+```
+
+通常のユニットテストは実NIS1へ接続せず、E2Eテストは次のコマンドで明示的に実行します。
+
+```bash
+pnpm --filter @nemnesia/nem-websocket test:e2e
+```
+
+E2Eテストは全チャネルを1接続で購読し、アドレスの初期通知をまとめて確認します。`newBlock`と`blocks`は同じ次ブロックで確認します。`transactions`や`unconfirmed`の将来通知を発生させるトランザクションはテストから送信しないため、これらは購読登録までを確認し、実トランザクションを用いた通知確認は別途行います。
+
 ## API
 
 #### コンストラクタ
