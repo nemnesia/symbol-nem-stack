@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { Parser } from '../node_modules/@stomp/stompjs/esm6/parser.js';
 import { StompFrameSizeGuard } from '../src/stompFrameSizeGuard.js';
 
 describe('StompFrameSizeGuard', () => {
@@ -36,5 +37,20 @@ describe('StompFrameSizeGuard', () => {
 
     expect(guard.acceptChunk('MESSAGE\ncontent-length:3\n\nabc')).toBe(true);
     expect(guard.acceptChunk('N')).toBe(false);
+  });
+
+  it('重複content-lengthを拒否し、実StompJS Parserへ渡さない', () => {
+    const guard = new StompFrameSizeGuard(64);
+    const frames: unknown[] = [];
+    const parser = new Parser(
+      (frame) => frames.push(frame),
+      () => {}
+    );
+    const firstChunk = 'MESSAGE\ncontent-length:999999999999\ncontent-length:0\n\n';
+
+    if (guard.acceptChunk(firstChunk)) parser.parseChunk(firstChunk);
+    if (guard.acceptChunk('x'.repeat(128))) parser.parseChunk('x'.repeat(128));
+
+    expect(frames).toHaveLength(0);
   });
 });

@@ -182,6 +182,22 @@ describe('NemWebSocket', () => {
     });
   });
 
+  it.each(['TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT', 'TALICE5VF6J5FYMTCB7A3QG6OIRDRUXDWJGFVXNW'])(
+    'アドレスごとに購読先とpublish payloadを一致させるべきである: %s',
+    (address) => {
+      // @ts-ignore
+      monitor._isConnected = true;
+
+      monitor.on('account', address, vi.fn());
+
+      expect(clientMock.subscribe).toHaveBeenCalledWith('/account/' + address, expect.any(Function));
+      expect(clientMock.publish).toHaveBeenCalledWith({
+        destination: '/w/api/account/get',
+        body: JSON.stringify({ account: address }),
+      });
+    }
+  );
+
   it.each(['transactions', 'unconfirmed'] as const)(
     '%sの単独購読時にアドレス登録をpublishするべきである',
     (channel) => {

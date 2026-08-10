@@ -19,6 +19,7 @@ export class StompFrameSizeGuard {
   private headerValue: number[] = [];
   private currentHeaderName = '';
   private bodyBytesRemaining: number | undefined;
+  private hasContentLengthHeader = false;
 
   public constructor(private readonly maxFrameSize: number) {
     if (!Number.isSafeInteger(maxFrameSize) || maxFrameSize <= 0) {
@@ -97,11 +98,13 @@ export class StompFrameSizeGuard {
         if (byte === CR) return this.addToFrame(byte);
         if (byte === LF) {
           if (this.currentHeaderName === 'content-length') {
+            if (this.hasContentLengthHeader) return false;
             const value = this.decoder.decode(Uint8Array.from(this.headerValue));
             if (!/^\d+$/.test(value)) return false;
             const contentLength = Number(value);
             if (!Number.isSafeInteger(contentLength)) return false;
             this.bodyBytesRemaining = contentLength;
+            this.hasContentLengthHeader = true;
           }
           this.headerLine = [];
           this.headerValue = [];
@@ -154,5 +157,6 @@ export class StompFrameSizeGuard {
     this.headerValue = [];
     this.currentHeaderName = '';
     this.bodyBytesRemaining = undefined;
+    this.hasContentLengthHeader = false;
   }
 }
