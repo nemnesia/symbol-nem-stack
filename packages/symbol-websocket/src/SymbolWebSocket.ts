@@ -340,6 +340,9 @@ export class SymbolWebSocket {
 
     // 再接続コールバックを呼び出す
     this.notify(this.reconnectCallbacks, this.reconnectAttempts, 'reconnect');
+    if (this.isManualDisconnect) {
+      return;
+    }
 
     const interval = this.options.reconnectInterval ?? 3000;
     const disconnectedClient = this._client;
