@@ -60,6 +60,30 @@ ws.onClose((event) => {
 ws.disconnect();
 ```
 
+## E2Eテスト
+
+実Symbolテストネットへ接続するE2Eテストは、パッケージディレクトリの`.env`から設定を読み込みます。
+設定項目の例は[`.env.example`](./.env.example)にあります。
+
+```dotenv
+SYMBOL_E2E_HOST=<テストネットノードのホスト>
+SYMBOL_E2E_SSL=true
+# 任意: アドレス付きチャネルの購読登録も検証する場合に指定
+SYMBOL_E2E_ADDRESS=<Symbolアドレスまたはnamespace ID>
+```
+
+```bash
+cp .env.example .env
+```
+
+通常のユニットテストは実Symbolノードへ接続せず、E2Eテストは次のコマンドで明示的に実行します。
+
+```bash
+pnpm --filter @nemnesia/symbol-websocket test:e2e
+```
+
+`SYMBOL_E2E_HOST` が未設定の場合、E2Eテストはスキップされます。
+
 ## API
 
 ### プロパティ
