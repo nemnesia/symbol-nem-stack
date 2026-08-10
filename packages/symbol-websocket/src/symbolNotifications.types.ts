@@ -39,6 +39,14 @@ export interface BlockInfoNotificationData {
     stateHash: HexString;
     beneficiaryAddress: HexString;
     feeMultiplier: number;
+    /** RESTのブロックヘッダーに含まれる投票資格アカウント数。 */
+    votingEligibleAccountsCount?: number;
+    /** RESTのブロックヘッダーに含まれるハーベスティング資格アカウント数。 */
+    harvestingEligibleAccountsCount?: UInt64String;
+    /** RESTのブロックヘッダーに含まれる総投票残高。 */
+    totalVotingBalance?: UInt64String;
+    /** RESTのブロックヘッダーに含まれる直前のImportanceブロックハッシュ。 */
+    previousImportanceBlockHash?: HexString;
     proofGamma: HexString;
     proofVerificationHash: HexString;
     proofScalar: HexString;

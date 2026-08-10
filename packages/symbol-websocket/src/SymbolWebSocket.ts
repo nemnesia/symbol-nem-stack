@@ -126,7 +126,9 @@ export class SymbolWebSocket {
   }
 
   private notify<T>(callbacks: ReadonlySet<(value: T) => void>, value: T, eventName: string): void {
-    callbacks.forEach((callback) => {
+    // 通知開始時点のスナップショットを走査する。callback内で別callbackを登録しても、
+    // 同じイベントで即時通知と反復通知が重複しないようにする。
+    [...callbacks].forEach((callback) => {
       try {
         callback(value);
       } catch (error) {

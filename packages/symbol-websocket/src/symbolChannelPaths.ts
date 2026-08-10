@@ -21,6 +21,14 @@ export type SymbolChannel =
   | 'cosignature'
   | 'status';
 
+const subscribeWithoutAddress = (channel: 'block' | 'finalizedBlock', address?: string): string => {
+  if (address) {
+    throw new TypeError(`address is not supported for channel: ${channel}`);
+  }
+
+  return channel;
+};
+
 /**
  * Symbol Gateway の購読パス定義。
  *
@@ -28,8 +36,8 @@ export type SymbolChannel =
  * `SymbolWebSocket` は URL 区切り文字や空白を含むアドレスを受け付けません。
  */
 export const symbolChannelPaths: Record<SymbolChannel, { subscribe: (address?: string) => string }> = {
-  block: { subscribe: () => 'block' },
-  finalizedBlock: { subscribe: () => 'finalizedBlock' },
+  block: { subscribe: (address?: string) => subscribeWithoutAddress('block', address) },
+  finalizedBlock: { subscribe: (address?: string) => subscribeWithoutAddress('finalizedBlock', address) },
   confirmedAdded: { subscribe: (address?: string) => (address ? `confirmedAdded/${address}` : 'confirmedAdded') },
   unconfirmedAdded: { subscribe: (address?: string) => (address ? `unconfirmedAdded/${address}` : 'unconfirmedAdded') },
   unconfirmedRemoved: {
