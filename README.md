@@ -1,6 +1,6 @@
-# Symbol Tools
+# Symbol/NEM Stack
 
-Symbol ブロックチェーンのための TypeScript/JavaScript ツールとライブラリのコレクションです。
+Symbol および NEM ブロックチェーンのための TypeScript/JavaScript ツールとライブラリのモノレポです。
 
 ## パッケージ
 
@@ -16,9 +16,21 @@ Symbol ブロックチェーンのための TypeScript/JavaScript ツールと�
   [![npm version](https://img.shields.io/npm/v/@nemnesia/simple-password-crypto?style=flat-square)](https://www.npmjs.com/package/@nemnesia/simple-password-crypto)  
   Argon2id + AES-256-GCMによるパスワード暗号化ライブラリ。
 
+- **[symbol-qr-library](./packages/symbol-qr-library)**
+  [![npm version](https://img.shields.io/npm/v/@nemnesia/symbol-qr-library?style=flat-square)](https://www.npmjs.com/package/@nemnesia/symbol-qr-library)  
+  Symbolブロックチェーン用のQRコードデータを生成・管理するTypeScriptライブラリ。
+
+- **[symbol-nem-interchange-format](./packages/symbol-nem-interchange-format)**
+  [![npm version](https://img.shields.io/npm/v/@nemnesia/snif?style=flat-square)](https://www.npmjs.com/package/@nemnesia/snif)  
+  SymbolとNEMのデータを交換するSNIF（Symbol/NEM Interchange Format）ライブラリ。
+
 - **[symbol-openapi-typescript-fetch-client](./packages/symbol-openapi-typescript-fetch-client)**
   [![npm version](https://img.shields.io/npm/v/@nemnesia/symbol-openapi-typescript-fetch-client?style=flat-square)](https://www.npmjs.com/package/@nemnesia/symbol-openapi-typescript-fetch-client)  
   Symbol REST APIのTypeScriptクライアント（OpenAPI自動生成）。
+
+- **[nem-openapi-typescript-fetch-client](./packages/nem-openapi-typescript-fetch-client)**
+  [![npm version](https://img.shields.io/npm/v/@nemnesia/nem-openapi-typescript-fetch-client?style=flat-square)](https://www.npmjs.com/package/@nemnesia/nem-openapi-typescript-fetch-client)  
+  NEM NIS APIのTypeScriptクライアント（OpenAPI自動生成）。
 
 - **[symbol-websocket](./packages/symbol-websocket)**
   [![npm version](https://img.shields.io/npm/v/@nemnesia/symbol-websocket?style=flat-square)](https://www.npmjs.com/package/@nemnesia/symbol-websocket)  
@@ -55,8 +67,10 @@ Symbol ブロックチェーンのための TypeScript/JavaScript ツールと�
 
 ## 前提条件
 
-- Node.js 20.19.6 以上 (Volta で管理)
-- pnpm 10.26.2
+- Node.js 20.19.6
+- pnpm 11.18.0
+
+各パッケージの `engines` で指定されているNode.jsの最低バージョンは20.0.0です。
 
 ## セットアップ
 
