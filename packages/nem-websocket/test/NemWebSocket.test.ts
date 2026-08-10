@@ -3,10 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NemWebSocket } from '../src/NemWebSocket.js';
 import type { NemWebSocketOptions } from '../src/nem.types.js';
 
+const mockStompState = vi.hoisted(() => ({
+  clients: [] as Array<Record<string, any>>,
+}));
+
 // モック用
 vi.mock('@stomp/stompjs', () => ({
   Client: function ClientMock(config: { webSocketFactory: () => unknown }) {
-    return {
+    const client = {
       activate: vi.fn(),
       subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
       publish: vi.fn(),
@@ -17,6 +21,8 @@ vi.mock('@stomp/stompjs', () => ({
       onWebSocketClose: undefined,
       onConnect: undefined,
     };
+    mockStompState.clients.push(client);
+    return client;
   },
 }));
 vi.mock('isomorphic-ws', () => ({
@@ -36,6 +42,7 @@ describe('NemWebSocket', () => {
   let clientMock: any;
 
   beforeEach(() => {
+    mockStompState.clients.length = 0;
     monitor = new NemWebSocket(defaultOptions);
     clientMock = monitor.client;
   });
@@ -118,9 +125,39 @@ describe('NemWebSocket', () => {
 
     expect(clientMock.publish).toHaveBeenCalledWith({
       destination: '/w/api/account/get',
-      body: JSON.stringify({ address }),
+      body: JSON.stringify({ account: address }),
     });
   });
+
+  it('小文字アドレスをNISの大文字表記へ正規化して購読・publishするべきである', () => {
+    // @ts-ignore
+    monitor._isConnected = true;
+    const address = 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT';
+
+    monitor.on('account', address.toLowerCase(), vi.fn());
+
+    expect(clientMock.subscribe).toHaveBeenCalledWith('/account/' + address, expect.any(Function));
+    expect(clientMock.publish).toHaveBeenCalledWith({
+      destination: '/w/api/account/get',
+      body: JSON.stringify({ account: address }),
+    });
+  });
+
+  it.each(['transactions', 'unconfirmed'] as const)(
+    '%sの単独購読時にアドレス登録をpublishするべきである',
+    (channel) => {
+      // @ts-ignore
+      monitor._isConnected = true;
+      const address = 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT';
+
+      monitor.on(channel, address, vi.fn());
+
+      expect(clientMock.publish).toHaveBeenCalledWith({
+        destination: '/w/api/account/subscribe',
+        body: JSON.stringify({ account: address }),
+      });
+    }
+  );
 
   it('同じアドレス付きチャネルに複数callbackを登録しても初期取得を重複publishしないべきである', () => {
     // @ts-ignore
@@ -133,7 +170,7 @@ describe('NemWebSocket', () => {
     expect(clientMock.publish).toHaveBeenCalledTimes(1);
     expect(clientMock.publish).toHaveBeenCalledWith({
       destination: '/w/api/account/transfers/all',
-      body: JSON.stringify({ address }),
+      body: JSON.stringify({ account: address }),
     });
   });
 
@@ -309,6 +346,7 @@ describe('NemWebSocket', () => {
     let clientMock: any;
 
     beforeEach(() => {
+      mockStompState.clients.length = 0;
       monitor = new NemWebSocket(defaultOptions);
       clientMock = monitor.client;
     });
@@ -384,6 +422,26 @@ describe('NemWebSocket', () => {
       vi.advanceTimersByTime(1000);
 
       expect(reconnectCallback).toHaveBeenCalledWith(1);
+    });
+
+    it('再接続callback内で切断した場合はタイマーを登録しないべきである', () => {
+      const reconnectMonitor = new NemWebSocket({
+        host: 'localhost',
+        autoReconnect: true,
+        reconnectInterval: 1000,
+      });
+      const reconnectCallback = vi.fn(() => reconnectMonitor.disconnect());
+      reconnectMonitor.onReconnect(reconnectCallback);
+      const clientCount = mockStompState.clients.length;
+
+      // @ts-ignore
+      reconnectMonitor.client.onWebSocketClose({ type: 'close' });
+
+      expect(reconnectCallback).toHaveBeenCalledWith(1);
+      // @ts-ignore
+      expect(reconnectMonitor.reconnectTimer).toBeNull();
+      vi.advanceTimersByTime(1000);
+      expect(mockStompState.clients).toHaveLength(clientCount);
     });
 
     it('close callback が例外を送出しても自動再接続を予約するべきである', () => {
@@ -481,6 +539,52 @@ describe('NemWebSocket', () => {
       expect(subscribeSpy).toHaveBeenCalled();
     });
 
+    it('新しいClientへの再接続時に購読とpublishを復元し、旧Clientのイベントを無視するべきである', () => {
+      // @ts-ignore
+      monitor._isConnected = true;
+      const address = 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT';
+      monitor.on('account', address.toLowerCase(), vi.fn());
+      const closeCallback = vi.fn();
+      monitor.onClose(closeCallback);
+      const firstClient = monitor.client as any;
+      firstClient.onWebSocketClose({ type: 'close' });
+      vi.advanceTimersByTime(3000);
+
+      expect(mockStompState.clients).toHaveLength(2);
+      const secondClient = monitor.client as any;
+      expect(secondClient).not.toBe(firstClient);
+
+      closeCallback.mockClear();
+      firstClient.onWebSocketClose({ type: 'late-close' });
+      secondClient.onConnect({ headers: { session: 'session-2' } });
+
+      expect(closeCallback).not.toHaveBeenCalled();
+      // @ts-ignore
+      expect(monitor.reconnectTimer).toBeNull();
+      expect(secondClient.subscribe).toHaveBeenCalledWith('/account/' + address, expect.any(Function));
+      expect(secondClient.publish).toHaveBeenCalledWith({
+        destination: '/w/api/account/get',
+        body: JSON.stringify({ account: address }),
+      });
+      expect(monitor.uid).toBe('session-2');
+    });
+
+    it('再接続前に解除した購読を新しいClientへ復元しないべきである', () => {
+      // @ts-ignore
+      monitor._isConnected = true;
+      const unsubscribe = monitor.on('account', 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT', vi.fn());
+      const firstClient = monitor.client as any;
+      unsubscribe();
+      firstClient.onWebSocketClose({ type: 'close' });
+      vi.advanceTimersByTime(3000);
+
+      const secondClient = monitor.client as any;
+      secondClient.onConnect();
+
+      expect(secondClient.subscribe).not.toHaveBeenCalled();
+      expect(secondClient.publish).not.toHaveBeenCalled();
+    });
+
     it('再接続成功時にアドレス付きチャネルの初期取得を再送するべきである', () => {
       // @ts-ignore
       monitor._isConnected = true;
@@ -495,7 +599,7 @@ describe('NemWebSocket', () => {
 
       expect(clientMock.publish).toHaveBeenCalledWith({
         destination: '/w/api/account/mosaic/owned',
-        body: JSON.stringify({ address }),
+        body: JSON.stringify({ account: address }),
       });
     });
 
