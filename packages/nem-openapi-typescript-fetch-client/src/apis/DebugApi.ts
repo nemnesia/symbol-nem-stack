@@ -13,14 +13,14 @@
  */
 
 
-import * as runtime from '../runtime';
+import * as runtime from '../runtime.js';
 import type {
   TimeSynchronizationListDTO,
-} from '../models/index';
+} from '../models/index.js';
 import {
     TimeSynchronizationListDTOFromJSON,
     TimeSynchronizationListDTOToJSON,
-} from '../models/index';
+} from '../models/index.js';
 
 /**
  * 

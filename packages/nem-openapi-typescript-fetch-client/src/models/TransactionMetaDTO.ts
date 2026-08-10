@@ -12,14 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { HashDTO } from './HashDTO';
+import { mapValues } from '../runtime.js';
+import type { HashDTO } from './HashDTO.js';
 import {
     HashDTOFromJSON,
     HashDTOFromJSONTyped,
     HashDTOToJSON,
     HashDTOToJSONTyped,
-} from './HashDTO';
+} from './HashDTO.js';
 
 /**
  * 

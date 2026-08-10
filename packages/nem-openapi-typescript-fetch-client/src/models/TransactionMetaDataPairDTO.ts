@@ -12,21 +12,21 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { TransactionDTO } from './TransactionDTO';
+import { mapValues } from '../runtime.js';
+import type { TransactionDTO } from './TransactionDTO.js';
 import {
     TransactionDTOFromJSON,
     TransactionDTOFromJSONTyped,
     TransactionDTOToJSON,
     TransactionDTOToJSONTyped,
-} from './TransactionDTO';
-import type { TransactionMetaDTO } from './TransactionMetaDTO';
+} from './TransactionDTO.js';
+import type { TransactionMetaDTO } from './TransactionMetaDTO.js';
 import {
     TransactionMetaDTOFromJSON,
     TransactionMetaDTOFromJSONTyped,
     TransactionMetaDTOToJSON,
     TransactionMetaDTOToJSONTyped,
-} from './TransactionMetaDTO';
+} from './TransactionMetaDTO.js';
 
 /**
  * 

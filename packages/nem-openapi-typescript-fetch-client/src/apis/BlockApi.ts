@@ -13,14 +13,14 @@
  */
 
 
-import * as runtime from '../runtime';
+import * as runtime from '../runtime.js';
 import type {
   BlockDTO,
-} from '../models/index';
+} from '../models/index.js';
 import {
     BlockDTOFromJSON,
     BlockDTOToJSON,
-} from '../models/index';
+} from '../models/index.js';
 
 export interface BlockAtPublicPostRequest {
     blockHeight?: string;

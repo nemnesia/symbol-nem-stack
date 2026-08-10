@@ -12,14 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { TransactionMetaDataPairDTO } from './TransactionMetaDataPairDTO';
+import { mapValues } from '../runtime.js';
+import type { TransactionMetaDataPairDTO } from './TransactionMetaDataPairDTO.js';
 import {
     TransactionMetaDataPairDTOFromJSON,
     TransactionMetaDataPairDTOFromJSONTyped,
     TransactionMetaDataPairDTOToJSON,
     TransactionMetaDataPairDTOToJSONTyped,
-} from './TransactionMetaDataPairDTO';
+} from './TransactionMetaDataPairDTO.js';
 
 /**
  * 
