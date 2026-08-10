@@ -135,6 +135,14 @@ export class SymbolWebSocket {
     });
   }
 
+  private validateAddress(address: string | undefined): void {
+    if (address !== undefined && address !== '' && !/^(?:[A-Fa-f0-9]{16}|[A-Z2-7]{39})$/.test(address)) {
+      throw new TypeError(
+        'address must be empty, an encoded Symbol address, or a 16-character hexadecimal namespace id'
+      );
+    }
+  }
+
   /**
    * WebSocket接続を作成
    */
@@ -483,9 +491,7 @@ export class SymbolWebSocket {
     if (typeof actualCallback !== 'function') {
       throw new TypeError('callback must be a function');
     }
-    if (address && /[\s/?#]/.test(address)) {
-      throw new TypeError('address must not include whitespace or URL separators');
-    }
+    this.validateAddress(address);
 
     // サブスクライブパスを決定
     const subscribePath =
@@ -550,9 +556,7 @@ export class SymbolWebSocket {
     if (!channelPath) {
       throw new TypeError(`Unknown channel: ${channel}`);
     }
-    if (address && /[\s/?#]/.test(address)) {
-      throw new TypeError('address must not include whitespace or URL separators');
-    }
+    this.validateAddress(address);
 
     // サブスクライブパスを決定
     const subscribePath =

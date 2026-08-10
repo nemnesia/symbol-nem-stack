@@ -542,6 +542,64 @@ describe('SymbolWebSocketMonitor', () => {
       );
     });
 
+    it('16進 namespace ID を指定してsubscribeできるべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const callback = vi.fn();
+      // @ts-ignore
+      monitor.on('confirmedAdded', 'C0FB8AA409916260', callback);
+
+      expect(sendMock).toHaveBeenCalledWith(expect.stringContaining('confirmedAdded/C0FB8AA409916260'));
+    });
+
+    it('空のアドレスはアドレスなし購読として処理されるべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+
+      const callback = vi.fn();
+      // @ts-ignore
+      monitor.on('confirmedAdded', '', callback);
+
+      expect(sendMock).toHaveBeenCalledWith(expect.stringContaining('"subscribe":"confirmedAdded"'));
+      expect(sendMock).not.toHaveBeenCalledWith(expect.stringContaining('confirmedAdded/'));
+    });
+
+    it.each(['NAAAA', 'not-a-symbol-address', 'T' + 'A'.repeat(37) + '0', 'C0FB8AA40991626G'])(
+      '不正なアドレスを送信前に拒否するべきである: %s',
+      (address) => {
+        // @ts-ignore
+        monitor._uid = 'test-uid';
+        // @ts-ignore
+        monitor.client.readyState = 1;
+        sendMock.mockClear();
+
+        expect(() => {
+          // @ts-ignore
+          monitor.on('confirmedAdded', address, vi.fn());
+        }).toThrow('address must be empty');
+        expect(sendMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it('offでも不正なアドレスを送信前に拒否するべきである', () => {
+      // @ts-ignore
+      monitor._uid = 'test-uid';
+      // @ts-ignore
+      monitor.client.readyState = 1;
+      sendMock.mockClear();
+
+      expect(() => {
+        // @ts-ignore
+        monitor.off('confirmedAdded', 'NAAAA');
+      }).toThrow('address must be empty');
+      expect(sendMock).not.toHaveBeenCalled();
+    });
+
     it('addressを指定してunsubscribeできるべきである', () => {
       // @ts-ignore
       monitor._uid = 'test-uid';
