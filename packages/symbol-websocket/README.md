@@ -62,7 +62,7 @@ ws.disconnect();
 
 ## API
 
-#### プロパティ
+### プロパティ
 
 - `uid: string | null`
   - 現在の Gateway UID。接続完了前・切断中・切断後は `null`。
@@ -71,7 +71,7 @@ ws.disconnect();
 - `client: WebSocket`
   - 現在の内部 WebSocket クライアント。自動再接続後は別インスタンスに置き換わります。直接操作せず、公開メソッドを使用してください。
 
-#### コンストラクタ
+### コンストラクタ
 
 ```typescript
 new SymbolWebSocket(options: SymbolWebSocketOptions);
