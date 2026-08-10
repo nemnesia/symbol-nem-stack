@@ -33,6 +33,7 @@ export class NemWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isManualDisconnect = false;
   private activeSubscriptions: Map<string, Set<(message: string) => void>> = new Map();
+  private activePublishRequests: Map<string, { destination: string; body: string }> = new Map();
 
   /**
    * コンストラクタ
@@ -169,6 +170,11 @@ export class NemWebSocket {
       this.subscriptions.clear();
       this.activeSubscriptions.forEach((callbacks, subscribePath) => {
         callbacks.forEach((callback) => this.subscribe(subscribePath, callback));
+
+        const publishRequest = this.activePublishRequests.get(subscribePath);
+        if (publishRequest) {
+          this.publish(publishRequest);
+        }
       });
 
       // 接続コールバックを呼び出す。購読の復元後に呼ぶことで、callback 内で `on` を
@@ -228,6 +234,13 @@ export class NemWebSocket {
       this.subscriptions.set(subscribePath, subscriptions);
     }
     subscriptions.set(callback, subscription);
+  }
+
+  /**
+   * NIS1にアドレスの登録または初期データ取得を要求する
+   */
+  private publish(request: { destination: string; body: string }): void {
+    this._client.publish(request);
   }
 
   /**
@@ -394,8 +407,17 @@ export class NemWebSocket {
       throw new Error(`Subscribe path could not be determined for channel: ${channel}`);
     }
 
+    const isFirstSubscription = !this.activeSubscriptions.has(subscribePath);
+    const publishRequest =
+      isFirstSubscription && channelPath.publish && address
+        ? { destination: channelPath.publish, body: JSON.stringify({ address }) }
+        : undefined;
+
     if (!this.addActiveSubscription(subscribePath, actualCallback)) {
       return () => this.removeSubscription(subscribePath, actualCallback);
+    }
+    if (publishRequest) {
+      this.activePublishRequests.set(subscribePath, publishRequest);
     }
 
     // 接続されていない場合、接続時にアクティブな購読を復元する
@@ -406,12 +428,11 @@ export class NemWebSocket {
     // サブスクライブを実行
     try {
       this.subscribe(subscribePath, actualCallback);
-    } catch (error) {
-      const callbacks = this.activeSubscriptions.get(subscribePath);
-      callbacks?.delete(actualCallback);
-      if (callbacks?.size === 0) {
-        this.activeSubscriptions.delete(subscribePath);
+      if (publishRequest) {
+        this.publish(publishRequest);
       }
+    } catch (error) {
+      this.removeSubscription(subscribePath, actualCallback);
       throw error;
     }
     return () => this.removeSubscription(subscribePath, actualCallback);
@@ -500,7 +521,10 @@ export class NemWebSocket {
 
     const callbacks = this.activeSubscriptions.get(subscribePath);
     callbacks?.delete(callback);
-    if (callbacks?.size === 0) this.activeSubscriptions.delete(subscribePath);
+    if (callbacks?.size === 0) {
+      this.activeSubscriptions.delete(subscribePath);
+      this.activePublishRequests.delete(subscribePath);
+    }
   }
 
   /**
@@ -522,6 +546,7 @@ export class NemWebSocket {
     this.subscriptions.forEach((subscriptions) => subscriptions.forEach((subscription) => subscription.unsubscribe()));
     this.subscriptions.clear();
     this.activeSubscriptions.clear();
+    this.activePublishRequests.clear();
 
     // すべてのコールバックをクリーンアップ
     this.errorCallbacks.clear();

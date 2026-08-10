@@ -9,6 +9,7 @@ vi.mock('@stomp/stompjs', () => ({
     return {
       activate: vi.fn(),
       subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
+      publish: vi.fn(),
       unsubscribe: vi.fn(),
       deactivate: vi.fn(),
       onWebSocketError: undefined,
@@ -97,6 +98,34 @@ describe('NemWebSocket', () => {
     const spy = vi.spyOn(clientMock, 'subscribe');
     monitor.on('blocks', vi.fn());
     expect(spy).toHaveBeenCalled();
+  });
+
+  it('アドレス付きチャネルの購読時にNISの初期取得をpublishするべきである', () => {
+    // @ts-ignore
+    monitor._isConnected = true;
+    const address = 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT';
+
+    monitor.on('account', address, vi.fn());
+
+    expect(clientMock.publish).toHaveBeenCalledWith({
+      destination: '/w/api/account/get',
+      body: JSON.stringify({ address }),
+    });
+  });
+
+  it('同じアドレス付きチャネルに複数callbackを登録しても初期取得を重複publishしないべきである', () => {
+    // @ts-ignore
+    monitor._isConnected = true;
+    const address = 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT';
+
+    monitor.on('recenttransactions', address, vi.fn());
+    monitor.on('recenttransactions', address, vi.fn());
+
+    expect(clientMock.publish).toHaveBeenCalledTimes(1);
+    expect(clientMock.publish).toHaveBeenCalledWith({
+      destination: '/w/api/account/transfers/all',
+      body: JSON.stringify({ address }),
+    });
   });
 
   it('unsubscribeが呼び出されるべきである', () => {
@@ -436,6 +465,24 @@ describe('NemWebSocket', () => {
 
       // activeSubscriptionsの復元を確認
       expect(subscribeSpy).toHaveBeenCalled();
+    });
+
+    it('再接続成功時にアドレス付きチャネルの初期取得を再送するべきである', () => {
+      // @ts-ignore
+      monitor._isConnected = true;
+      const address = 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT';
+      monitor.on('accountMosaic', address, vi.fn());
+      clientMock.publish.mockClear();
+
+      // @ts-ignore
+      monitor._isConnected = false;
+      // @ts-ignore
+      monitor.client.onConnect();
+
+      expect(clientMock.publish).toHaveBeenCalledWith({
+        destination: '/w/api/account/mosaic/owned',
+        body: JSON.stringify({ address }),
+      });
     });
 
     it('手動切断フラグが立っている場合は再接続を開始しないべきである', () => {
