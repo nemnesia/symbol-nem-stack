@@ -49,6 +49,7 @@
     "publish:release": "npm run build && npm publish"
   },
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "@stomp/stompjs": "^7.3.0",
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.21.1"

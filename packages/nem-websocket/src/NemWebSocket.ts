@@ -8,6 +8,7 @@ import {
   NemWebSocketOptions,
   NemWebSocketUnsubscribe,
 } from './nem.types.js';
+import { normalizeNemTestnetAddress } from './nemAddress.js';
 import { nemChannelPaths } from './nemChannelPaths.js';
 import type { NemAddressChannel, NemChannel, NemGlobalChannel } from './nemChannelPaths.js';
 
@@ -433,7 +434,7 @@ export class NemWebSocket {
     callback?: (message: string) => void
   ): NemWebSocketUnsubscribe {
     // 引数を解析
-    const address = typeof addressOrCallback === 'string' ? addressOrCallback.toUpperCase() : undefined;
+    const address = typeof addressOrCallback === 'string' ? normalizeNemTestnetAddress(addressOrCallback) : undefined;
     const actualCallback = typeof addressOrCallback === 'function' ? addressOrCallback : callback!;
 
     const channelPath = nemChannelPaths[channel];
@@ -448,10 +449,6 @@ export class NemWebSocket {
     if (typeof channelPath.subscribe === 'function' && !address) {
       throw new Error(`Address parameter is required for channel: ${channel}`);
     }
-    if (address && /[\s/?#]/.test(address)) {
-      throw new TypeError('address must not include whitespace or URL separators');
-    }
-
     // サブスクライブパスを決定
     const subscribePath =
       typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address!) : channelPath.subscribe;
@@ -540,14 +537,10 @@ export class NemWebSocket {
       throw new TypeError(`Unknown channel: ${channel}`);
     }
 
-    const normalizedAddress = address?.toUpperCase();
+    const normalizedAddress = address ? normalizeNemTestnetAddress(address) : undefined;
     if (typeof channelPath.subscribe === 'function' && !normalizedAddress) {
       throw new Error(`Address parameter is required for channel: ${channel}`);
     }
-    if (normalizedAddress && /[\s/?#]/.test(normalizedAddress)) {
-      throw new TypeError('address must not include whitespace or URL separators');
-    }
-
     // サブスクライブパスを決定
     const subscribePath =
       typeof channelPath.subscribe === 'function' ? channelPath.subscribe(normalizedAddress!) : channelPath.subscribe;

@@ -99,6 +99,28 @@ describe('NemWebSocket', () => {
     }).toThrow();
   });
 
+  it.each([
+    'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT'.slice(0, 39),
+    'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT'.replace('A', '0'),
+    'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT'.slice(0, -1) + 'A',
+    'NALICELGU3IVY4DPJKHYLSSVYFFWYS5QPLYEZDJJ',
+    'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJ\u0000',
+  ])('不正なNEMアドレスを購読前に拒否するべきである: %s', (address) => {
+    expect(() => monitor.on('account', address, vi.fn())).toThrow('address must be a valid NEM testnet address');
+    expect(() => monitor.off('account', address)).toThrow('address must be a valid NEM testnet address');
+  });
+
+  it('有効な小文字アドレスを購読解除時にも正規化するべきである', () => {
+    // @ts-ignore
+    monitor._isConnected = true;
+    const address = 'TALICE6KJ2SRSIJFVVFFH6ICUIYZ2ZZGNFUDJGRT';
+    monitor.on('account', address, vi.fn());
+
+    monitor.off('account', address.toLowerCase());
+
+    expect(clientMock.subscribe.mock.results[0].value.unsubscribe).toHaveBeenCalled();
+  });
+
   it('接続されていない場合、購読は接続時まで保持されるべきである', () => {
     // @ts-ignore
     monitor._isConnected = false;

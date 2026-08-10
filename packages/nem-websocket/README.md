@@ -122,11 +122,11 @@ new NemWebSocket(options: NemWebSocketOptions);
 - `on(channel: NemChannel, callback: (message: string) => void): NemWebSocketUnsubscribe`
   - 指定したチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
 - `on(channel: NemChannel, address: string, callback: (message: string) => void): NemWebSocketUnsubscribe`
-  - アドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
+  - NIS1テストネットのアドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
 - `off(channel: NemChannel): void`
   - 指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
 - `off(channel: NemChannel, address: string): void`
-  - アドレスを指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
+  - NIS1テストネットのアドレスを指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
 - `onConnect(callback: (uid: string) => void): NemWebSocketUnsubscribe`
   - WebSocket 接続完了時のコールバックを登録します。
 - `onReconnect(callback: (attemptCount: number) => void): NemWebSocketUnsubscribe`
