@@ -69,9 +69,32 @@ ws.onClose((event) => {
 ws.disconnect();
 ```
 
+## E2Eテスト
+
+実NIS1テストネットへ接続するE2Eテストは、パッケージディレクトリの`.env`から設定を読み込みます。
+設定項目の例は[`.env.example`](./.env.example)にあります。パッケージディレクトリでコピーしてから、テストネットの接続先とアドレスを設定してください。
+
+```dotenv
+NEM_E2E_HOST=<テストネットノードのホスト>
+NEM_E2E_ADDRESS=<テストネットアカウントのアドレス>
+NEM_E2E_SSL=false
+```
+
+```bash
+cp .env.example .env
+```
+
+通常のユニットテストは実NIS1へ接続せず、E2Eテストは次のコマンドで明示的に実行します。
+
+```bash
+pnpm --filter @nemnesia/nem-websocket test:e2e
+```
+
+E2Eテストは全チャネルを1接続で購読し、アドレスの初期通知をまとめて確認します。`newBlock`と`blocks`は同じ次ブロックで確認します。`transactions`や`unconfirmed`の将来通知を発生させるトランザクションはテストから送信しないため、これらは購読登録までを確認し、実トランザクションを用いた通知確認は別途行います。
+
 ## API
 
-#### コンストラクタ
+### コンストラクタ
 
 ```typescript
 new NemWebSocket(options: NemWebSocketOptions);
@@ -79,7 +102,7 @@ new NemWebSocket(options: NemWebSocketOptions);
 
 - `options`: 接続設定。
   - `host`: 接続先ホスト。
-    プロトコル、ポート、パスは含めません。IPv6 は `[2001:db8::1]` の形式で指定します。
+    プロトコル、ポート、パスは含めません。
   - `ssl`: SSL を使用するかどうか（デフォルト: `false`）。
   - `timeout`: 接続タイムアウト（ミリ秒、デフォルト: `5000`）。
   - `autoReconnect`: 自動再接続を有効にするか（デフォルト: `true`）。
@@ -104,11 +127,11 @@ new NemWebSocket(options: NemWebSocketOptions);
 - `on(channel: NemChannel, callback: (message: string) => void): NemWebSocketUnsubscribe`
   - 指定したチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
 - `on(channel: NemChannel, address: string, callback: (message: string) => void): NemWebSocketUnsubscribe`
-  - アドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
+  - NIS1テストネットのアドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
 - `off(channel: NemChannel): void`
   - 指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
 - `off(channel: NemChannel, address: string): void`
-  - アドレスを指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
+  - NIS1テストネットのアドレスを指定したチャネルに登録されたすべてのコールバックとサブスクリプションを解除します。
 - `onConnect(callback: (uid: string) => void): NemWebSocketUnsubscribe`
   - WebSocket 接続完了時のコールバックを登録します。
 - `onReconnect(callback: (attemptCount: number) => void): NemWebSocketUnsubscribe`
@@ -162,7 +185,8 @@ interface NemWebSocketError {
 - 再接続時は既存のサブスクリプションが自動的に復元されます。
 - 接続が切断されると、`isConnected` は `false`、`uid` は `null` になります。
 - `autoReconnect: false`を設定することで自動再接続を無効化できます。
-- `host`、タイムアウト、再接続設定、アドレスは実行時にも検証されます。不正な値は接続前に例外になります。
+- `host`、タイムアウト、再接続設定は接続前に検証され、不正なチャネルやアドレスは `on` / `off` 呼び出し時に例外になります。
+- アドレス系チャネルはNIS1テストネットの40文字アドレスに対応し、小文字・混在表記はcanonicalな大文字へ正規化されます。長さ、Base32、network byte、checksumが不正なアドレスは拒否されます。
 
 ## ライセンス
 

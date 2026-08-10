@@ -11,13 +11,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nemnesia/symbol-tools.git",
+    "url": "git+https://github.com/nemnesia/symbol-nem-stack.git",
     "directory": "packages/nem-websocket"
   },
   "bugs": {
-    "url": "https://github.com/nemnesia/symbol-tools/issues"
+    "url": "https://github.com/nemnesia/symbol-nem-stack/issues"
   },
-  "homepage": "https://github.com/nemnesia/symbol-tools/tree/main/packages/nem-websocket#readme",
+  "homepage": "https://github.com/nemnesia/symbol-nem-stack/tree/main/packages/nem-websocket#readme",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -39,18 +39,23 @@
     "build": "tsup",
     "lint": "eslint \"{src,test,e2e}/**/*.ts\"",
     "format": "prettier --write \"{src,test,e2e}/**/*.ts\"",
-    "test": "vitest run",
-    "test:watch": "vitest --watch",
-    "test:coverage": "vitest run --coverage",
-    "test:ui": "vitest --ui --coverage",
+    "test": "vitest run --dir test",
+    "test:e2e": "vitest run --dir e2e --testTimeout 90000",
+    "test:watch": "vitest --dir test --watch",
+    "test:coverage": "vitest run --dir test --coverage",
+    "test:ui": "vitest --dir test --ui --coverage",
     "prepublishOnly": "npm run lint && npm run format && npm run build && npm test",
     "publish:dryrun": "npm publish --dry-run",
     "publish:release": "npm run build && npm publish"
   },
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "@stomp/stompjs": "^7.3.0",
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.2"
   },
   "publishConfig": {
     "access": "public"

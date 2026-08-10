@@ -8,8 +8,13 @@ import {
   NemWebSocketOptions,
   NemWebSocketUnsubscribe,
 } from './nem.types.js';
+import { normalizeNemTestnetAddress } from './nemAddress.js';
 import { nemChannelPaths } from './nemChannelPaths.js';
 import type { NemAddressChannel, NemChannel, NemGlobalChannel } from './nemChannelPaths.js';
+
+type NemWebSocketPublishRequest = { destination: string; body: string };
+
+const ADDRESS_REGISTRATION_DESTINATION = '/w/api/account/subscribe';
 
 /**
  * NEM NIS1 ノードの STOMP WebSocket クライアント。
@@ -33,6 +38,7 @@ export class NemWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isManualDisconnect = false;
   private activeSubscriptions: Map<string, Set<(message: string) => void>> = new Map();
+  private activePublishRequests: Map<string, NemWebSocketPublishRequest[]> = new Map();
 
   /**
    * コンストラクタ
@@ -56,11 +62,24 @@ export class NemWebSocket {
     if (typeof options.host !== 'string' || options.host.trim() === '') {
       throw new TypeError('host must be a non-empty hostname or IP address');
     }
-    if (/[\s/?#]/.test(options.host) || options.host.includes('://')) {
-      throw new TypeError('host must not include a protocol, path, or port');
+    if (/[\s\\/@?#]/.test(options.host) || options.host.includes('://')) {
+      throw new TypeError('host must not include a protocol, path, port, userinfo, or URL separators');
     }
     if (options.host.includes(':') && !(options.host.startsWith('[') && options.host.endsWith(']'))) {
       throw new TypeError('IPv6 hosts must be enclosed in brackets and ports are not supported');
+    }
+    if (options.host.includes('[') || options.host.includes(']')) {
+      if (!(options.host.startsWith('[') && options.host.endsWith(']'))) {
+        throw new TypeError('IPv6 hosts must be enclosed in brackets and ports are not supported');
+      }
+      try {
+        const endpoint = new URL('ws://' + options.host + ':7778/');
+        if (endpoint.hostname.toLowerCase() !== options.host.toLowerCase()) {
+          throw new TypeError('host must be a valid hostname or IP address');
+        }
+      } catch {
+        throw new TypeError('host must be a valid hostname or IP address');
+      }
     }
     if (options.ssl !== undefined && typeof options.ssl !== 'boolean') {
       throw new TypeError('ssl must be a boolean');
@@ -91,6 +110,18 @@ export class NemWebSocket {
     };
   }
 
+  private createEndpoint(protocol: 'ws' | 'wss', host: string, port: string): string {
+    try {
+      const endpoint = new URL(protocol + '://' + host + ':' + port + '/w/messages/websocket');
+      if (endpoint.username || endpoint.password || endpoint.hostname.toLowerCase() !== host.toLowerCase()) {
+        throw new TypeError('host must be a valid hostname or IP address');
+      }
+      return endpoint.toString();
+    } catch {
+      throw new TypeError('host must be a valid hostname or IP address');
+    }
+  }
+
   private notify<T>(callbacks: ReadonlySet<(value: T) => void>, value: T, eventName: string): void {
     callbacks.forEach((callback) => {
       try {
@@ -111,12 +142,13 @@ export class NemWebSocket {
 
     const protocol = ssl ? 'wss' : 'ws';
     const endPointPort = ssl ? '7779' : '7778';
+    const endpoint = this.createEndpoint(protocol, endPointHost, endPointPort);
 
     // クライアントを作成
     const client = new Client({
       connectionTimeout: timeout,
       reconnectDelay: 0, // 手動で再接続を管理
-      webSocketFactory: () => new WebSocket(`${protocol}://${endPointHost}:${endPointPort}/w/messages/websocket`),
+      webSocketFactory: () => new WebSocket(endpoint),
     });
     this._client = client;
 
@@ -169,6 +201,8 @@ export class NemWebSocket {
       this.subscriptions.clear();
       this.activeSubscriptions.forEach((callbacks, subscribePath) => {
         callbacks.forEach((callback) => this.subscribe(subscribePath, callback));
+
+        this.activePublishRequests.get(subscribePath)?.forEach((publishRequest) => this.publish(publishRequest));
       });
 
       // 接続コールバックを呼び出す。購読の復元後に呼ぶことで、callback 内で `on` を
@@ -230,6 +264,34 @@ export class NemWebSocket {
     subscriptions.set(callback, subscription);
   }
 
+  private createPublishRequests(channel: NemChannel, address: string): NemWebSocketPublishRequest[] {
+    const channelPath = nemChannelPaths[channel];
+    const publishRequests: NemWebSocketPublishRequest[] = [];
+
+    if (channelPath.publish) {
+      publishRequests.push({
+        destination: channelPath.publish,
+        body: JSON.stringify({ account: address }),
+      });
+    }
+
+    if (channel === 'transactions' || channel === 'unconfirmed') {
+      publishRequests.push({
+        destination: ADDRESS_REGISTRATION_DESTINATION,
+        body: JSON.stringify({ account: address }),
+      });
+    }
+
+    return publishRequests;
+  }
+
+  /**
+   * NIS1にアドレスの登録または初期データ取得を要求する
+   */
+  private publish(request: { destination: string; body: string }): void {
+    this._client.publish(request);
+  }
+
   /**
    * コンテキスト付きエラーを生成
    */
@@ -269,6 +331,10 @@ export class NemWebSocket {
 
     // 再接続コールバックを呼び出す
     this.notify(this.reconnectCallbacks, this.reconnectAttempts, 'reconnect');
+
+    if (this.isManualDisconnect) {
+      return;
+    }
 
     const interval = this.options.reconnectInterval ?? 3000;
     this.reconnectTimer = setTimeout(() => {
@@ -368,7 +434,7 @@ export class NemWebSocket {
     callback?: (message: string) => void
   ): NemWebSocketUnsubscribe {
     // 引数を解析
-    const address = typeof addressOrCallback === 'string' ? addressOrCallback : undefined;
+    const address = typeof addressOrCallback === 'string' ? normalizeNemTestnetAddress(addressOrCallback) : undefined;
     const actualCallback = typeof addressOrCallback === 'function' ? addressOrCallback : callback!;
 
     const channelPath = nemChannelPaths[channel];
@@ -383,19 +449,21 @@ export class NemWebSocket {
     if (typeof channelPath.subscribe === 'function' && !address) {
       throw new Error(`Address parameter is required for channel: ${channel}`);
     }
-    if (address && /[\s/?#]/.test(address)) {
-      throw new TypeError('address must not include whitespace or URL separators');
-    }
-
     // サブスクライブパスを決定
     const subscribePath =
-      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address) : channelPath.subscribe;
+      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address!) : channelPath.subscribe;
     if (!subscribePath) {
       throw new Error(`Subscribe path could not be determined for channel: ${channel}`);
     }
 
+    const isFirstSubscription = !this.activeSubscriptions.has(subscribePath);
+    const publishRequests = isFirstSubscription && address ? this.createPublishRequests(channel, address) : [];
+
     if (!this.addActiveSubscription(subscribePath, actualCallback)) {
       return () => this.removeSubscription(subscribePath, actualCallback);
+    }
+    if (publishRequests.length > 0) {
+      this.activePublishRequests.set(subscribePath, publishRequests);
     }
 
     // 接続されていない場合、接続時にアクティブな購読を復元する
@@ -406,12 +474,9 @@ export class NemWebSocket {
     // サブスクライブを実行
     try {
       this.subscribe(subscribePath, actualCallback);
+      publishRequests.forEach((publishRequest) => this.publish(publishRequest));
     } catch (error) {
-      const callbacks = this.activeSubscriptions.get(subscribePath);
-      callbacks?.delete(actualCallback);
-      if (callbacks?.size === 0) {
-        this.activeSubscriptions.delete(subscribePath);
-      }
+      this.removeSubscription(subscribePath, actualCallback);
       throw error;
     }
     return () => this.removeSubscription(subscribePath, actualCallback);
@@ -472,16 +537,13 @@ export class NemWebSocket {
       throw new TypeError(`Unknown channel: ${channel}`);
     }
 
-    if (typeof channelPath.subscribe === 'function' && !address) {
+    const normalizedAddress = address ? normalizeNemTestnetAddress(address) : undefined;
+    if (typeof channelPath.subscribe === 'function' && !normalizedAddress) {
       throw new Error(`Address parameter is required for channel: ${channel}`);
     }
-    if (address && /[\s/?#]/.test(address)) {
-      throw new TypeError('address must not include whitespace or URL separators');
-    }
-
     // サブスクライブパスを決定
     const subscribePath =
-      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(address) : channelPath.subscribe;
+      typeof channelPath.subscribe === 'function' ? channelPath.subscribe(normalizedAddress!) : channelPath.subscribe;
     if (!subscribePath) {
       throw new Error(`Subscribe path could not be determined for channel: ${channel}`);
     }
@@ -500,7 +562,10 @@ export class NemWebSocket {
 
     const callbacks = this.activeSubscriptions.get(subscribePath);
     callbacks?.delete(callback);
-    if (callbacks?.size === 0) this.activeSubscriptions.delete(subscribePath);
+    if (callbacks?.size === 0) {
+      this.activeSubscriptions.delete(subscribePath);
+      this.activePublishRequests.delete(subscribePath);
+    }
   }
 
   /**
@@ -522,6 +587,7 @@ export class NemWebSocket {
     this.subscriptions.forEach((subscriptions) => subscriptions.forEach((subscription) => subscription.unsubscribe()));
     this.subscriptions.clear();
     this.activeSubscriptions.clear();
+    this.activePublishRequests.clear();
 
     // すべてのコールバックをクリーンアップ
     this.errorCallbacks.clear();
