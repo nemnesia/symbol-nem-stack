@@ -12,14 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { NodeDTO } from './NodeDTO';
+import { mapValues } from '../runtime.js';
+import type { NodeDTO } from './NodeDTO.js';
 import {
     NodeDTOFromJSON,
     NodeDTOFromJSONTyped,
     NodeDTOToJSON,
     NodeDTOToJSONTyped,
-} from './NodeDTO';
+} from './NodeDTO.js';
 
 /**
  * 

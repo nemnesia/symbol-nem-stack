@@ -12,14 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { TimeSynchronizationDTO } from './TimeSynchronizationDTO';
+import { mapValues } from '../runtime.js';
+import type { TimeSynchronizationDTO } from './TimeSynchronizationDTO.js';
 import {
     TimeSynchronizationDTOFromJSON,
     TimeSynchronizationDTOFromJSONTyped,
     TimeSynchronizationDTOToJSON,
     TimeSynchronizationDTOToJSONTyped,
-} from './TimeSynchronizationDTO';
+} from './TimeSynchronizationDTO.js';
 
 /**
  * 

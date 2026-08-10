@@ -13,17 +13,17 @@
  */
 
 
-import * as runtime from '../runtime';
+import * as runtime from '../runtime.js';
 import type {
   MosaicDefinitionListDTO,
   NamespaceListDTO,
-} from '../models/index';
+} from '../models/index.js';
 import {
     MosaicDefinitionListDTOFromJSON,
     MosaicDefinitionListDTOToJSON,
     NamespaceListDTOFromJSON,
     NamespaceListDTOToJSON,
-} from '../models/index';
+} from '../models/index.js';
 
 export interface NamespaceGetRequest {
     namespace?: string;

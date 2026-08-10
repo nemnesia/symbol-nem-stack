@@ -12,21 +12,21 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { NisInfoDTO } from './NisInfoDTO';
+import { mapValues } from '../runtime.js';
+import type { NisInfoDTO } from './NisInfoDTO.js';
 import {
     NisInfoDTOFromJSON,
     NisInfoDTOFromJSONTyped,
     NisInfoDTOToJSON,
     NisInfoDTOToJSONTyped,
-} from './NisInfoDTO';
-import type { NodeDTO } from './NodeDTO';
+} from './NisInfoDTO.js';
+import type { NodeDTO } from './NodeDTO.js';
 import {
     NodeDTOFromJSON,
     NodeDTOFromJSONTyped,
     NodeDTOToJSON,
     NodeDTOToJSONTyped,
-} from './NodeDTO';
+} from './NodeDTO.js';
 
 /**
  * 

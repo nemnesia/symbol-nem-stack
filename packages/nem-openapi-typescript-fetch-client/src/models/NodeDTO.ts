@@ -12,28 +12,28 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { NodeMetaDataDTO } from './NodeMetaDataDTO';
+import { mapValues } from '../runtime.js';
+import type { NodeMetaDataDTO } from './NodeMetaDataDTO.js';
 import {
     NodeMetaDataDTOFromJSON,
     NodeMetaDataDTOFromJSONTyped,
     NodeMetaDataDTOToJSON,
     NodeMetaDataDTOToJSONTyped,
-} from './NodeMetaDataDTO';
-import type { IdentityDTO } from './IdentityDTO';
+} from './NodeMetaDataDTO.js';
+import type { IdentityDTO } from './IdentityDTO.js';
 import {
     IdentityDTOFromJSON,
     IdentityDTOFromJSONTyped,
     IdentityDTOToJSON,
     IdentityDTOToJSONTyped,
-} from './IdentityDTO';
-import type { EndpointDTO } from './EndpointDTO';
+} from './IdentityDTO.js';
+import type { EndpointDTO } from './EndpointDTO.js';
 import {
     EndpointDTOFromJSON,
     EndpointDTOFromJSONTyped,
     EndpointDTOToJSON,
     EndpointDTOToJSONTyped,
-} from './EndpointDTO';
+} from './EndpointDTO.js';
 
 /**
  * 

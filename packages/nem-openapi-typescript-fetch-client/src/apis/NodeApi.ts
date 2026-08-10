@@ -13,13 +13,13 @@
  */
 
 
-import * as runtime from '../runtime';
+import * as runtime from '../runtime.js';
 import type {
   BlockHeightDTO,
   ExtendedNodeInfoDTO,
   NodeDTO,
   NodeListDTO,
-} from '../models/index';
+} from '../models/index.js';
 import {
     BlockHeightDTOFromJSON,
     BlockHeightDTOToJSON,
@@ -29,7 +29,7 @@ import {
     NodeDTOToJSON,
     NodeListDTOFromJSON,
     NodeListDTOToJSON,
-} from '../models/index';
+} from '../models/index.js';
 
 export interface NodeBootPostRequest {
     bootNodeRequest?: string;

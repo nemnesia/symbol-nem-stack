@@ -13,12 +13,12 @@
  */
 
 
-import * as runtime from '../runtime';
+import * as runtime from '../runtime.js';
 import type {
   BlockChainScoreDTO,
   BlockDTO,
   BlockHeightDTO,
-} from '../models/index';
+} from '../models/index.js';
 import {
     BlockChainScoreDTOFromJSON,
     BlockChainScoreDTOToJSON,
@@ -26,7 +26,7 @@ import {
     BlockDTOToJSON,
     BlockHeightDTOFromJSON,
     BlockHeightDTOToJSON,
-} from '../models/index';
+} from '../models/index.js';
 
 /**
  * 

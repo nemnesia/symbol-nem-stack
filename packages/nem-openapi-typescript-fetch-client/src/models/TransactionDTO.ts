@@ -12,14 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { MessageDTO } from './MessageDTO';
+import { mapValues } from '../runtime.js';
+import type { MessageDTO } from './MessageDTO.js';
 import {
     MessageDTOFromJSON,
     MessageDTOFromJSONTyped,
     MessageDTOToJSON,
     MessageDTOToJSONTyped,
-} from './MessageDTO';
+} from './MessageDTO.js';
 
 /**
  * 

@@ -12,21 +12,21 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { AccountMetaDataDTO } from './AccountMetaDataDTO';
+import { mapValues } from '../runtime.js';
+import type { AccountMetaDataDTO } from './AccountMetaDataDTO.js';
 import {
     AccountMetaDataDTOFromJSON,
     AccountMetaDataDTOFromJSONTyped,
     AccountMetaDataDTOToJSON,
     AccountMetaDataDTOToJSONTyped,
-} from './AccountMetaDataDTO';
-import type { AccountDTO } from './AccountDTO';
+} from './AccountMetaDataDTO.js';
+import type { AccountDTO } from './AccountDTO.js';
 import {
     AccountDTOFromJSON,
     AccountDTOFromJSONTyped,
     AccountDTOToJSON,
     AccountDTOToJSONTyped,
-} from './AccountDTO';
+} from './AccountDTO.js';
 
 /**
  * 

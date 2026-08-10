@@ -13,7 +13,7 @@
  */
 
 
-import * as runtime from '../runtime';
+import * as runtime from '../runtime.js';
 import type {
   AccountImportanceListDTO,
   AccountMetaDataDTO,
@@ -25,7 +25,7 @@ import type {
   NamespaceListDTO,
   TransactionListDTO,
   UnconfirmedTransactionListDTO,
-} from '../models/index';
+} from '../models/index.js';
 import {
     AccountImportanceListDTOFromJSON,
     AccountImportanceListDTOToJSON,
@@ -47,7 +47,7 @@ import {
     TransactionListDTOToJSON,
     UnconfirmedTransactionListDTOFromJSON,
     UnconfirmedTransactionListDTOToJSON,
-} from '../models/index';
+} from '../models/index.js';
 
 export interface AccountGetForwardedFromPublicKeyGetRequest {
     publicKey?: string;

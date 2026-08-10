@@ -13,14 +13,14 @@
  */
 
 
-import * as runtime from '../runtime';
+import * as runtime from '../runtime.js';
 import type {
   HeartbeatDTO,
-} from '../models/index';
+} from '../models/index.js';
 import {
     HeartbeatDTOFromJSON,
     HeartbeatDTOToJSON,
-} from '../models/index';
+} from '../models/index.js';
 
 /**
  * 

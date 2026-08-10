@@ -1,12 +1,11 @@
 /* tslint:disable */
-/* eslint-disable */
-export * from './AccountApi';
-export * from './BlockApi';
-export * from './ChainApi';
-export * from './DebugApi';
-export * from './HeartbeatApi';
-export * from './LocalApi';
-export * from './NamespaceApi';
-export * from './NodeApi';
-export * from './StatusApi';
-export * from './TransactionApi';
+export * from './AccountApi.js';
+export * from './BlockApi.js';
+export * from './ChainApi.js';
+export * from './DebugApi.js';
+export * from './HeartbeatApi.js';
+export * from './LocalApi.js';
+export * from './NamespaceApi.js';
+export * from './NodeApi.js';
+export * from './StatusApi.js';
+export * from './TransactionApi.js';

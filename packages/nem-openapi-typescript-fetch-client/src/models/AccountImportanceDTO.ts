@@ -12,14 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { ImportanceDTO } from './ImportanceDTO';
+import { mapValues } from '../runtime.js';
+import type { ImportanceDTO } from './ImportanceDTO.js';
 import {
     ImportanceDTOFromJSON,
     ImportanceDTOFromJSONTyped,
     ImportanceDTOToJSON,
     ImportanceDTOToJSONTyped,
-} from './ImportanceDTO';
+} from './ImportanceDTO.js';
 
 /**
  * 

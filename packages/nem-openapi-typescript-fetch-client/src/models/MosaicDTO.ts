@@ -12,14 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from '../runtime';
-import type { MosaicIdDTO } from './MosaicIdDTO';
+import { mapValues } from '../runtime.js';
+import type { MosaicIdDTO } from './MosaicIdDTO.js';
 import {
     MosaicIdDTOFromJSON,
     MosaicIdDTOFromJSONTyped,
     MosaicIdDTOToJSON,
     MosaicIdDTOToJSONTyped,
-} from './MosaicIdDTO';
+} from './MosaicIdDTO.js';
 
 /**
  * 
