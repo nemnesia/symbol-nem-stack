@@ -11,13 +11,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nemnesia/symbol-tools.git",
+    "url": "git+https://github.com/nemnesia/symbol-nem-stack.git",
     "directory": "packages/nem-websocket"
   },
   "bugs": {
-    "url": "https://github.com/nemnesia/symbol-tools/issues"
+    "url": "https://github.com/nemnesia/symbol-nem-stack/issues"
   },
-  "homepage": "https://github.com/nemnesia/symbol-tools/tree/main/packages/nem-websocket#readme",
+  "homepage": "https://github.com/nemnesia/symbol-nem-stack/tree/main/packages/nem-websocket#readme",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
