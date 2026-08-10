@@ -2,10 +2,10 @@ node_modules/
 .DS_Store
 .env
 *.log
-_*
 .venv/
 .reviews/
 
 dist
 coverage
 test-*/
+**/*/doc/reviews
