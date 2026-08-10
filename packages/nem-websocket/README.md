@@ -102,7 +102,7 @@ new NemWebSocket(options: NemWebSocketOptions);
 
 - `options`: 接続設定。
   - `host`: 接続先ホスト。
-    プロトコル、ポート、パスは含めません。IPv6 は `[2001:db8::1]` の形式で指定します。
+    プロトコル、ポート、パスは含めません。
   - `ssl`: SSL を使用するかどうか（デフォルト: `false`）。
   - `timeout`: 接続タイムアウト（ミリ秒、デフォルト: `5000`）。
   - `autoReconnect`: 自動再接続を有効にするか（デフォルト: `true`）。
