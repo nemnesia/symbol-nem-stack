@@ -95,11 +95,11 @@ new SymbolWebSocket(options: SymbolWebSocketOptions);
 - `on<K extends SymbolChannel>(channel: K, callback: (message: SymbolNotificationMap[K]) => void): SymbolWebSocketUnsubscribe`
   - 指定したチャネルにサブスクライブします。接続完了前または再接続待機中なら、接続完了後に送信されます。返り値を呼ぶと、その callback だけを解除します。
 - `on<K extends SymbolChannel>(channel: K, address: string, callback: (message: SymbolNotificationMap[K]) => void): SymbolWebSocketUnsubscribe`
-  - アドレスを指定してチャネルにサブスクライブします。返り値を呼ぶと、その callback だけを解除します。
+  - アドレスを指定してチャネルにサブスクライブします。対象は `confirmedAdded`、`unconfirmedAdded`、`unconfirmedRemoved`、`partialAdded`、`partialRemoved`、`cosignature`、`status` です。`address` にはエンコード済み Symbol アドレスまたは16桁の16進数形式の namespace ID を指定できます。返り値を呼ぶと、その callback だけを解除します。
 - `off(channel: SymbolChannel): void`
   - 指定したチャネルのサブスクリプションと、そのチャネルに登録したすべてのコールバックを解除します。
 - `off(channel: SymbolChannel, address: string): void`
-  - アドレスを指定してチャネルのサブスクリプションと、そのパスに登録したすべてのコールバックを解除します。
+  - アドレスを指定してチャネルのサブスクリプションと、そのパスに登録したすべてのコールバックを解除します。対象チャネルと `address` の形式は、アドレス指定付きの `on` と同じです。
 - `onConnect(callback: (uid: string) => void): SymbolWebSocketUnsubscribe`
   - 接続完了時のコールバックを追加します。初回接続・自動再接続で呼ばれ、すでに接続済みなら登録時に直ちに呼ばれます。
 - `onReconnect(callback: (attemptCount: number) => void): SymbolWebSocketUnsubscribe`
@@ -181,6 +181,7 @@ ws.onError((err) => {
 - `off()`は指定チャネルのすべてのコールバックを解除（subscribePath単位）
 - `disconnect()` / `close()` の後に接続を再開する場合は、新しい `SymbolWebSocket` インスタンスを作成
 - `host`、タイムアウト、再接続設定、アドレスは実行時にも検証されます。不正な値は接続前に例外になります。
+- `block` と `finalizedBlock` はアドレス指定に対応していません。非空のアドレスを指定すると例外になります。
 
 ## ライセンス
 
