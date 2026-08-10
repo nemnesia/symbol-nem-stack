@@ -222,7 +222,7 @@ export class SymbolWebSocket {
 
     // メッセージ受信時の処理
     client.onmessage = (message: WebSocket.MessageEvent) => {
-      if (this._client !== client) {
+      if (this._client !== client || this.isManualDisconnect) {
         return;
       }
 

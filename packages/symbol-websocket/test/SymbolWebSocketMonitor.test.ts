@@ -298,6 +298,21 @@ describe('SymbolWebSocketMonitor', () => {
       // @ts-ignore
       expect(monitor.isFirstMessage).toBe(true);
     });
+
+    it('disconnect後に旧clientからUIDを受信しても接続状態を復活させないべきである', () => {
+      // @ts-ignore
+      const oldClient = monitor.client;
+
+      monitor.disconnect();
+      sendMock.mockClear();
+
+      oldClient.onmessage({ data: JSON.stringify({ uid: 'late-uid' }) });
+
+      expect(monitor.uid).toBeNull();
+      // @ts-ignore
+      expect(monitor.isFirstMessage).toBe(true);
+      expect(sendMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('Reconnection functionality', () => {
