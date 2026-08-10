@@ -53,6 +53,9 @@
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.21.1"
   },
+  "devDependencies": {
+    "@nemnesia/symbol-sdk": "workspace:*"
+  },
   "publishConfig": {
     "access": "public"
   },

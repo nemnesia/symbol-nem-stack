@@ -68,8 +68,8 @@ ws.disconnect();
 ```dotenv
 SYMBOL_E2E_HOST=<テストネットノードのホスト>
 SYMBOL_E2E_SSL=true
-# 任意: アドレス付きチャネルの購読登録も検証する場合に指定
-SYMBOL_E2E_ADDRESS=<Symbolアドレスまたはnamespace ID>
+SYMBOL_E2E_REST_URL=https://<テストネットRESTノードのホスト>:3000
+SYMBOL_E2E_PRIVATE_KEY=<テストネット用の秘密鍵>
 ```
 
 ```bash
@@ -82,7 +82,7 @@ cp .env.example .env
 pnpm --filter @nemnesia/symbol-websocket test:e2e
 ```
 
-`SYMBOL_E2E_HOST` が未設定の場合、E2Eテストはスキップされます。
+`SYMBOL_E2E_HOST`、`SYMBOL_E2E_REST_URL`、または`SYMBOL_E2E_PRIVATE_KEY`のいずれかが未設定の場合、E2Eテストはスキップされます。秘密鍵はSDKによるテストネットトランザクションの署名にだけ使用し、ログへ出力しません。
 
 ## API
 

@@ -1,3 +1,5 @@
+import { PrivateKey, utils } from '@nemnesia/symbol-sdk';
+import { SymbolFacade, SymbolTransactionFactory, descriptors } from '@nemnesia/symbol-sdk/symbol';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { existsSync } from 'node:fs';
@@ -11,10 +13,12 @@ const envPath = resolve(fileURLToPath(new URL('../.env', import.meta.url)));
 if (existsSync(envPath)) process.loadEnvFile(envPath);
 
 const e2eHost = process.env.SYMBOL_E2E_HOST;
-const e2eAddress = process.env.SYMBOL_E2E_ADDRESS?.trim();
+const e2ePrivateKey = process.env.SYMBOL_E2E_PRIVATE_KEY?.trim();
+const e2eRestUrl = process.env.SYMBOL_E2E_REST_URL?.trim();
 const e2eSsl = process.env.SYMBOL_E2E_SSL !== 'false';
 const CONNECTION_TIMEOUT_MS = 15_000;
 const BLOCK_TIMEOUT_MS = 90_000;
+const CONFIRMED_ADDED_TIMEOUT_MS = 120_000;
 
 type BlockWaiter = {
   minimumCount: number;
@@ -23,10 +27,22 @@ type BlockWaiter = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-describe.skipIf(!e2eHost)('SymbolWebSocket Symbol testnet E2E', () => {
+type ConfirmedAddedWaiter = {
+  transactionHash: string;
+  resolve: (message: SymbolNotificationMap['confirmedAdded']) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const e2eEnabled = Boolean(e2eHost && e2ePrivateKey && e2eRestUrl);
+
+describe.skipIf(!e2eEnabled)('SymbolWebSocket Symbol testnet E2E', () => {
   let monitor!: SymbolWebSocket;
+  let facade!: SymbolFacade;
+  let account!: ReturnType<SymbolFacade['createAccount']>;
   const blockMessages: Array<SymbolNotificationMap['block']> = [];
   const blockWaiters = new Set<BlockWaiter>();
+  const confirmedAddedWaiters = new Set<ConfirmedAddedWaiter>();
   const unsubscribes: Array<() => void> = [];
 
   const observeBlock = (message: SymbolNotificationMap['block']): void => {
@@ -55,6 +71,58 @@ describe.skipIf(!e2eHost)('SymbolWebSocket Symbol testnet E2E', () => {
       };
       blockWaiters.add(waiter);
     });
+  };
+
+  const observeConfirmedAdded = (message: SymbolNotificationMap['confirmedAdded']): void => {
+    const transactionHash = message.data.meta.hash;
+    [...confirmedAddedWaiters].forEach((waiter) => {
+      if (waiter.transactionHash !== transactionHash) return;
+
+      clearTimeout(waiter.timer);
+      confirmedAddedWaiters.delete(waiter);
+      waiter.resolve(message);
+    });
+  };
+
+  const waitForConfirmedAdded = (transactionHash: string): Promise<SymbolNotificationMap['confirmedAdded']> =>
+    new Promise((resolve, reject) => {
+      const waiter: ConfirmedAddedWaiter = {
+        transactionHash,
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          confirmedAddedWaiters.delete(waiter);
+          reject(new Error('confirmedAdded notification was not received within ' + CONFIRMED_ADDED_TIMEOUT_MS + 'ms'));
+        }, CONFIRMED_ADDED_TIMEOUT_MS),
+      };
+      confirmedAddedWaiters.add(waiter);
+    });
+
+  const announceTransaction = async (payload: string): Promise<void> => {
+    const response = await fetch(new URL('/transactions', e2eRestUrl!).toString(), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Symbol testnet transaction announcement failed with HTTP ' + response.status);
+    }
+  };
+
+  const createSignedTransfer = (): { hash: string; payload: string } => {
+    const message = new TextEncoder().encode(
+      `symbol-websocket-e2e-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    );
+    const descriptor = new descriptors.TransferTransactionV1Descriptor(account.address, [], message);
+    const transaction = facade.createTransactionFromTypedDescriptor(descriptor, account.publicKey, 100, 120);
+    const signature = account.signTransaction(transaction);
+    SymbolTransactionFactory.attachSignature(transaction, signature);
+
+    return {
+      hash: facade.hashTransaction(transaction).toString(),
+      payload: utils.uint8ToHex(transaction.serialize()),
+    };
   };
 
   const waitForConnection = (client: SymbolWebSocket): Promise<void> =>
@@ -89,6 +157,8 @@ describe.skipIf(!e2eHost)('SymbolWebSocket Symbol testnet E2E', () => {
     });
 
   beforeAll(async () => {
+    facade = new SymbolFacade('testnet');
+    account = facade.createAccount(new PrivateKey(e2ePrivateKey!));
     monitor = new SymbolWebSocket({
       host: e2eHost!,
       ssl: e2eSsl,
@@ -100,9 +170,7 @@ describe.skipIf(!e2eHost)('SymbolWebSocket Symbol testnet E2E', () => {
     try {
       await waitForConnection(monitor);
       unsubscribes.push(monitor.on('block', observeBlock));
-      if (e2eAddress) {
-        unsubscribes.push(monitor.on('confirmedAdded', e2eAddress, () => {}));
-      }
+      unsubscribes.push(monitor.on('confirmedAdded', account.address.toString(), observeConfirmedAdded));
     } catch (error) {
       monitor.disconnect();
       throw error;
@@ -111,6 +179,7 @@ describe.skipIf(!e2eHost)('SymbolWebSocket Symbol testnet E2E', () => {
 
   afterAll(() => {
     blockWaiters.forEach((waiter) => clearTimeout(waiter.timer));
+    confirmedAddedWaiters.forEach((waiter) => clearTimeout(waiter.timer));
     unsubscribes.forEach((unsubscribe) => unsubscribe());
     monitor.disconnect();
   });
@@ -118,7 +187,7 @@ describe.skipIf(!e2eHost)('SymbolWebSocket Symbol testnet E2E', () => {
   it('Symbolノードへ接続し、blockチャネルを購読できるべきである', () => {
     expect(monitor.isConnected).toBe(true);
     expect(monitor.uid).toBeTruthy();
-    expect(unsubscribes).toHaveLength(e2eAddress ? 2 : 1);
+    expect(unsubscribes).toHaveLength(2);
   });
 
   it('実際のblock通知を受信できるべきである', async () => {
@@ -129,5 +198,16 @@ describe.skipIf(!e2eHost)('SymbolWebSocket Symbol testnet E2E', () => {
     expect(message.topic).toBe('block');
     expect(message.data.block.height).toMatch(/^\d+$/);
     expect(message.data.meta.hash).toMatch(/^[A-F0-9]+$/);
+  });
+
+  it('SDKで署名したトランザクションのconfirmedAdded通知を受信できるべきである', async () => {
+    const transaction = createSignedTransfer();
+    const confirmedAdded = waitForConfirmedAdded(transaction.hash);
+
+    await announceTransaction(transaction.payload);
+
+    const message = await confirmedAdded;
+    expect(message.topic).toBe(`confirmedAdded/${account.address.toString()}`);
+    expect(message.data.meta.hash).toBe(transaction.hash);
   });
 });
