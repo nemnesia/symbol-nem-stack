@@ -8,10 +8,12 @@ const sendMock = vi.fn();
 const oncloseMock = vi.fn();
 const onerrorMock = vi.fn();
 const onmessageMock = vi.fn();
+const webSocketConstructorMock = vi.fn();
 
 vi.mock('isomorphic-ws', () => {
   return {
-    default: function WebSocketMock() {
+    default: function WebSocketMock(url: string) {
+      webSocketConstructorMock(url);
       return {
         send: sendMock,
         onclose: oncloseMock,
@@ -34,12 +36,39 @@ describe('SymbolWebSocketMonitor', () => {
 
   beforeEach(() => {
     sendMock.mockClear();
+    webSocketConstructorMock.mockClear();
     // @ts-ignore
     monitor = new SymbolWebSocket(defaultOptions);
   });
 
   it('エラーなくインスタンス化されるべきである', () => {
     expect(monitor).toBeInstanceOf(SymbolWebSocket);
+  });
+
+  describe('host validation', () => {
+    it.each([
+      'trusted.example@attacker.example',
+      'trusted.example\\attacker.example',
+      'node.example:3000',
+      'node.example/path',
+    ])('URL authority の混入を拒否するべきである: %s', (host) => {
+      webSocketConstructorMock.mockClear();
+      expect(() => new SymbolWebSocket({ host, timeout: 0, ssl: false })).toThrow();
+      expect(webSocketConstructorMock).not.toHaveBeenCalled();
+    });
+
+    it('hostname、IPv4、IPv6 を接続 URLへ正しく変換するべきである', () => {
+      webSocketConstructorMock.mockClear();
+
+      new SymbolWebSocket({ host: 'node.example', timeout: 0, ssl: false });
+      expect(webSocketConstructorMock).toHaveBeenLastCalledWith('ws://node.example:3000/ws');
+
+      new SymbolWebSocket({ host: '127.0.0.1', timeout: 0, ssl: false });
+      expect(webSocketConstructorMock).toHaveBeenLastCalledWith('ws://127.0.0.1:3000/ws');
+
+      new SymbolWebSocket({ host: '[2001:db8::1]', timeout: 0, ssl: true });
+      expect(webSocketConstructorMock).toHaveBeenLastCalledWith('wss://[2001:db8::1]:3001/ws');
+    });
   });
 
   it('エラーコールバックが登録され、エラー時に呼び出されるべきである', () => {

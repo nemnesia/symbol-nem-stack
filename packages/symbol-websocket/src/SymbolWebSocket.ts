@@ -68,12 +68,34 @@ export class SymbolWebSocket {
     if (typeof options.host !== 'string' || options.host.trim() === '') {
       throw new TypeError('host must be a non-empty hostname or IP address');
     }
-    if (/[\s/?#]/.test(options.host) || options.host.includes('://')) {
-      throw new TypeError('host must not include a protocol, path, or port');
+    if (/[\s/?#@\\]/.test(options.host) || options.host.includes('://')) {
+      throw new TypeError('host must not include a protocol, userinfo, path, or port');
     }
     if (options.host.includes(':') && !(options.host.startsWith('[') && options.host.endsWith(']'))) {
       throw new TypeError('IPv6 hosts must be enclosed in brackets and ports are not supported');
     }
+
+    let parsedHost: URL;
+    try {
+      parsedHost = new URL(`ws://${options.host}:3000/ws`);
+    } catch {
+      throw new TypeError('host must be a valid hostname or IP address');
+    }
+
+    const isIpv6Address = parsedHost.hostname.startsWith('[') && parsedHost.hostname.endsWith(']');
+    const hostname = isIpv6Address ? parsedHost.hostname.slice(1, -1) : parsedHost.hostname;
+    const hostnameWithoutTrailingDot = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
+    const hostnameLabels = hostnameWithoutTrailingDot.split('.');
+    const isValidHostname =
+      isIpv6Address ||
+      (hostnameWithoutTrailingDot.length > 0 &&
+        hostnameWithoutTrailingDot.length <= 253 &&
+        hostnameLabels.every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label)));
+
+    if (!isValidHostname) {
+      throw new TypeError('host must be a valid hostname or IP address');
+    }
+
     if (typeof options.ssl !== 'boolean') {
       throw new TypeError('ssl must be a boolean');
     }
