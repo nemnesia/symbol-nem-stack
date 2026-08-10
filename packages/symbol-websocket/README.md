@@ -79,7 +79,6 @@ new SymbolWebSocket(options: SymbolWebSocketOptions);
 
 - `options`: 接続設定。
   - `host`: プロトコル・ポートを含まない接続先ホスト名または IP アドレス。
-    IPv6 は `[2001:db8::1]` の形式で指定します。
   - `ssl`: SSL を使用するかどうか（デフォルト: `true`）。有効時は `wss://{host}:3001/ws`、無効時は `ws://{host}:3000/ws` に接続します。
   - `timeout`: Gateway UID を受信するまでの接続タイムアウト（ミリ秒、デフォルト: `10000`）。各接続試行に適用され、`0` で無効化できます。
   - `autoReconnect`: 自動再接続を有効にするか（デフォルト: `true`）。
