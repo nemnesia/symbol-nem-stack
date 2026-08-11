@@ -14,7 +14,9 @@ if (existsSync(envPath)) process.loadEnvFile(envPath);
 
 const e2eHost = process.env.SYMBOL_E2E_HOST;
 const e2eSsl = process.env.SYMBOL_E2E_SSL !== 'false';
-const e2eRestUrl = e2eSsl ? "https://" + process.env.SYMBOL_E2E_HOST + ":3001" : "http://" + process.env.SYMBOL_E2E_HOST + ":3000";
+const e2eRestUrl = e2eSsl
+  ? 'https://' + process.env.SYMBOL_E2E_HOST + ':3001'
+  : 'http://' + process.env.SYMBOL_E2E_HOST + ':3000';
 const e2ePrivateKey = process.env.SYMBOL_E2E_PRIVATE_KEY?.trim();
 const CONNECTION_TIMEOUT_MS = 15_000;
 const BLOCK_TIMEOUT_MS = 90_000;
