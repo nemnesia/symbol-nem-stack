@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/symbol-event-stream",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "description": "自動重複排除機能付きマルチ接続SymbolブロックチェーンWebSocketイベントストリーム",
   "keywords": [
     "symbol",
@@ -37,6 +37,7 @@
   "files": [
     "dist/**/*",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
