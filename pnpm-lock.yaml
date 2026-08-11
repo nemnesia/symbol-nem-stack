@@ -101,6 +101,9 @@ importers:
       '@nemnesia/nodewatch-openapi-typescript-fetch-client':
         specifier: workspace:*
         version: link:../../packages/nodewatch-openapi-typescript-fetch-client
+      '@nemnesia/symbol-nem-node-picker':
+        specifier: workspace:*
+        version: link:../../packages/symbol-nem-node-picker
       '@nemnesia/symbol-openapi-typescript-fetch-client':
         specifier: workspace:*
         version: link:../../packages/symbol-openapi-typescript-fetch-client
@@ -110,9 +113,6 @@ importers:
       '@nemnesia/symbol-websocket':
         specifier: workspace:*
         version: link:../../packages/symbol-websocket
-      nem-symbol-node-picker:
-        specifier: workspace:*
-        version: link:../../packages/nem-symbol-node-picker
       react:
         specifier: ^19.2.3
         version: 19.2.6
@@ -146,15 +146,6 @@ importers:
         version: link:../../packages/symbol-websocket
 
   packages/nem-openapi-typescript-fetch-client: {}
-
-  packages/nem-symbol-node-picker:
-    dependencies:
-      '@nemnesia/nodewatch-openapi-provider':
-        specifier: ^0.1.0
-        version: 0.1.0
-      '@nemnesia/nodewatch-openapi-typescript-fetch-client':
-        specifier: ^1.0.1
-        version: 1.0.1
 
   packages/nem-websocket:
     dependencies:
@@ -212,6 +203,15 @@ importers:
       '@noble/hashes':
         specifier: 2.2.0
         version: 2.2.0
+
+  packages/symbol-nem-node-picker:
+    dependencies:
+      '@nemnesia/nodewatch-openapi-provider':
+        specifier: ^1.0.0
+        version: 1.0.0
+      '@nemnesia/nodewatch-openapi-typescript-fetch-client':
+        specifier: ^1.0.1
+        version: 1.0.1
 
   packages/symbol-openapi-typescript-fetch-client: {}
 
@@ -813,8 +813,8 @@ packages:
       '@types/react':
         optional: true
 
-  '@nemnesia/nodewatch-openapi-provider@0.1.0':
-    resolution: {integrity: sha512-udDD3DUApb5C0NMtqyab3btVlDe3nWhYWHWm64FW1kQNJ+fvoOEZ7Kco7RxVuQPqtIrxwZVLGdJxFFp1xqf0dA==}
+  '@nemnesia/nodewatch-openapi-provider@1.0.0':
+    resolution: {integrity: sha512-tUTSRqWVYJlwVBsMlvQ5L5S0Z5WiBKwcdfEnYU+oaOsbr3RqOT38MjWk0ncRr2AfT2z2Ibq1ak6E6hp+mhMQ+w==}
     engines: {node: '>=20.0.0'}
 
   '@nemnesia/nodewatch-openapi-typescript-fetch-client@1.0.1':
@@ -3748,7 +3748,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.15
 
-  '@nemnesia/nodewatch-openapi-provider@0.1.0':
+  '@nemnesia/nodewatch-openapi-provider@1.0.0':
     dependencies:
       '@nemnesia/nodewatch-openapi-typescript-fetch-client': 1.0.1
 
