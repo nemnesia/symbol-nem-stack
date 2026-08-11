@@ -185,7 +185,7 @@ interface NemWebSocketError {
 
 - 再接続は自動的に行われます（デフォルト有効）。
 - 再接続は指数バックオフ（最大60秒）とjitterを使用します。接続が30秒間安定すると再接続試行回数をリセットします。
-- 受信STOMPフレームは4 MiBを上限とし、`content-length`が不正または上限超過の場合は接続を破棄します。
+- 受信STOMPフレームは4 MiBを上限とし、`content-length`が不正・重複・上限超過の場合は接続を破棄します。
 - 再接続時は既存のサブスクリプションが自動的に復元されます。
 - 接続が切断されると、`isConnected` は `false`、`uid` は `null` になります。
 - `autoReconnect: false`を設定することで自動再接続を無効化できます。
