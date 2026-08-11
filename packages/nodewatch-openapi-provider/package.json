@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/nodewatch-openapi-provider",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "NodeWatch service client with failover support for Symbol and NEM blockchain nodes",
   "keywords": [
     "nem",
@@ -14,13 +14,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nemnesia/symbol-tools.git",
+    "url": "git+https://github.com/nemnesia/symbol-nem-stack.git",
     "directory": "packages/nodewatch-openapi-provider"
   },
   "bugs": {
-    "url": "https://github.com/nemnesia/symbol-tools/issues"
+    "url": "https://github.com/nemnesia/symbol-nem-stack/issues"
   },
-  "homepage": "https://github.com/nemnesia/symbol-tools/tree/main/packages/nodewatch-openapi-provider#readme",
+  "homepage": "https://github.com/nemnesia/symbol-nem-stack/tree/main/packages/nodewatch-openapi-provider#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -38,6 +38,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {
@@ -48,10 +49,11 @@
     "clean": "rm -rf dist",
     "lint": "eslint \"{src,test,e2e}/**/*.ts\" --fix",
     "format": "prettier --write \"{src,test,e2e}/**/*.ts\"",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:coverage:ui": "vitest --ui --coverage",
+    "test": "vitest run --dir test",
+    "test:e2e": "vitest run --dir e2e --testTimeout 90000",
+    "test:watch": "vitest --dir test",
+    "test:coverage": "vitest run --dir test --coverage",
+    "test:coverage:ui": "vitest --ui --dir test --coverage",
     "prepublishOnly": "pnpm run lint && pnpm run format && pnpm run build && pnpm test",
     "publish:dryrun": "npm publish --dry-run",
     "publish:release": "npm run build && npm publish"
