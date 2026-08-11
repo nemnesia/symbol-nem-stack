@@ -1,6 +1,8 @@
-import { Configuration, NEMNodesApi, SymbolNodesApi } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
+import {
+  createNemNodeWatchApi as createProviderNemNodeWatchApi,
+  createSymbolNodeWatchApi as createProviderSymbolNodeWatchApi,
+} from '@nemnesia/nodewatch-openapi-provider';
 
-export const createSymbolNodeWatchApi = (baseUrl: string) =>
-  new SymbolNodesApi(new Configuration({ basePath: baseUrl }));
+export const createSymbolNodeWatchApi = (baseUrls: readonly string[]) => createProviderSymbolNodeWatchApi(baseUrls);
 
-export const createNemNodeWatchApi = (baseUrl: string) => new NEMNodesApi(new Configuration({ basePath: baseUrl }));
+export const createNemNodeWatchApi = (baseUrls: readonly string[]) => createProviderNemNodeWatchApi(baseUrls);

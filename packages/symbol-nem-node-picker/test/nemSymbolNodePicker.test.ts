@@ -108,22 +108,11 @@ describe('nemSymbolNodePicker - モックテスト', () => {
     );
   });
 
-  it('NodeWatch候補へ並列にアクセスし、最初の成功結果を採用する', async () => {
-    const waitForAbort = (signal?: AbortSignal) =>
-      new Promise<never>((_, reject) => {
-        signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
-      });
-    const createSymbolNodeWatchApi = vi.fn((baseUrl: string) => {
-      const isSlowNode = baseUrl === 'https://sse.nemnesia.com';
-      return {
-        getSymbolHeight: (init?: RequestInit) =>
-          isSlowNode ? waitForAbort(init?.signal) : Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getSymbolPeerNodes: (_params?: unknown, init?: RequestInit) =>
-          isSlowNode
-            ? waitForAbort(init?.signal)
-            : Promise.resolve([{ height: 100, endpoint: 'https://symbol', isSslEnabled: true }]),
-      };
-    });
+  it('NodeWatch URLリストをproviderへ渡す', async () => {
+    const createSymbolNodeWatchApi = vi.fn(() => ({
+      getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
+      getSymbolPeerNodes: () => Promise.resolve([{ height: 100, endpoint: 'https://symbol', isSslEnabled: true }]),
+    }));
     vi.doMock('../src/nodeWatchApi.js', () => ({
       createSymbolNodeWatchApi,
       createNemNodeWatchApi: vi.fn(),
@@ -134,9 +123,8 @@ describe('nemSymbolNodePicker - モックテスト', () => {
     nemCache.clear();
 
     await expect(nemSymbolNodePicker()).resolves.toEqual(['https://symbol']);
-    expect(createSymbolNodeWatchApi).toHaveBeenCalledTimes(2);
-    expect(createSymbolNodeWatchApi).toHaveBeenCalledWith('https://sse.nemnesia.com');
-    expect(createSymbolNodeWatchApi).toHaveBeenCalledWith('https://sse2.nemnesia.com');
+    expect(createSymbolNodeWatchApi).toHaveBeenCalledTimes(1);
+    expect(createSymbolNodeWatchApi).toHaveBeenCalledWith(['https://sse.nemnesia.com', 'https://sse2.nemnesia.com']);
   });
 
   it('キャッシュヒット時はAPIを呼ばない', async () => {
