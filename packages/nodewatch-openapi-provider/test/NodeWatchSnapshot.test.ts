@@ -9,6 +9,22 @@ function jsonResponse(value: unknown): Response {
   });
 }
 
+function nodeResponse(
+  endpoint = 'https://node.example.com',
+  height = 100,
+  finalizedHeight = height
+): Record<string, unknown> {
+  return {
+    mainPublicKey: 'a'.repeat(64),
+    endpoint,
+    name: 'node',
+    version: '1.0.0',
+    height,
+    finalizedHeight,
+    balance: 0,
+  };
+}
+
 describe('NodeWatch snapshot', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -21,7 +37,7 @@ describe('NodeWatch snapshot', () => {
         return Promise.resolve(jsonResponse({ height: 100, finalizedHeight: 99 }));
       }
       return Promise.resolve(
-        jsonResponse([{ endpoint: '' }, { endpoint: '  ' }, { endpoint: 'https://valid.example.com' }])
+        jsonResponse([{ endpoint: '' }, { endpoint: '  ' }, nodeResponse('https://valid.example.com')])
       );
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -35,6 +51,22 @@ describe('NodeWatch snapshot', () => {
     expect(fetchMock).toHaveBeenCalledWith('https://symbol.example.com/api/symbol/nodes/peer', expect.anything());
   });
 
+  it('Nodeのheight 0とfinalizedHeight 0を許容する', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/symbol/height')) {
+        return Promise.resolve(jsonResponse({ height: 100, finalizedHeight: 99 }));
+      }
+      return Promise.resolve(jsonResponse([nodeResponse('https://unsynced.example.com', 0, 0)]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchSymbolNodeWatchSnapshot(['https://symbol.example.com']);
+
+    expect(result.nodes).toHaveLength(1);
+    expect(result.nodes[0]).toMatchObject({ height: 0, finalizedHeight: 0 });
+  });
+
   it('heightまたはNode一覧の失敗時はURL組全体をfailoverする', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -44,7 +76,7 @@ describe('NodeWatch snapshot', () => {
       if (url.endsWith('/api/symbol/height')) {
         return Promise.resolve(jsonResponse({ height: 200, finalizedHeight: 200 }));
       }
-      return Promise.resolve(jsonResponse([{ endpoint: 'https://second-node.example.com' }]));
+      return Promise.resolve(jsonResponse([nodeResponse('https://second-node.example.com')]));
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -65,7 +97,7 @@ describe('NodeWatch snapshot', () => {
     let receivedSignal: AbortSignal | null | undefined;
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       receivedSignal = init?.signal;
-      return Promise.resolve(jsonResponse([{ endpoint: 'https://nem-node.example.com' }]));
+      return Promise.resolve(jsonResponse([nodeResponse('https://nem-node.example.com')]));
     });
     fetchMock.mockImplementationOnce((_input, init) => {
       receivedSignal = init?.signal;
@@ -78,6 +110,82 @@ describe('NodeWatch snapshot', () => {
     expect(result.heightInfo).toEqual({ height: 300, finalizedHeight: 299 });
     expect(result.nodes[0].endpoint).toBe('https://nem-node.example.com');
     expect(receivedSignal).toBe(controller.signal);
+  });
+
+  it('不正なheight responseでURL組全体をfailoverする', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('https://first.example.com')) {
+        if (url.endsWith('/api/symbol/height')) return Promise.resolve(jsonResponse({ height: 'invalid' }));
+        return Promise.resolve(jsonResponse([nodeResponse('https://first-node.example.com')]));
+      }
+      if (url.endsWith('/api/symbol/height'))
+        return Promise.resolve(jsonResponse({ height: 300, finalizedHeight: 299 }));
+      return Promise.resolve(jsonResponse([nodeResponse('https://second-node.example.com')]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchSymbolNodeWatchSnapshot(['https://first.example.com', 'https://second.example.com']);
+
+    expect(result.heightInfo.height).toBe(300);
+    expect(result.nodes[0].endpoint).toBe('https://second-node.example.com');
+    expect(fetchMock.mock.calls.every(([input]) => !String(input).startsWith('https://third.example.com'))).toBe(true);
+  });
+
+  it('不正なNode responseでURL組全体をfailoverする', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('https://first.example.com')) {
+        if (url.endsWith('/api/symbol/height'))
+          return Promise.resolve(jsonResponse({ height: 400, finalizedHeight: 399 }));
+        return Promise.resolve(jsonResponse([{ endpoint: 'https://missing-required-fields.example.com' }]));
+      }
+      if (url.endsWith('/api/symbol/height'))
+        return Promise.resolve(jsonResponse({ height: 401, finalizedHeight: 400 }));
+      return Promise.resolve(jsonResponse([nodeResponse('https://valid-node.example.com')]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchSymbolNodeWatchSnapshot(['https://first.example.com', 'https://second.example.com']);
+
+    expect(result.heightInfo.height).toBe(401);
+    expect(result.nodes[0].endpoint).toBe('https://valid-node.example.com');
+  });
+
+  it('絶対URIでないNode endpointでURL組全体をfailoverする', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('https://first.example.com')) {
+        if (url.endsWith('/api/symbol/height'))
+          return Promise.resolve(jsonResponse({ height: 500, finalizedHeight: 499 }));
+        return Promise.resolve(jsonResponse([nodeResponse('node.example.com')]));
+      }
+      if (url.endsWith('/api/symbol/height'))
+        return Promise.resolve(jsonResponse({ height: 501, finalizedHeight: 500 }));
+      return Promise.resolve(jsonResponse([nodeResponse('https://valid-node.example.com', 0, 0)]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchSymbolNodeWatchSnapshot(['https://first.example.com', 'https://second.example.com']);
+
+    expect(result.heightInfo.height).toBe(501);
+    expect(result.nodes[0].endpoint).toBe('https://valid-node.example.com');
+  });
+
+  it('AbortSignal中止時は後続URLへfailoverしない', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn((_input: RequestInfo | URL) => {
+      controller.abort();
+      return Promise.reject(new Error('request cancelled'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetchSymbolNodeWatchSnapshot(['https://first.example.com', 'https://second.example.com'], {
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock.mock.calls.every(([input]) => String(input).startsWith('https://first.example.com'))).toBe(true);
   });
 
   it('空URL配列を拒否する', async () => {

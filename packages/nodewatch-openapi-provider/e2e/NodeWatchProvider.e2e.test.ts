@@ -6,7 +6,7 @@ import { fetchNemNodeWatchSnapshot, fetchSymbolNodeWatchSnapshot } from '../src/
 const E2E_TIMEOUT = 90_000;
 const AVAILABILITY_TIMEOUT = 10_000;
 const REQUEST_TIMEOUT = 30_000;
-// NODEWATCH-PROVIDER-INTEROP-001: 現行NodeWatch実応答では未観測ノードのheightが0になる場合がある。
+// provider契約: 未観測ノードを表すheight 0を許容する。
 const MIN_REPORTED_NODE_HEIGHT = 0;
 const mainnetUrls = ['https://nodewatch.symbol.tools'];
 const testnetUrls = ['https://nodewatch.symbol.tools/testnet'];
