@@ -8,7 +8,6 @@
 
 ### 追加
 
-- `@nemnesia/symbol-websocket` v1 に対応
 - TypeScript利用時に、購読チャネルに応じた通知型を `on()` / `off()` のコールバックへ適用
 
 ### 変更
