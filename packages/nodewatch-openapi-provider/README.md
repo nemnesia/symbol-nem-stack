@@ -8,6 +8,8 @@ SymbolおよびNEMブロックチェーンノード向けのフェイルオー�
 - [@nemnesia/nodewatch-openapi-typescript-fetch-client](https://www.npmjs.com/package/@nemnesia/nodewatch-openapi-typescript-fetch-client)の上に構築
 - TypeScript対応
 
+ネットワークは指定したURLリストの内容で決まり、providerはネットワークを自動判定しません。URLリストは少なくとも1件必要です。
+
 ## インストール方法
 
 ```bash
@@ -19,17 +21,11 @@ npm install @nemnesia/nodewatch-openapi-provider @nemnesia/nodewatch-openapi-typ
 ```typescript
 import { createNemNodeWatchApi, createSymbolNodeWatchApi } from '@nemnesia/nodewatch-openapi-provider';
 
-// SymbolノードAPIの作成
-const symbolApi = createSymbolNodeWatchApi('mainnet');
+// SymbolノードAPIの作成（URLリストは必須）
+const symbolApi = createSymbolNodeWatchApi(['https://sse.nemnesia.com', 'https://sse2.nemnesia.com']);
 
 // NEMノードAPIの作成
-const nemApi = createNemNodeWatchApi('testnet');
-
-// URLリストを利用者側で指定する場合
-const customSymbolApi = createSymbolNodeWatchApi('mainnet', [
-  'https://nodewatch.example.com',
-  'https://nodewatch-backup.example.com',
-]);
+const nemApi = createNemNodeWatchApi(['https://testnet.sse.nemnesia.com', 'https://testnet.sse2.nemnesia.com']);
 ```
 
 ## E2Eテスト

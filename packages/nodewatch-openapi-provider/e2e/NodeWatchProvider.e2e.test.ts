@@ -1,7 +1,6 @@
 import type { HeightInfo, Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 import { describe, expect, test } from 'vitest';
 
-import { nodewatchMainnetUrls, nodewatchTestnetUrls } from '../src/FailoverApi.js';
 import { createNemNodeWatchApi, createSymbolNodeWatchApi } from '../src/index.js';
 
 const E2E_TIMEOUT = 90_000;
@@ -9,6 +8,8 @@ const AVAILABILITY_TIMEOUT = 10_000;
 const REQUEST_TIMEOUT = 30_000;
 // NODEWATCH-PROVIDER-INTEROP-001: 現行NodeWatch実応答では未観測ノードのheightが0になる場合がある。
 const MIN_REPORTED_NODE_HEIGHT = 0;
+const mainnetUrls = ['https://nodewatch.symbol.tools'];
+const testnetUrls = ['https://nodewatch.symbol.tools/testnet'];
 
 type NodeWatchScenario = {
   name: string;
@@ -65,36 +66,36 @@ function expectNode(node: Node): void {
 }
 
 const [symbolMainnetAvailable, symbolTestnetAvailable, nemMainnetAvailable, nemTestnetAvailable] = await Promise.all([
-  hasAvailableNodeWatch(nodewatchMainnetUrls, ['/api/symbol/height', '/api/symbol/nodes/peer']),
-  hasAvailableNodeWatch(nodewatchTestnetUrls, ['/api/symbol/height', '/api/symbol/nodes/peer']),
-  hasAvailableNodeWatch(nodewatchMainnetUrls, ['/api/nem/height', '/api/nem/nodes']),
-  hasAvailableNodeWatch(nodewatchTestnetUrls, ['/api/nem/height', '/api/nem/nodes']),
+  hasAvailableNodeWatch(mainnetUrls, ['/api/symbol/height', '/api/symbol/nodes/peer']),
+  hasAvailableNodeWatch(testnetUrls, ['/api/symbol/height', '/api/symbol/nodes/peer']),
+  hasAvailableNodeWatch(mainnetUrls, ['/api/nem/height', '/api/nem/nodes']),
+  hasAvailableNodeWatch(testnetUrls, ['/api/nem/height', '/api/nem/nodes']),
 ]);
 
 const scenarios: NodeWatchScenario[] = [
   {
     name: 'Symbol mainnet',
     available: symbolMainnetAvailable,
-    getHeight: (signal) => createSymbolNodeWatchApi('mainnet').getSymbolHeight({ signal }),
-    getNodes: (signal) => createSymbolNodeWatchApi('mainnet').getSymbolPeerNodes({ limit: 10 }, { signal }),
+    getHeight: (signal) => createSymbolNodeWatchApi(mainnetUrls).getSymbolHeight({ signal }),
+    getNodes: (signal) => createSymbolNodeWatchApi(mainnetUrls).getSymbolPeerNodes({ limit: 10 }, { signal }),
   },
   {
     name: 'Symbol testnet',
     available: symbolTestnetAvailable,
-    getHeight: (signal) => createSymbolNodeWatchApi('testnet').getSymbolHeight({ signal }),
-    getNodes: (signal) => createSymbolNodeWatchApi('testnet').getSymbolPeerNodes({ limit: 10 }, { signal }),
+    getHeight: (signal) => createSymbolNodeWatchApi(testnetUrls).getSymbolHeight({ signal }),
+    getNodes: (signal) => createSymbolNodeWatchApi(testnetUrls).getSymbolPeerNodes({ limit: 10 }, { signal }),
   },
   {
     name: 'NEM mainnet',
     available: nemMainnetAvailable,
-    getHeight: (signal) => createNemNodeWatchApi('mainnet').getNemHeight({ signal }),
-    getNodes: (signal) => createNemNodeWatchApi('mainnet').getNemNodes({ signal }),
+    getHeight: (signal) => createNemNodeWatchApi(mainnetUrls).getNemHeight({ signal }),
+    getNodes: (signal) => createNemNodeWatchApi(mainnetUrls).getNemNodes({ signal }),
   },
   {
     name: 'NEM testnet',
     available: nemTestnetAvailable,
-    getHeight: (signal) => createNemNodeWatchApi('testnet').getNemHeight({ signal }),
-    getNodes: (signal) => createNemNodeWatchApi('testnet').getNemNodes({ signal }),
+    getHeight: (signal) => createNemNodeWatchApi(testnetUrls).getNemHeight({ signal }),
+    getNodes: (signal) => createNemNodeWatchApi(testnetUrls).getNemNodes({ signal }),
   },
 ];
 

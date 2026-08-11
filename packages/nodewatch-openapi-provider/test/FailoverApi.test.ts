@@ -1,14 +1,7 @@
 import { Configuration } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  FailoverApi,
-  type NodeWatchNetwork,
-  createNemNodeWatchApi,
-  createSymbolNodeWatchApi,
-  nodewatchMainnetUrls,
-  nodewatchTestnetUrls,
-} from '../src/FailoverApi.js';
+import { FailoverApi, createNemNodeWatchApi, createSymbolNodeWatchApi } from '../src/FailoverApi.js';
 
 // Mock API class for testing
 class MockApi {
@@ -131,26 +124,9 @@ describe('FailoverApi', () => {
     });
   });
 
-  describe('URL constants', () => {
-    it('should have mainnet URLs defined', () => {
-      expect(nodewatchMainnetUrls).toBeDefined();
-      expect(nodewatchMainnetUrls.length).toBeGreaterThan(0);
-    });
-
-    it('should have testnet URLs defined', () => {
-      expect(nodewatchTestnetUrls).toBeDefined();
-      expect(nodewatchTestnetUrls.length).toBeGreaterThan(0);
-    });
-  });
-
   describe('createSymbolNodesApi', () => {
-    it('should create SymbolNodesApi for mainnet', () => {
-      const api = createSymbolNodeWatchApi('mainnet');
-      expect(api).toBeDefined();
-    });
-
-    it('should create SymbolNodesApi for testnet', () => {
-      const api = createSymbolNodeWatchApi('testnet');
+    it('should create SymbolNodesApi with the supplied URLs', () => {
+      const api = createSymbolNodeWatchApi(['https://mainnet.example.com']);
       expect(api).toBeDefined();
     });
 
@@ -163,30 +139,40 @@ describe('FailoverApi', () => {
       );
       vi.stubGlobal('fetch', fetchMock);
 
-      await createSymbolNodeWatchApi('mainnet', ['https://custom.example.com']).getSymbolHeight();
+      await createSymbolNodeWatchApi(['https://custom.example.com']).getSymbolHeight();
 
       expect(fetchMock).toHaveBeenCalledWith('https://custom.example.com/api/symbol/height', expect.anything());
     });
 
-    it('should reject an invalid network at runtime', () => {
-      expect(() => createSymbolNodeWatchApi('invalid' as NodeWatchNetwork)).toThrow(
-        "Invalid network: invalid. Must be 'mainnet' or 'testnet'."
+    it('should exclude nodes with empty endpoints from node list responses', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([{ endpoint: '' }, { endpoint: '  ' }, { endpoint: 'https://valid.example.com' }]),
+          {
+            headers: { 'content-type': 'application/json' },
+            status: 200,
+          }
+        )
       );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const nodes = await createSymbolNodeWatchApi(['https://custom.example.com']).getSymbolPeerNodes({});
+
+      expect(nodes).toEqual([{ endpoint: 'https://valid.example.com' }]);
     });
 
     it('should reject an empty custom URL list', () => {
-      expect(() => createSymbolNodeWatchApi('mainnet', [])).toThrow('At least one base URL is required');
+      expect(() => createSymbolNodeWatchApi([])).toThrow('At least one base URL is required');
+    });
+
+    it('should reject a missing URL list at runtime', () => {
+      expect(() => createSymbolNodeWatchApi(undefined as never)).toThrow('At least one base URL is required');
     });
   });
 
   describe('createNEMNodesApi', () => {
-    it('should create NEMNodesApi for mainnet', () => {
-      const api = createNemNodeWatchApi('mainnet');
-      expect(api).toBeDefined();
-    });
-
-    it('should create NEMNodesApi for testnet', () => {
-      const api = createNemNodeWatchApi('testnet');
+    it('should create NEMNodesApi with the supplied URLs', () => {
+      const api = createNemNodeWatchApi(['https://testnet.example.com']);
       expect(api).toBeDefined();
     });
   });

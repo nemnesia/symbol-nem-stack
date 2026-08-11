@@ -4,16 +4,26 @@ import {
   SymbolNodesApi as SymbolNodeWatchApi,
 } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 
-/** NodeWatch メインネット用URLリスト */
-export const nodewatchMainnetUrls = ['https://sse.nemnesia.com', 'https://sse2.nemnesia.com'];
-/** NodeWatch テストネット用URLリスト */
-export const nodewatchTestnetUrls = ['https://testnet.sse.nemnesia.com', 'https://testnet.sse2.nemnesia.com'];
-
 /** APIクラスのコンストラクタの型定義 */
 type ApiConstructor<T> = new (config: Configuration) => T;
 
-/** NodeWatchが提供するネットワーク。 */
-export type NodeWatchNetwork = 'mainnet' | 'testnet';
+/** NodeWatchのノード一覧を返すAPIメソッド */
+const NODE_LIST_METHODS = new Set(['getSymbolApiNodes', 'getSymbolPeerNodes', 'getNemNodes']);
+
+/** 利用可能なendpointを持つNodeかどうかを判定 */
+function hasUsableEndpoint(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+
+  const endpoint = (value as { endpoint?: unknown }).endpoint;
+  return typeof endpoint === 'string' && endpoint.trim().length > 0;
+}
+
+/** ノード一覧からendpointが空のNodeを除外 */
+function filterNodeListResult<R>(methodName: string, result: R): R {
+  if (!NODE_LIST_METHODS.has(methodName) || !Array.isArray(result)) return result;
+
+  return result.filter(hasUsableEndpoint) as R;
+}
 
 /**
  * フェールオーバー対応のAPIクラス
@@ -38,7 +48,7 @@ export class FailoverApi<T> {
     private retryOnError = true,
     maxRetries?: number
   ) {
-    if (baseUrls.length === 0) {
+    if (!Array.isArray(baseUrls) || baseUrls.length === 0) {
       throw new Error('At least one base URL is required');
     }
     this.apis = baseUrls.map((url) => new ApiClass(new Configuration({ basePath: url })));
@@ -56,7 +66,7 @@ export class FailoverApi<T> {
 
         // APIのメソッドをフェールオーバー対応で呼び出す
         return function (...args: any[]) {
-          return target.executeWithFailover((api) => (api as any)[prop](...args));
+          return target.executeWithFailover((api) => (api as any)[prop](...args), prop);
         };
       },
     }) as any;
@@ -66,9 +76,10 @@ export class FailoverApi<T> {
    * フェールオーバー対応でAPIメソッドを実行
    *
    * @param apiMethod APIメソッド
+   * @param methodName APIメソッド名
    * @returns APIメソッドの結果
    */
-  private async executeWithFailover<R>(apiMethod: (api: T) => Promise<R>): Promise<R> {
+  private async executeWithFailover<R>(apiMethod: (api: T) => Promise<R>, methodName?: string): Promise<R> {
     let lastError: Error | undefined;
     const attemptLimit = Math.min(this.maxRetries, this.apis.length);
 
@@ -77,7 +88,7 @@ export class FailoverApi<T> {
 
       try {
         const result = await apiMethod(api);
-        return result;
+        return methodName ? filterNodeListResult(methodName, result) : result;
       } catch (error) {
         lastError = error as Error;
         console.warn(
@@ -100,31 +111,19 @@ export class FailoverApi<T> {
 /**
  * フェールオーバー対応のNodeWatch SymbolNodesAPIインスタンスを作成
  *
- * @param network 対象ネットワーク（`mainnet` または `testnet`）
- * @param baseUrls NodeWatchのベースURLリスト（省略時はネットワークの既定値）
+ * @param baseUrls NodeWatchのベースURLリスト
  * @returns SymbolNodesApi互換のフェールオーバー対応APIインスタンス
  */
-export function createSymbolNodeWatchApi(network: NodeWatchNetwork, baseUrls?: readonly string[]): SymbolNodeWatchApi {
-  const urls = getNodeWatchUrls(network, baseUrls);
-  return new FailoverApi(SymbolNodeWatchApi, urls, true) as unknown as SymbolNodeWatchApi;
+export function createSymbolNodeWatchApi(baseUrls: readonly string[]): SymbolNodeWatchApi {
+  return new FailoverApi(SymbolNodeWatchApi, baseUrls, true) as unknown as SymbolNodeWatchApi;
 }
 
 /**
  * フェールオーバー対応のNodeWatch NEMNodesAPIインスタンスを作成
  *
- * @param network 対象ネットワーク（`mainnet` または `testnet`）
- * @param baseUrls NodeWatchのベースURLリスト（省略時はネットワークの既定値）
+ * @param baseUrls NodeWatchのベースURLリスト
  * @returns NEMNodesApi互換のフェールオーバー対応APIインスタンス
  */
-export function createNemNodeWatchApi(network: NodeWatchNetwork, baseUrls?: readonly string[]): NemNodeWatchApi {
-  const urls = getNodeWatchUrls(network, baseUrls);
-  return new FailoverApi(NemNodeWatchApi, urls, true) as unknown as NemNodeWatchApi;
-}
-
-function getNodeWatchUrls(network: NodeWatchNetwork, baseUrls?: readonly string[]): readonly string[] {
-  if (network !== 'mainnet' && network !== 'testnet') {
-    throw new Error(`Invalid network: ${String(network)}. Must be 'mainnet' or 'testnet'.`);
-  }
-
-  return baseUrls ?? (network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls);
+export function createNemNodeWatchApi(baseUrls: readonly string[]): NemNodeWatchApi {
+  return new FailoverApi(NemNodeWatchApi, baseUrls, true) as unknown as NemNodeWatchApi;
 }
