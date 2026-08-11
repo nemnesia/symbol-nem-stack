@@ -14,7 +14,7 @@ ignoredBuiltDependencies:
   - argon2
 
 minimumReleaseAgeExclude:
-  - '@nemnesia/symbol-websocket@0.2.2'
+  - '@nemnesia/symbol-websocket@0.2.2 || 1.0.0'
 
 onlyBuiltDependencies:
   - esbuild

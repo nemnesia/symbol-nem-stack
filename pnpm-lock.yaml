@@ -198,8 +198,8 @@ importers:
   packages/symbol-event-stream:
     dependencies:
       '@nemnesia/symbol-websocket':
-        specifier: ^0.2.2
-        version: 0.2.2
+        specifier: ^1.0.0
+        version: 1.0.0
 
   packages/symbol-nem-interchange-format:
     dependencies:
@@ -840,6 +840,9 @@ packages:
 
   '@nemnesia/symbol-websocket@0.2.2':
     resolution: {integrity: sha512-TZfvqFnt/SUlvo8/lGSFfkhNfQ6EOQcwPBBJQvwvI7/XflcP4tFokqQ8bWdQY4J/5pRPHvCzEgxC6Wbuj1R4XQ==}
+
+  '@nemnesia/symbol-websocket@1.0.0':
+    resolution: {integrity: sha512-F5FJ6m6/RYJSTSBdIHY1DW4OXnQMvEehZuIAxwgLkMXmvG6Nfb78qLggIM6AzQLXPERj1J9vawjO1BDxnQF2tA==}
 
   '@nestjs/axios@4.0.1':
     resolution: {integrity: sha512-68pFJgu+/AZbWkGu65Z3r55bTsCPlgyKaV4BSG8yUAD72q1PPuyVRgUwFv6BxdnibTUHlyxm06FmYWNC+bjN7A==}
@@ -3710,6 +3713,15 @@ snapshots:
   '@nemnesia/nodewatch-openapi-typescript-fetch-client@1.0.1': {}
 
   '@nemnesia/symbol-websocket@0.2.2':
+    dependencies:
+      '@types/ws': 8.18.1
+      isomorphic-ws: 5.0.0(ws@8.21.1)
+      ws: 8.21.1
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@nemnesia/symbol-websocket@1.0.0':
     dependencies:
       '@types/ws': 8.18.1
       isomorphic-ws: 5.0.0(ws@8.21.1)
