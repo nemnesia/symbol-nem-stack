@@ -1,8 +1,9 @@
 import { Configuration } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   FailoverApi,
+  type NodeWatchNetwork,
   createNemNodeWatchApi,
   createSymbolNodeWatchApi,
   nodewatchMainnetUrls,
@@ -29,6 +30,10 @@ class MockApi {
 describe('FailoverApi', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe('constructor', () => {
@@ -140,24 +145,48 @@ describe('FailoverApi', () => {
 
   describe('createSymbolNodesApi', () => {
     it('should create SymbolNodesApi for mainnet', () => {
-      const api = createSymbolNodeWatchApi(true);
+      const api = createSymbolNodeWatchApi('mainnet');
       expect(api).toBeDefined();
     });
 
     it('should create SymbolNodesApi for testnet', () => {
-      const api = createSymbolNodeWatchApi(false);
+      const api = createSymbolNodeWatchApi('testnet');
       expect(api).toBeDefined();
+    });
+
+    it('should use custom base URLs', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ height: 10, finalizedHeight: 9 }), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await createSymbolNodeWatchApi('mainnet', ['https://custom.example.com']).getSymbolHeight();
+
+      expect(fetchMock).toHaveBeenCalledWith('https://custom.example.com/api/symbol/height', expect.anything());
+    });
+
+    it('should reject an invalid network at runtime', () => {
+      expect(() => createSymbolNodeWatchApi('invalid' as NodeWatchNetwork)).toThrow(
+        "Invalid network: invalid. Must be 'mainnet' or 'testnet'."
+      );
+    });
+
+    it('should reject an empty custom URL list', () => {
+      expect(() => createSymbolNodeWatchApi('mainnet', [])).toThrow('At least one base URL is required');
     });
   });
 
   describe('createNEMNodesApi', () => {
     it('should create NEMNodesApi for mainnet', () => {
-      const api = createNemNodeWatchApi(true);
+      const api = createNemNodeWatchApi('mainnet');
       expect(api).toBeDefined();
     });
 
     it('should create NEMNodesApi for testnet', () => {
-      const api = createNemNodeWatchApi(false);
+      const api = createNemNodeWatchApi('testnet');
       expect(api).toBeDefined();
     });
   });

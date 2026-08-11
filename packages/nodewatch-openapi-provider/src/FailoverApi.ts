@@ -12,6 +12,9 @@ export const nodewatchTestnetUrls = ['https://testnet.sse.nemnesia.com', 'https:
 /** APIクラスのコンストラクタの型定義 */
 type ApiConstructor<T> = new (config: Configuration) => T;
 
+/** NodeWatchが提供するネットワーク。 */
+export type NodeWatchNetwork = 'mainnet' | 'testnet';
+
 /**
  * フェールオーバー対応のAPIクラス
  */
@@ -31,7 +34,7 @@ export class FailoverApi<T> {
    */
   constructor(
     ApiClass: ApiConstructor<T>,
-    baseUrls: string[],
+    baseUrls: readonly string[],
     private retryOnError = true,
     maxRetries?: number
   ) {
@@ -97,21 +100,31 @@ export class FailoverApi<T> {
 /**
  * フェールオーバー対応のNodeWatch SymbolNodesAPIインスタンスを作成
  *
- * @param isMainNet メインネットの場合true、テストネットの場合false
+ * @param network 対象ネットワーク（`mainnet` または `testnet`）
+ * @param baseUrls NodeWatchのベースURLリスト（省略時はネットワークの既定値）
  * @returns SymbolNodesApi互換のフェールオーバー対応APIインスタンス
  */
-export function createSymbolNodeWatchApi(isMainNet: boolean): SymbolNodeWatchApi {
-  const urls = isMainNet ? nodewatchMainnetUrls : nodewatchTestnetUrls;
+export function createSymbolNodeWatchApi(network: NodeWatchNetwork, baseUrls?: readonly string[]): SymbolNodeWatchApi {
+  const urls = getNodeWatchUrls(network, baseUrls);
   return new FailoverApi(SymbolNodeWatchApi, urls, true) as unknown as SymbolNodeWatchApi;
 }
 
 /**
  * フェールオーバー対応のNodeWatch NEMNodesAPIインスタンスを作成
  *
- * @param isMainNet メインネットの場合true、テストネットの場合false
+ * @param network 対象ネットワーク（`mainnet` または `testnet`）
+ * @param baseUrls NodeWatchのベースURLリスト（省略時はネットワークの既定値）
  * @returns NEMNodesApi互換のフェールオーバー対応APIインスタンス
  */
-export function createNemNodeWatchApi(isMainNet: boolean): NemNodeWatchApi {
-  const urls = isMainNet ? nodewatchMainnetUrls : nodewatchTestnetUrls;
+export function createNemNodeWatchApi(network: NodeWatchNetwork, baseUrls?: readonly string[]): NemNodeWatchApi {
+  const urls = getNodeWatchUrls(network, baseUrls);
   return new FailoverApi(NemNodeWatchApi, urls, true) as unknown as NemNodeWatchApi;
+}
+
+function getNodeWatchUrls(network: NodeWatchNetwork, baseUrls?: readonly string[]): readonly string[] {
+  if (network !== 'mainnet' && network !== 'testnet') {
+    throw new Error(`Invalid network: ${String(network)}. Must be 'mainnet' or 'testnet'.`);
+  }
+
+  return baseUrls ?? (network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls);
 }

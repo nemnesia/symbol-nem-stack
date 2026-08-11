@@ -1,6 +1,6 @@
 import { createSymbolNodeWatchApi } from '../src/index.js';
 
-const symbolNodeWatchApi = createSymbolNodeWatchApi(true);
+const symbolNodeWatchApi = createSymbolNodeWatchApi('mainnet');
 symbolNodeWatchApi.getSymbolPeerNodes().then((response) => {
   console.log(response);
 });
