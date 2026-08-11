@@ -21,11 +21,11 @@
     "@fontsource/roboto": "^5.2.9",
     "@mui/icons-material": "^7.3.6",
     "@mui/material": "^7.3.6",
-    "@nemnesia/symbol-sdk": "workspace:*",
-    "@nemnesia/symbol-openapi-typescript-fetch-client": "workspace:*",
-    "@nemnesia/nodewatch-openapi-typescript-fetch-client": "workspace:*",
-    "@nemnesia/symbol-websocket": "workspace:*",
     "@nemnesia/nodewatch-openapi-provider": "workspace:*",
+    "@nemnesia/nodewatch-openapi-typescript-fetch-client": "workspace:*",
+    "@nemnesia/symbol-openapi-typescript-fetch-client": "workspace:*",
+    "@nemnesia/symbol-sdk": "workspace:*",
+    "@nemnesia/symbol-websocket": "workspace:*",
     "nem-symbol-node-picker": "workspace:*",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
@@ -33,7 +33,6 @@
   "devDependencies": {
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.26"
   },

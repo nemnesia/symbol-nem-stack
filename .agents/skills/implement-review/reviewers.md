@@ -2,7 +2,7 @@
 
 本レビューは、トップレベルのメインエージェントが務める Review Board Chair と、`multi_agent_v1__spawn_agent` で起動する独立した Reviewer A、Reviewer B、Reviewer C、Reviewer D の4つのサブエージェントで構成する。各 Reviewer は Phase 1 では独立し、Phase 2 でだけ他の指摘を評価する。Reviewer は担当観点のメモだけを返し、レビュー対象や成果物を編集しない。
 
-Chair は Reviewer A、B、C、D をそれぞれ別の `multi_agent_v1__spawn_agent` 呼び出しで起動し、各呼び出しに `fork_context: false` を指定する。返却された4つの `agent_id` が存在し、相互に異なることを確認できるまで Phase 1 を開始してはならない。Phase 1 後は、その同じ `agent_id` へ `multi_agent_v1__send_input` で全メモを個別に送り、各 `submission_id` の完了を `multi_agent_v1__wait_agent` で確認する。起動、送信、完了のいずれかを確認できない場合は、自己レビューへフォールバックせず、レビュー結果を生成または更新しない。
+Chair は Reviewer A、B、C、D をそれぞれ別の `multi_agent_v1__spawn_agent` 呼び出しで、同じツール呼び出しラウンドに並列発行せず、A、B、C、D の順に起動する。各呼び出しに `fork_context: false` を指定し、通常は `gpt-5.6-luna`、`reasoning_effort: low`、`service_tier: priority` を指定する。容量・起動エラー時は、該当 agent を閉じて同じ役割を `gpt-5.4`、`reasoning_effort: low`、`service_tier: priority` で1回だけ再起動する。返却された4つの最終 `agent_id` が存在し、相互に異なることを確認できるまで Phase 1 を開始してはならない。Phase 1 後は、その同じ最終 `agent_id` へ `multi_agent_v1__send_input` で全メモを個別に送り、各 `submission_id` の完了を `multi_agent_v1__wait_agent` で確認する。再試行後も起動、送信、完了のいずれかを確認できない場合は、自己レビューへフォールバックせず、レビュー結果を生成または更新しない。
 
 すべての Reviewer は「不足していると望ましいもの」ではなく、「承認済み仕様を満たすために不足しているもの」だけを指摘する。レビューを新規設計の入口にしてはならない。
 

@@ -102,7 +102,7 @@ stream.off('confirmedAdded', address);
 
 ## 重複排除の範囲
 
-通知の `meta.hash`、`hash`、または `uid` を ID として使用します。同じ**チャネル・アドレス購読**に同じ ID が `cacheTtl` の間に複数ノードから届いた場合、最初の 1 回だけを配信します。
+通知の `meta.hash`、`hash`、または `uid` を ID として使用します。`cosignature` 通知は `parentHash`、`signerPublicKey`、`signature` の組み合わせを ID として使用します。同じ**チャネル・アドレス購読**に同じ ID が `cacheTtl` の間に複数ノードから届いた場合、最初の 1 回だけを配信します。
 
 別のチャネルや別アドレス購読は独立しています。したがって、同じトランザクションが `unconfirmedAdded` の後に `confirmedAdded` として届く場合や、複数アドレスに関係するトランザクションは、それぞれ配信されます。
 

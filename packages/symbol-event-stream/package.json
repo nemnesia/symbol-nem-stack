@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/symbol-event-stream",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "description": "自動重複排除機能付きマルチ接続SymbolブロックチェーンWebSocketイベントストリーム",
   "keywords": [
     "symbol",
@@ -14,13 +14,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nemnesia/symbol-tools.git",
+    "url": "git+https://github.com/nemnesia/symbol-nem-stack.git",
     "directory": "packages/symbol-event-stream"
   },
   "bugs": {
-    "url": "https://github.com/nemnesia/symbol-tools/issues"
+    "url": "https://github.com/nemnesia/symbol-nem-stack/issues"
   },
-  "homepage": "https://github.com/nemnesia/symbol-tools/tree/main/packages/symbol-event-stream#readme",
+  "homepage": "https://github.com/nemnesia/symbol-nem-stack/tree/main/packages/symbol-event-stream#readme",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
@@ -37,6 +37,7 @@
   "files": [
     "dist/**/*",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
@@ -54,7 +55,7 @@
   },
   "packageManager": "pnpm@10.28.0",
   "dependencies": {
-    "@nemnesia/symbol-websocket": "^0.2.2"
+    "@nemnesia/symbol-websocket": "^1.0.0"
   },
   "publishConfig": {
     "access": "public"

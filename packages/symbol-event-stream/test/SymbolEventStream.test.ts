@@ -20,6 +20,9 @@ class MockSymbolWebSocket {
 
 // グローバルなモックインスタンスの追跡
 let mockInstances: MockSymbolWebSocket[] = [];
+let mockConstructionError: Error | null = null;
+let mockConstructionAttempt = 0;
+let mockConstructionErrorOnAttempt = 0;
 
 vi.mock('@nemnesia/symbol-websocket', () => {
   return {
@@ -36,6 +39,13 @@ vi.mock('@nemnesia/symbol-websocket', () => {
       public options: any;
 
       constructor(options: any) {
+        mockConstructionAttempt += 1;
+        if (mockConstructionError && mockConstructionAttempt === mockConstructionErrorOnAttempt) {
+          const error = mockConstructionError;
+          mockConstructionError = null;
+          throw error;
+        }
+
         const instance = new MockSymbolWebSocket(options);
         mockInstances.push(instance);
         this.on = instance.on;
@@ -58,6 +68,9 @@ describe('SymbolEventStream', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInstances = [];
+    mockConstructionError = null;
+    mockConstructionAttempt = 0;
+    mockConstructionErrorOnAttempt = 0;
   });
 
   afterEach(() => {
@@ -143,6 +156,28 @@ describe('SymbolEventStream', () => {
       });
 
       expect(mockInstances).toHaveLength(3);
+    });
+
+    it('接続の初期化に失敗した場合、先に作成した接続を解放して元の例外を再送出するべきである', () => {
+      const initializationError = new Error('second connection failed');
+      mockConstructionError = initializationError;
+      mockConstructionErrorOnAttempt = 2;
+      vi.useFakeTimers();
+
+      try {
+        expect(() => {
+          new SymbolEventStream({
+            nodeUrls: ['node1.example.com', 'node2.example.com'],
+            connections: 2,
+          });
+        }).toThrow(initializationError);
+
+        expect(mockInstances).toHaveLength(1);
+        expect(mockInstances[0].close).toHaveBeenCalledTimes(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('nodeUrlsより多い接続数を指定しても、nodeUrlsの数までしか作成しないべきである', () => {
@@ -315,6 +350,20 @@ describe('SymbolEventStream', () => {
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
+    it('異なるWebSocketから届く同じ通知も1度だけ配信されるべきである', () => {
+      const callback = vi.fn();
+      stream.on('block', callback);
+
+      const firstWsCallback = mockInstances[0].on.mock.calls[0][1];
+      const secondWsCallback = mockInstances[1].on.mock.calls[0][1];
+      const message = { data: { meta: { hash: 'cross-node-hash' } }, topic: 'block' };
+
+      firstWsCallback(message);
+      secondWsCallback(message);
+
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
     it('異なるhashを持つメッセージは両方配信されるべきである', () => {
       const callback = vi.fn();
       stream.on('block', callback);
@@ -392,6 +441,40 @@ describe('SymbolEventStream', () => {
       // data.uidを使用
       wsCallback({ data: { uid: 'unique-id' }, topic: 'block' });
       wsCallback({ data: { uid: 'unique-id' }, topic: 'block' });
+
+      expect(callback).toHaveBeenCalledTimes(2);
+    });
+
+    it('cosignatureのparentHash・signerPublicKey・signatureで重複排除するべきである', () => {
+      const callback = vi.fn();
+      stream.on('cosignature', callback);
+
+      const firstWsCallback = mockInstances[0].on.mock.calls[0][1];
+      const secondWsCallback = mockInstances[1].on.mock.calls[0][1];
+      const message = {
+        topic: 'cosignature',
+        data: {
+          version: '1',
+          parentHash: 'parent-hash',
+          signerPublicKey: 'signer-key',
+          signature: 'signature',
+        },
+      };
+
+      firstWsCallback(message);
+      secondWsCallback(message);
+      secondWsCallback({ ...message, data: { ...message.data, signature: 'different-signature' } });
+
+      expect(callback).toHaveBeenCalledTimes(2);
+    });
+
+    it('文字列でないIDを重複排除キーへ使用するべきではない', () => {
+      const callback = vi.fn();
+      stream.on('block', callback);
+
+      const wsCallback = mockInstances[0].on.mock.calls[0][1];
+      wsCallback({ data: { meta: { hash: {} } }, topic: 'block' });
+      wsCallback({ data: { meta: { hash: '[object Object]' } }, topic: 'block' });
 
       expect(callback).toHaveBeenCalledTimes(2);
     });
@@ -511,6 +594,101 @@ describe('SymbolEventStream', () => {
       expect(stream.getIsClosed()).toBe(true);
 
       vi.useRealTimers();
+    });
+  });
+
+  describe('購読登録の失敗処理', () => {
+    it('一部のWebSocketで購読登録に失敗した場合は内部状態を残さない', () => {
+      const stream = new SymbolEventStream({
+        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        connections: 2,
+      });
+      const callback = vi.fn();
+      mockInstances[1].on.mockImplementationOnce(() => {
+        throw new TypeError('invalid subscription');
+      });
+
+      expect(() => stream.on('block', callback)).toThrow('invalid subscription');
+      expect(mockInstances[0].off).toHaveBeenCalledWith('block');
+
+      mockInstances[1].on.mockImplementation(() => undefined);
+      expect(() => stream.on('block', callback)).not.toThrow();
+      expect(mockInstances[0].on).toHaveBeenCalledTimes(2);
+      expect(mockInstances[1].on).toHaveBeenCalledTimes(2);
+
+      stream.close();
+    });
+  });
+
+  describe('callback例外の隔離', () => {
+    let stream: SymbolEventStream;
+    let errorSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      stream = new SymbolEventStream({
+        nodeUrls: ['node1.example.com'],
+        connections: 1,
+      });
+      errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      errorSpy.mockRestore();
+      stream.close();
+    });
+
+    it('イベントcallbackの例外で後続callbackを中断しない', () => {
+      const first = vi.fn(() => {
+        throw new Error('event callback failed');
+      });
+      const second = vi.fn();
+      stream.on('block', first);
+      stream.on('block', second);
+
+      const wsCallback = mockInstances[0].on.mock.calls[0][1];
+      wsCallback({ data: { meta: { hash: 'event-callback' } }, topic: 'block' });
+
+      expect(second).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('connect・disconnect・error callbackの例外で後続callbackを中断しない', () => {
+      const firstConnect = vi.fn(() => {
+        throw new Error('connect callback failed');
+      });
+      const secondConnect = vi.fn();
+      stream.onConnect(firstConnect);
+      stream.onConnect(secondConnect);
+      mockInstances[0].onConnect.mock.calls[0][0]('uid-2');
+
+      const firstDisconnect = vi.fn(() => {
+        throw new Error('disconnect callback failed');
+      });
+      const secondDisconnect = vi.fn();
+      stream.onDisconnect(firstDisconnect);
+      stream.onDisconnect(secondDisconnect);
+      mockInstances[0].onClose.mock.calls[0][0]({});
+
+      const firstError = vi.fn(() => {
+        throw new Error('error callback failed');
+      });
+      const secondError = vi.fn();
+      stream.onError(firstError);
+      stream.onError(secondError);
+      mockInstances[0].onError.mock.calls[0][0]({
+        type: 'network',
+        severity: 'recoverable',
+        host: 'node1.example.com',
+        reconnecting: false,
+        reconnectAttempts: 0,
+        timestamp: Date.now(),
+        message: 'network error',
+        originalError: new Error('network error'),
+      });
+
+      expect(secondConnect).toHaveBeenCalledWith('node1.example.com', 'uid-2');
+      expect(secondDisconnect).toHaveBeenCalledWith('node1.example.com');
+      expect(secondError).toHaveBeenCalled();
     });
   });
 
@@ -786,6 +964,87 @@ describe('SymbolEventStream', () => {
       expect(mockInstances.length).toBeGreaterThan(initialNodeCount);
 
       stream.close();
+    });
+
+    it('fatalエラー時に代替ノードへ切り替え、購読を復元するべきである', () => {
+      const stream = new SymbolEventStream({
+        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        connections: 1,
+      });
+      const callback = vi.fn();
+      stream.on('block', callback);
+      const initialWs = mockInstances[0];
+
+      initialWs.onError.mock.calls[0][0]({
+        type: 'timeout',
+        severity: 'fatal',
+        host: 'node1.example.com',
+        reconnecting: false,
+        reconnectAttempts: 0,
+        timestamp: Date.now(),
+        message: 'Connection timeout',
+        originalError: new Error('timeout'),
+      });
+
+      expect(mockInstances).toHaveLength(2);
+      expect(stream.getBlacklistedNodes()).toContain(initialWs.options.host);
+      expect(mockInstances[1].on).toHaveBeenCalledWith('block', expect.any(Function));
+
+      const replacementCallback = mockInstances[1].on.mock.calls[0][1];
+      replacementCallback({ data: { meta: { hash: 'restored-event' } }, topic: 'block' });
+      expect(callback).toHaveBeenCalledTimes(1);
+
+      stream.close();
+    });
+
+    it('terminal close時に代替ノードへ切り替えるべきである', async () => {
+      const stream = new SymbolEventStream({
+        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        connections: 1,
+      });
+      const initialWs = mockInstances[0];
+
+      vi.useRealTimers();
+      initialWs.onClose.mock.calls[0][0]({});
+      await Promise.resolve();
+
+      expect(mockInstances).toHaveLength(2);
+      expect(stream.getBlacklistedNodes()).toContain(initialWs.options.host);
+
+      stream.close();
+    });
+
+    it('通常の再接続に伴うcloseでは即時にノードを切り替えない', () => {
+      const stream = new SymbolEventStream({
+        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        connections: 1,
+      });
+      const initialWs = mockInstances[0];
+
+      initialWs.onClose.mock.calls[0][0]({});
+      initialWs.onReconnect.mock.calls[0][0](1);
+      vi.runAllTicks();
+
+      expect(mockInstances).toHaveLength(1);
+      expect(stream.getBlacklistedNodes()).toEqual([]);
+
+      stream.close();
+    });
+
+    it('明示的なcloseではノードを切り替えない', () => {
+      const stream = new SymbolEventStream({
+        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        connections: 1,
+      });
+      const initialWs = mockInstances[0];
+      const closeCallback = initialWs.onClose.mock.calls[0][0];
+
+      stream.close();
+      closeCallback({});
+      vi.runAllTicks();
+
+      expect(mockInstances).toHaveLength(1);
+      expect(stream.getBlacklistedNodes()).toEqual([]);
     });
 
     it('ブラックリストに登録されたノードは選択されないべきである', () => {

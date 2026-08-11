@@ -23,6 +23,7 @@ Review Board Chair は、指定された出力先にレビュー結果ファイ�
 - Reviewer B agent_id: <返却された agent_id>
 - Reviewer C agent_id: <返却された agent_id>
 - Reviewer D agent_id: <返却された agent_id>
+- 起動再試行: <なし | 役割名と代替モデル。容量・起動エラー時だけ記録>
 - Phase 1: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
 - Phase 2: <完了。各 Reviewer の `multi_agent_v1__wait_agent` で確認>
 - Chair 統合: <完了>

@@ -5,6 +5,7 @@ packages:
 allowBuilds:
   '@nestjs/core': true
   '@openapitools/openapi-generator-cli': true
+  '@swc/core': true
   cbor-extract: false
   esbuild: true
 
@@ -14,7 +15,7 @@ ignoredBuiltDependencies:
   - argon2
 
 minimumReleaseAgeExclude:
-  - '@nemnesia/symbol-websocket@0.2.2'
+  - '@nemnesia/symbol-websocket@0.2.2 || 1.0.0'
 
 onlyBuiltDependencies:
   - esbuild
