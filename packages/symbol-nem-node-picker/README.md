@@ -147,6 +147,8 @@ This package uses the [NodeWatch API](https://nodewatch.symbol.tools/api/openapi
   - `https://testnet.sse.nemnesia.com`
   - `https://testnet.sse2.nemnesia.com`
 
+`nodewatchMainnetUrls`および`nodewatchTestnetUrls`もexportされます。NodeWatchのheightとNode一覧を取得する場合は、`@nemnesia/nodewatch-openapi-provider`のsnapshot APIへこれらのURLリストを渡してください。
+
 ## キャッシュ機能 / Caching
 
 パッケージには1分間の内蔵キャッシュが含まれており、以下の効果があります：  

@@ -1,6 +1,6 @@
-import type { HeightInfo, Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
+import type { HeightInfo, Node } from '@nemnesia/nodewatch-openapi-provider';
 
-import { createNemNodeWatchApi, createSymbolNodeWatchApi } from './nodeWatchApi.js';
+import { fetchNemNodeWatchSnapshot, fetchSymbolNodeWatchSnapshot } from './nodeWatchApi.js';
 
 /** NodeWatch メインネット用URLリスト */
 export const nodewatchMainnetUrls = ['https://sse.nemnesia.com', 'https://sse2.nemnesia.com'];
@@ -61,19 +61,6 @@ async function _fetchWithTimeout<T>(timeoutMs: number, request: (signal: AbortSi
 }
 
 /**
- * NodeWatchからSymbolノード一覧を取得する。
- * URLリストによるフェイルオーバーはproviderへ委譲する。
- */
-export const fetchSymbolPeerNodesFromNodeWatch = async (
-  network: NetworkName,
-  timeoutMs: number = 3000
-): Promise<Node[]> => {
-  const nodewatchUrls = network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
-  const nodeWatchApi = createSymbolNodeWatchApi(nodewatchUrls);
-  return _fetchWithTimeout(timeoutMs, (signal) => nodeWatchApi.getSymbolPeerNodes({}, { signal }));
-};
-
-/**
  * Symbolノードを取得する
  * @param network ネットワーク[mainnet|testnet]
  * @param count 取得するノード数
@@ -98,12 +85,11 @@ async function _symbolNodePicker(
   } else {
     try {
       const nodewatchUrls = network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
-      const [height, nodeList] = await _fetchWithTimeout(timeoutMs, async (signal) => {
-        const nodeWatchApi = createSymbolNodeWatchApi(nodewatchUrls);
-        return Promise.all([nodeWatchApi.getSymbolHeight({ signal }), nodeWatchApi.getSymbolPeerNodes({}, { signal })]);
+      const snapshot = await _fetchWithTimeout(timeoutMs, (signal) => {
+        return fetchSymbolNodeWatchSnapshot(nodewatchUrls, { signal });
       });
-      heightInfo = height;
-      nodes = nodeList;
+      heightInfo = snapshot.heightInfo;
+      nodes = snapshot.nodes;
       symbolCache.set(cacheKey, {
         heightInfo,
         nodes,
@@ -153,12 +139,11 @@ async function _nemNodePicker(
   } else {
     const nodewatchUrls = network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
     try {
-      const [height, nodeList] = await _fetchWithTimeout(timeoutMs, async (signal) => {
-        const nodeWatchApi = createNemNodeWatchApi(nodewatchUrls);
-        return Promise.all([nodeWatchApi.getNemHeight({ signal }), nodeWatchApi.getNemNodes({ signal })]);
+      const snapshot = await _fetchWithTimeout(timeoutMs, (signal) => {
+        return fetchNemNodeWatchSnapshot(nodewatchUrls, { signal });
       });
-      heightInfo = height;
-      nodes = nodeList;
+      heightInfo = snapshot.heightInfo;
+      nodes = snapshot.nodes;
       nemCache.set(cacheKey, {
         heightInfo,
         nodes,

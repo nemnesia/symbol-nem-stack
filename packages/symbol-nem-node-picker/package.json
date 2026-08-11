@@ -1,6 +1,6 @@
 {
   "name": "@nemnesia/symbol-nem-node-picker",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "A lightweight Node.js package for picking random NEM and Symbol blockchain nodes from NodeWatch API",
   "keywords": [
     "nem",
@@ -60,8 +60,7 @@
     "publish:release": "npm run build && npm publish"
   },
   "dependencies": {
-    "@nemnesia/nodewatch-openapi-typescript-fetch-client": "^1.0.1",
-    "@nemnesia/nodewatch-openapi-provider": "^1.0.0"
+    "@nemnesia/nodewatch-openapi-provider": "workspace:^"
   },
   "devDependencies": {},
   "engines": {

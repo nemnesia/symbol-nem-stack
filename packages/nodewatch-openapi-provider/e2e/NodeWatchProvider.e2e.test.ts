@@ -1,7 +1,7 @@
 import type { HeightInfo, Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 import { describe, expect, test } from 'vitest';
 
-import { createNemNodeWatchApi, createSymbolNodeWatchApi } from '../src/index.js';
+import { fetchNemNodeWatchSnapshot, fetchSymbolNodeWatchSnapshot } from '../src/index.js';
 
 const E2E_TIMEOUT = 90_000;
 const AVAILABILITY_TIMEOUT = 10_000;
@@ -14,8 +14,7 @@ const testnetUrls = ['https://nodewatch.symbol.tools/testnet'];
 type NodeWatchScenario = {
   name: string;
   available: boolean;
-  getHeight: (signal: AbortSignal) => Promise<HeightInfo>;
-  getNodes: (signal: AbortSignal) => Promise<Node[]>;
+  getSnapshot: (signal: AbortSignal) => Promise<{ heightInfo: HeightInfo; nodes: Node[] }>;
 };
 
 async function hasAvailableNodeWatch(baseUrls: string[], paths: string[]): Promise<boolean> {
@@ -76,26 +75,22 @@ const scenarios: NodeWatchScenario[] = [
   {
     name: 'Symbol mainnet',
     available: symbolMainnetAvailable,
-    getHeight: (signal) => createSymbolNodeWatchApi(mainnetUrls).getSymbolHeight({ signal }),
-    getNodes: (signal) => createSymbolNodeWatchApi(mainnetUrls).getSymbolPeerNodes({ limit: 10 }, { signal }),
+    getSnapshot: (signal) => fetchSymbolNodeWatchSnapshot(mainnetUrls, { signal }),
   },
   {
     name: 'Symbol testnet',
     available: symbolTestnetAvailable,
-    getHeight: (signal) => createSymbolNodeWatchApi(testnetUrls).getSymbolHeight({ signal }),
-    getNodes: (signal) => createSymbolNodeWatchApi(testnetUrls).getSymbolPeerNodes({ limit: 10 }, { signal }),
+    getSnapshot: (signal) => fetchSymbolNodeWatchSnapshot(testnetUrls, { signal }),
   },
   {
     name: 'NEM mainnet',
     available: nemMainnetAvailable,
-    getHeight: (signal) => createNemNodeWatchApi(mainnetUrls).getNemHeight({ signal }),
-    getNodes: (signal) => createNemNodeWatchApi(mainnetUrls).getNemNodes({ signal }),
+    getSnapshot: (signal) => fetchNemNodeWatchSnapshot(mainnetUrls, { signal }),
   },
   {
     name: 'NEM testnet',
     available: nemTestnetAvailable,
-    getHeight: (signal) => createNemNodeWatchApi(testnetUrls).getNemHeight({ signal }),
-    getNodes: (signal) => createNemNodeWatchApi(testnetUrls).getNemNodes({ signal }),
+    getSnapshot: (signal) => fetchNemNodeWatchSnapshot(testnetUrls, { signal }),
   },
 ];
 
@@ -107,7 +102,7 @@ for (const scenario of scenarios) {
       'retrieves a valid height and node list through the public provider API',
       async () => {
         const signal = AbortSignal.timeout(REQUEST_TIMEOUT);
-        const [heightInfo, nodes] = await Promise.all([scenario.getHeight(signal), scenario.getNodes(signal)]);
+        const { heightInfo, nodes } = await scenario.getSnapshot(signal);
 
         expectHeightInfo(heightInfo);
         expect(nodes.length).toBeGreaterThan(0);

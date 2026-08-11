@@ -1,6 +1,6 @@
 import { Card, CardContent, Grid, Typography } from '@mui/material';
+import { type NetworkName, nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
 import { ChainRoutesApi, Configuration } from '@nemnesia/symbol-openapi-typescript-fetch-client';
-import { type NetworkName, nemSymbolNodePicker } from 'nem-symbol-node-picker';
 import { useEffect, useState } from 'react';
 
 import { formatStringNumber } from '../utils/numberFormat';

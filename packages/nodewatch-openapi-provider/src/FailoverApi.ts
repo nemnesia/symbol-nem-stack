@@ -73,13 +73,9 @@ export class FailoverApi<T> {
   }
 
   /**
-   * フェールオーバー対応でAPIメソッドを実行
-   *
-   * @param apiMethod APIメソッド
-   * @param methodName APIメソッド名
-   * @returns APIメソッドの結果
+   * フェールオーバー対応で複数のAPIメソッドを同じAPIインスタンス上で実行
    */
-  private async executeWithFailover<R>(apiMethod: (api: T) => Promise<R>, methodName?: string): Promise<R> {
+  async executeBatch<R>(apiMethod: (api: T) => Promise<R>): Promise<R> {
     let lastError: Error | undefined;
     const attemptLimit = Math.min(this.maxRetries, this.apis.length);
 
@@ -88,7 +84,7 @@ export class FailoverApi<T> {
 
       try {
         const result = await apiMethod(api);
-        return methodName ? filterNodeListResult(methodName, result) : result;
+        return result;
       } catch (error) {
         lastError = error as Error;
         console.warn(
@@ -105,6 +101,14 @@ export class FailoverApi<T> {
     }
 
     throw new Error(`All endpoints failed after ${attemptLimit} attempts. Last error: ${lastError?.message}`);
+  }
+
+  /**
+   * フェールオーバー対応でAPIメソッドを実行
+   */
+  private async executeWithFailover<R>(apiMethod: (api: T) => Promise<R>, methodName: string): Promise<R> {
+    const result = await this.executeBatch(apiMethod);
+    return filterNodeListResult(methodName, result);
   }
 }
 

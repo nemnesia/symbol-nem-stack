@@ -207,11 +207,8 @@ importers:
   packages/symbol-nem-node-picker:
     dependencies:
       '@nemnesia/nodewatch-openapi-provider':
-        specifier: ^1.0.0
-        version: 1.0.0
-      '@nemnesia/nodewatch-openapi-typescript-fetch-client':
-        specifier: ^1.0.1
-        version: 1.0.1
+        specifier: workspace:^
+        version: link:../nodewatch-openapi-provider
 
   packages/symbol-openapi-typescript-fetch-client: {}
 
@@ -812,10 +809,6 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
-
-  '@nemnesia/nodewatch-openapi-provider@1.0.0':
-    resolution: {integrity: sha512-tUTSRqWVYJlwVBsMlvQ5L5S0Z5WiBKwcdfEnYU+oaOsbr3RqOT38MjWk0ncRr2AfT2z2Ibq1ak6E6hp+mhMQ+w==}
-    engines: {node: '>=20.0.0'}
 
   '@nemnesia/nodewatch-openapi-typescript-fetch-client@1.0.1':
     resolution: {integrity: sha512-/ZKoYX9b5ouzjOjd3iRvkicouuHFetBHguDw4Fk8gFR4jegZ3MpFkvmNMjxsIVuxjaRJylz2wuUudBxuSSR/Zw==}
@@ -3747,10 +3740,6 @@ snapshots:
       react-is: 19.2.6
     optionalDependencies:
       '@types/react': 19.2.15
-
-  '@nemnesia/nodewatch-openapi-provider@1.0.0':
-    dependencies:
-      '@nemnesia/nodewatch-openapi-typescript-fetch-client': 1.0.1
 
   '@nemnesia/nodewatch-openapi-typescript-fetch-client@1.0.1': {}
 

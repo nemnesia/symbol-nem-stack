@@ -4,6 +4,13 @@
 
 変更履歴のフォーマットは[変更履歴の管理](https://keepachangelog.com/ja/1.0.0/)に基づいています。
 
+## [1.1.0] - 2026/08/12
+
+### 追加
+
+- Symbol/NEMのheightとノード一覧を同じNodeWatch URL組から取得するsnapshot APIを追加。
+- `HeightInfo`および`Node`型を生成clientから再エクスポート。
+
 ## [1.0.0] - 2026/08/11
 
 ### 変更

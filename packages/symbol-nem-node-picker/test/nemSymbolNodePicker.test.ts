@@ -1,385 +1,184 @@
+import type { Node, NodeWatchSnapshot } from '@nemnesia/nodewatch-openapi-provider';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { nemCache, symbolCache } from '../src/nemSymbolNodePicker.js';
+import { nemCache, nodewatchMainnetUrls, nodewatchTestnetUrls, symbolCache } from '../src/nemSymbolNodePicker.js';
+import { fetchNemNodeWatchSnapshot, fetchSymbolNodeWatchSnapshot } from '../src/nodeWatchApi.js';
 
-// 基本的なモジュールと型のテスト
+vi.mock('../src/nodeWatchApi.js', () => ({
+  fetchNemNodeWatchSnapshot: vi.fn(),
+  fetchSymbolNodeWatchSnapshot: vi.fn(),
+}));
+
+const mockFetchNemNodeWatchSnapshot = vi.mocked(fetchNemNodeWatchSnapshot);
+const mockFetchSymbolNodeWatchSnapshot = vi.mocked(fetchSymbolNodeWatchSnapshot);
+
+function createNode(overrides: Partial<Node> = {}): Node {
+  return {
+    mainPublicKey: 'a'.repeat(64),
+    endpoint: 'https://node.example.com',
+    name: 'node',
+    version: '1.0.0',
+    height: 100,
+    finalizedHeight: 100,
+    balance: 0,
+    ...overrides,
+  };
+}
+
+function createSnapshot(nodes: Node[], height = 100): NodeWatchSnapshot {
+  return {
+    heightInfo: { height, finalizedHeight: height },
+    nodes,
+  };
+}
+
 describe('nemSymbolNodePicker - 基本テスト', () => {
   it('モジュールが正しくエクスポートされている', async () => {
     const module = await import('../src/nemSymbolNodePicker.js');
     expect(typeof module.nemSymbolNodePicker).toBe('function');
-  });
-
-  it('デフォルトパラメータが型安全である', () => {
-    // TypeScriptの型チェックが通ることを確認
-    expect(true).toBe(true);
+    expect(module.nodewatchMainnetUrls).toEqual(nodewatchMainnetUrls);
+    expect(module.nodewatchTestnetUrls).toEqual(nodewatchTestnetUrls);
   });
 });
 
-// 引数バリデーションのテスト(実際のAPIを呼ばない)
 describe('nemSymbolNodePicker - 引数テスト', () => {
   it('不正なchainNameでエラー', async () => {
     const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
-    await expect(nemSymbolNodePicker({ chainName: 'invalid' as any, network: 'mainnet', count: 1 })).rejects.toThrow(
+    await expect(nemSymbolNodePicker({ chainName: 'invalid' as never })).rejects.toThrow(
       "Invalid chainName: invalid. Must be 'nem' or 'symbol'."
     );
   });
 
   it('不正なnetworkでエラー', async () => {
     const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
-    await expect(nemSymbolNodePicker({ chainName: 'symbol', network: 'invalid' as any, count: 1 })).rejects.toThrow(
+    await expect(nemSymbolNodePicker({ network: 'invalid' as never })).rejects.toThrow(
       "Invalid network: invalid. Must be 'mainnet' or 'testnet'."
     );
   });
 
-  it('isSslがboolean以外でエラー', async () => {
+  it('不正なcountでエラー', async () => {
     const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
-    await expect(
-      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, isSsl: 'true' as any })
-    ).rejects.toThrow('isSsl must be a boolean');
+    await expect(nemSymbolNodePicker({ count: 0 })).rejects.toThrow('Count must be a positive integer');
+    await expect(nemSymbolNodePicker({ count: -1 })).rejects.toThrow('Count must be a positive integer');
+    await expect(nemSymbolNodePicker({ count: 1.5 })).rejects.toThrow('Count must be a positive integer');
   });
 
-  it('timeoutMsが正の整数でない場合エラー', async () => {
+  it('不正なisSslでエラー', async () => {
     const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
-    await expect(
-      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, timeoutMs: 0 as any })
-    ).rejects.toThrow('timeoutMs must be a positive integer (ms)');
-    await expect(
-      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, timeoutMs: -100 as any })
-    ).rejects.toThrow('timeoutMs must be a positive integer (ms)');
-    await expect(
-      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, timeoutMs: 100.5 as any })
-    ).rejects.toThrow('timeoutMs must be a positive integer (ms)');
-    await expect(
-      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, timeoutMs: '3000' as any })
-    ).rejects.toThrow('timeoutMs must be a positive integer (ms)');
-  });
-  it('0件の取得ではエラーを投げる', async () => {
-    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
-    await expect(nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 0 })).rejects.toThrow(
-      'Count must be a positive integer'
-    );
+    await expect(nemSymbolNodePicker({ isSsl: 'true' as never })).rejects.toThrow('isSsl must be a boolean');
   });
 
-  it('負の値ではエラーを投げる', async () => {
+  it('不正なtimeoutMsでエラー', async () => {
     const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
-    await expect(nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: -1 })).rejects.toThrow(
-      'Count must be a positive integer'
-    );
-  });
-
-  it('小数点ではエラーを投げる', async () => {
-    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
-    await expect(nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1.5 })).rejects.toThrow(
-      'Count must be a positive integer'
+    await expect(nemSymbolNodePicker({ timeoutMs: 0 })).rejects.toThrow('timeoutMs must be a positive integer (ms)');
+    await expect(nemSymbolNodePicker({ timeoutMs: -100 })).rejects.toThrow('timeoutMs must be a positive integer (ms)');
+    await expect(nemSymbolNodePicker({ timeoutMs: 100.5 })).rejects.toThrow(
+      'timeoutMs must be a positive integer (ms)'
     );
   });
 });
 
-// モック使用のテスト
-describe('nemSymbolNodePicker - モックテスト', () => {
+describe('nemSymbolNodePicker - snapshot取得後の選択', () => {
   beforeEach(() => {
-    // 各テストの前にキャッシュとモジュールをクリア
     symbolCache.clear();
     nemCache.clear();
-    vi.resetModules();
+    vi.resetAllMocks();
   });
 
-  it('APIエラー時に適切にエラーを処理する', async () => {
-    // モックを正しく設定
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => Promise.reject(new Error('Network error')),
-        getSymbolPeerNodes: () => Promise.reject(new Error('Network error')),
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => Promise.reject(new Error('Network error')),
-        getNemNodes: () => Promise.reject(new Error('Network error')),
-      }),
-    }));
+  it('SymbolのURLリストをproviderへ渡す', async () => {
+    mockFetchSymbolNodeWatchSnapshot.mockResolvedValue(
+      createSnapshot([createNode({ endpoint: 'https://symbol.example.com', isSslEnabled: true })])
+    );
 
-    // モジュールを再インポート
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-
-    await expect(nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1 })).rejects.toThrow(
-      'No available NodeWatch found.'
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
+    await expect(nemSymbolNodePicker()).resolves.toEqual(['https://symbol.example.com']);
+    expect(mockFetchSymbolNodeWatchSnapshot).toHaveBeenCalledWith(
+      nodewatchMainnetUrls,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });
 
-  it('NodeWatch URLリストをproviderへ渡す', async () => {
-    const createSymbolNodeWatchApi = vi.fn(() => ({
-      getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-      getSymbolPeerNodes: () => Promise.resolve([{ height: 100, endpoint: 'https://symbol', isSslEnabled: true }]),
-    }));
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi,
-      createNemNodeWatchApi: vi.fn(),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
+  it('NEMのsnapshotを使う', async () => {
+    mockFetchNemNodeWatchSnapshot.mockResolvedValue(
+      createSnapshot([createNode({ endpoint: 'https://nem.example.com', isSslEnabled: true })])
+    );
 
-    await expect(nemSymbolNodePicker()).resolves.toEqual(['https://symbol']);
-    expect(createSymbolNodeWatchApi).toHaveBeenCalledTimes(1);
-    expect(createSymbolNodeWatchApi).toHaveBeenCalledWith(['https://sse.nemnesia.com', 'https://sse2.nemnesia.com']);
-  });
-
-  it('キャッシュヒット時はAPIを呼ばない', async () => {
-    // モジュールをインポート
-    const { nemSymbolNodePicker, symbolCache: importedCache } = await import('../src/nemSymbolNodePicker.js');
-
-    // キャッシュを直接操作してAPIコールを回避
-    const endpoints = ['https://ssl1', 'https://ssl2'];
-    importedCache.set('mainnet_true', {
-      heightInfo: { height: 100, finalizedHeight: 100 },
-      nodes: [
-        { height: 100, endpoint: 'https://ssl1', isSslEnabled: true },
-        { height: 100, endpoint: 'https://ssl2', isSslEnabled: true },
-      ],
-      timestamp: Date.now(),
-      baseUrl: 'mock',
-    });
-
-    const result = await nemSymbolNodePicker({
-      chainName: 'symbol',
-      network: 'mainnet',
-      count: 2,
-      isSsl: true,
-    });
-    expect(result.sort()).toEqual(endpoints.sort());
-  });
-
-  it('SSLフィルタが有効な場合のみhttpsを返す', async () => {
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getSymbolPeerNodes: () =>
-          Promise.resolve([
-            { height: 100, endpoint: 'https://ssl1', isSslEnabled: true },
-            { height: 100, endpoint: 'http://nonssl1', isSslEnabled: false },
-            { height: 100, endpoint: 'http://nonssl2', isSslEnabled: null },
-          ]),
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getNemNodes: () =>
-          Promise.resolve([
-            { height: 100, endpoint: 'https://ssl1', isSslEnabled: true },
-            { height: 100, endpoint: 'http://nonssl1', isSslEnabled: false },
-            { height: 100, endpoint: 'http://nonssl2', isSslEnabled: null },
-          ]),
-      }),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-    const result = await nemSymbolNodePicker({
-      chainName: 'symbol',
-      network: 'mainnet',
-      count: 2,
-      isSsl: true,
-    });
-    expect(result).toEqual(['https://ssl1']);
-    const result2 = await nemSymbolNodePicker({
-      chainName: 'nem',
-      network: 'mainnet',
-      count: 2,
-      isSsl: true,
-    });
-    expect(result2).toEqual(['https://ssl1']);
-  });
-
-  it('NEMチェーン分岐も正常に動作する', async () => {
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getSymbolPeerNodes: () => Promise.resolve([]),
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getNemNodes: () =>
-          Promise.resolve([
-            { height: 100, endpoint: 'https://nemssl', isSslEnabled: true },
-            { height: 99, endpoint: 'https://nemold1', isSslEnabled: false },
-            { height: 99, endpoint: 'https://nemold2', isSslEnabled: null },
-          ]),
-      }),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-    const result = await nemSymbolNodePicker({
-      chainName: 'nem',
-      network: 'mainnet',
-      count: 2,
-      isSsl: true,
-    });
-    expect(result).toEqual(['https://nemssl']);
-  });
-
-  it('Symbolチェーン testnet 正常系', async () => {
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => Promise.resolve({ height: 200, finalizedHeight: 200 }),
-        getSymbolPeerNodes: () =>
-          Promise.resolve([
-            { height: 200, endpoint: 'https://symboltestssl', isSslEnabled: true },
-            { height: 199, endpoint: 'http://symboltestold', isSslEnabled: false },
-          ]),
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => Promise.resolve({ height: 200, finalizedHeight: 200 }),
-        getNemNodes: () => Promise.resolve([]),
-      }),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-    const result = await nemSymbolNodePicker({
-      chainName: 'symbol',
-      network: 'testnet',
-      count: 1,
-      isSsl: true,
-    });
-    expect(result).toEqual(['https://symboltestssl']);
-  });
-
-  it('NEMチェーン testnet 正常系', async () => {
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => Promise.resolve({ height: 200, finalizedHeight: 200 }),
-        getSymbolPeerNodes: () => Promise.resolve([]),
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => Promise.resolve({ height: 200, finalizedHeight: 200 }),
-        getNemNodes: () =>
-          Promise.resolve([
-            { height: 200, endpoint: 'https://nemtestssl', isSslEnabled: true },
-            { height: 199, endpoint: 'http://nemtestold', isSslEnabled: false },
-          ]),
-      }),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-    const result = await nemSymbolNodePicker({
-      chainName: 'nem',
-      network: 'testnet',
-      count: 1,
-      isSsl: true,
-    });
-    expect(result).toEqual(['https://nemtestssl']);
-  });
-
-  it('NEMチェーンでキャッシュヒット時はAPIを呼ばない', async () => {
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: vi.fn(() => ({
-        getSymbolHeight: vi.fn(),
-        getSymbolPeerNodes: vi.fn(),
-      })),
-      createNemNodeWatchApi: vi.fn(() => ({
-        getNemHeight: vi.fn(),
-        getNemNodes: vi.fn(),
-      })),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, nemCache, symbolCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-    nemCache.set('mainnet_true', {
-      heightInfo: { height: 100, finalizedHeight: 100 },
-      nodes: [
-        { height: 100, endpoint: 'https://nemssl', isSslEnabled: true },
-        { height: 100, endpoint: 'https://nemssl2', isSslEnabled: true },
-      ],
-      timestamp: Date.now(),
-      baseUrl: 'mock',
-    });
-    const result = await nemSymbolNodePicker({
-      chainName: 'nem',
-      network: 'mainnet',
-      count: 2,
-      isSsl: true,
-    });
-    expect(result.sort()).toEqual(['https://nemssl', 'https://nemssl2'].sort());
-    // キャッシュをクリア
-    nemCache.clear();
-  });
-
-  it('NEMチェーンでPromise.any失敗時はエラー', async () => {
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getSymbolPeerNodes: () => Promise.resolve([]),
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => Promise.reject(new Error('fail')),
-        getNemNodes: () => Promise.reject(new Error('fail')),
-      }),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-    await expect(nemSymbolNodePicker({ chainName: 'nem', network: 'mainnet', count: 1 })).rejects.toThrow(
-      'No available NodeWatch found.'
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
+    await expect(nemSymbolNodePicker({ chainName: 'nem', network: 'testnet', isSsl: true })).resolves.toEqual([
+      'https://nem.example.com',
+    ]);
+    expect(mockFetchNemNodeWatchSnapshot).toHaveBeenCalledWith(
+      nodewatchTestnetUrls,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });
 
-  it('APIがタイムアウトした場合はエラーを投げる', async () => {
-    let heightSignal: AbortSignal | undefined;
-    let nodesSignal: AbortSignal | undefined;
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: (init?: RequestInit) => {
-          heightSignal = init?.signal ?? undefined;
-          return new Promise(() => {}); // 永遠に解決しない
-        },
-        getSymbolPeerNodes: (_params?: unknown, init?: RequestInit) => {
-          nodesSignal = init?.signal ?? undefined;
-          return new Promise(() => {}); // 永遠に解決しない
-        },
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => new Promise(() => {}),
-        getNemNodes: () => new Promise(() => {}),
-      }),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
-    await expect(
-      nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1, timeoutMs: 10 })
-    ).rejects.toThrow('No available NodeWatch found.');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(heightSignal?.aborted).toBe(true);
-    expect(nodesSignal?.aborted).toBe(true);
+  it('height未満のノードとSSL対象外を除外する', async () => {
+    mockFetchSymbolNodeWatchSnapshot.mockResolvedValue(
+      createSnapshot([
+        createNode({ endpoint: 'https://current-ssl.example.com', height: 100, isSslEnabled: true }),
+        createNode({ endpoint: 'http://current.example.com', height: 100, isSslEnabled: false }),
+        createNode({ endpoint: 'https://old.example.com', height: 99, isSslEnabled: true }),
+      ])
+    );
+
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
+    await expect(nemSymbolNodePicker({ isSsl: true, count: 10 })).resolves.toEqual(['https://current-ssl.example.com']);
+  });
+
+  it('testnetのSymbolノードを選択する', async () => {
+    mockFetchSymbolNodeWatchSnapshot.mockResolvedValue(
+      createSnapshot([createNode({ endpoint: 'https://testnet.example.com', height: 200, finalizedHeight: 200 })], 200)
+    );
+
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
+    await expect(nemSymbolNodePicker({ network: 'testnet' })).resolves.toEqual(['https://testnet.example.com']);
+  });
+
+  it('キャッシュヒット時はproviderを呼ばない', async () => {
+    symbolCache.set('mainnet_true', {
+      heightInfo: { height: 100, finalizedHeight: 100 },
+      nodes: [
+        { height: 100, endpoint: 'https://cached-1.example.com', isSslEnabled: true },
+        { height: 100, endpoint: 'https://cached-2.example.com', isSslEnabled: true },
+      ],
+      timestamp: Date.now(),
+      baseUrl: '',
+    });
+
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
+    const result = await nemSymbolNodePicker({ count: 2, isSsl: true });
+    expect(result.sort()).toEqual(['https://cached-1.example.com', 'https://cached-2.example.com'].sort());
+    expect(mockFetchSymbolNodeWatchSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('providerエラー時にpicker固有のエラーへ変換する', async () => {
+    mockFetchSymbolNodeWatchSnapshot.mockRejectedValue(new Error('Network error'));
+
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
+    await expect(nemSymbolNodePicker()).rejects.toThrow('No available NodeWatch found. Network error');
+  });
+
+  it('timeout時にproviderへAbortSignalを通知する', async () => {
+    let signal: AbortSignal | undefined;
+    mockFetchSymbolNodeWatchSnapshot.mockImplementation((_baseUrls, initOverrides) => {
+      signal = (initOverrides as RequestInit).signal ?? undefined;
+      return new Promise<NodeWatchSnapshot>(() => {});
+    });
+
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
+    await expect(nemSymbolNodePicker({ timeoutMs: 10 })).rejects.toThrow(
+      'No available NodeWatch found. Request timeout'
+    );
+    expect(signal?.aborted).toBe(true);
   });
 
   it('条件に合うノードがない場合はエラーを投げる', async () => {
-    vi.doMock('../src/nodeWatchApi.js', () => ({
-      createSymbolNodeWatchApi: () => ({
-        getSymbolHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getSymbolPeerNodes: () => Promise.resolve([{ height: 99, endpoint: 'https://old', isSslEnabled: true }]),
-      }),
-      createNemNodeWatchApi: () => ({
-        getNemHeight: () => Promise.resolve({ height: 100, finalizedHeight: 100 }),
-        getNemNodes: () => Promise.resolve([]),
-      }),
-    }));
-    vi.resetModules();
-    const { nemSymbolNodePicker, symbolCache, nemCache } = await import('../src/nemSymbolNodePicker.js');
-    symbolCache.clear();
-    nemCache.clear();
+    mockFetchSymbolNodeWatchSnapshot.mockResolvedValue(
+      createSnapshot([createNode({ endpoint: 'https://old.example.com', height: 99 })])
+    );
 
+    const { nemSymbolNodePicker } = await import('../src/nemSymbolNodePicker.js');
     await expect(nemSymbolNodePicker()).rejects.toThrow('No nodes match the requested criteria');
   });
 });
