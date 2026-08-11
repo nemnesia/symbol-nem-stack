@@ -3,14 +3,14 @@ import type WebSocket from 'isomorphic-ws';
 /**
  * WebSocket エラーの分類。
  *
- * 現在の実装では下位 WebSocket のエラーを `network` として通知します。その他の値は将来の詳細な分類のために予約されています。
+ * 下位 WebSocket のエラーは `network`、STOMP サーバーの ERROR フレームは `connection` として通知します。
  */
 export type NemWebSocketErrorType = 'connection' | 'timeout' | 'parse' | 'network' | 'unknown';
 
 /**
  * WebSocket エラーの回復可能性。
  *
- * 現在の実装では下位 WebSocket のエラーを `recoverable` として通知します。`fatal` は将来の分類のために予約されています。
+ * STOMP ERROR フレームは `fatal`、下位 WebSocket の一時的なエラーは `recoverable` として通知します。
  */
 export type NemWebSocketErrorSeverity = 'fatal' | 'recoverable';
 
@@ -79,12 +79,12 @@ export interface NemWebSocketOptions {
    */
   autoReconnect?: boolean;
   /**
-   * 連続した最大再接続試行回数。接続に成功すると回数はリセットされる。
-   * @default Infinity
+   * 安定接続になるまでの最大再接続試行回数。30秒間接続が維持されると回数はリセットされる。
+   * @default 10
    */
   maxReconnectAttempts?: number;
   /**
-   * 再接続試行を開始するまでの待機時間（ミリ秒）
+   * 再接続待機時間の基準値（ミリ秒）。試行ごとに指数バックオフとjitterを適用する。0は指定できない。
    * @default 3000
    */
   reconnectInterval?: number;

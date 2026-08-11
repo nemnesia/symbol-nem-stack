@@ -24,10 +24,15 @@
 
 - 無効なNEMアドレスが購読先やpublish payloadへ到達しないよう、長さ、Base32、network byte、checksumを検証するようにした。
 - 接続先hostとWebSocket endpointの検証を接続前に行うようにした。
+- STOMP受信フレームを4 MiBに制限し、不正・重複・上限超過の`content-length`による受信バッファの蓄積を防止するようにした。
+- 自動再接続を指数バックオフとjitterで制御し、既定の最大試行回数と安定接続後の試行回数リセットを追加した。
+- STOMP `ERROR`フレームをfatalエラーとして通知し、自動再接続を停止するようにした。
+- NEMアドレスを長さ確認後にuppercase化し、巨大な入力の不要な処理を避けるようにした。
 
 ### ドキュメント
 
 - テストネットE2Eテストの設定方法と実行方法をREADMEに追記した。
+- TLS利用、hostのallowlist、STOMP受信サイズ上限および再接続動作の注意事項をREADMEに追記した。
 
 ## [0.2.0] - 2026/07/23
 

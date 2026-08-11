@@ -9,6 +9,8 @@ NEM WebSocket は、NEM ブロックチェーンのリアルタイムデータ�
 - **エラーおよびクローズイベントのハンドリング**: WebSocket のエラーや接続終了を簡単に処理可能。
 - **自動再接続**: 接続が切断された場合、自動的に再接続し、サブスクリプションを復元。
 
+信頼できないネットワークでは `ssl: true` を使用してください。`ssl: false` は `ws://` を使用するため、通信路の完全性や内容の秘匿性を保証しません。
+
 ## インストール
 
 ```bash
@@ -106,8 +108,8 @@ new NemWebSocket(options: NemWebSocketOptions);
   - `ssl`: SSL を使用するかどうか（デフォルト: `false`）。
   - `timeout`: 接続タイムアウト（ミリ秒、デフォルト: `5000`）。
   - `autoReconnect`: 自動再接続を有効にするか（デフォルト: `true`）。
-  - `maxReconnectAttempts`: 最大再接続試行回数（デフォルト: `Infinity`）。
-  - `reconnectInterval`: 再接続の間隔（ミリ秒、デフォルト: `3000`）。
+  - `maxReconnectAttempts`: 安定接続になるまでの最大再接続試行回数（デフォルト: `10`）。30秒間接続が維持されると回数をリセットします。
+  - `reconnectInterval`: 再接続待機時間の基準値（ミリ秒、デフォルト: `3000`）。試行ごとに指数バックオフとjitterを適用します。0は指定できません。
 
 ### プロパティ
 
@@ -171,7 +173,7 @@ interface NemWebSocketError {
   - `connection`: 接続エラー
   - `unknown`: その他のエラー
 
-- **severity**: エラーの重大度。現行実装では下位 WebSocket のエラーを `recoverable` として通知します。`fatal` は将来の分類のために予約されています。
+- **severity**: エラーの重大度。STOMP `ERROR` フレームは `fatal` として通知し、自動再接続を停止します。下位 WebSocket の一時的なエラーは `recoverable` として通知します。
 
 - **reconnecting**: 現在再接続中かどうか
 - **reconnectAttempts**: 現在の再接続試行回数
@@ -182,10 +184,13 @@ interface NemWebSocketError {
 ## 注意点
 
 - 再接続は自動的に行われます（デフォルト有効）。
+- 再接続は指数バックオフ（最大60秒）とjitterを使用します。接続が30秒間安定すると再接続試行回数をリセットします。
+- 受信STOMPフレームは4 MiBを上限とし、`content-length`が不正・重複・上限超過の場合は接続を破棄します。
 - 再接続時は既存のサブスクリプションが自動的に復元されます。
 - 接続が切断されると、`isConnected` は `false`、`uid` は `null` になります。
 - `autoReconnect: false`を設定することで自動再接続を無効化できます。
 - `host`、タイムアウト、再接続設定は接続前に検証され、不正なチャネルやアドレスは `on` / `off` 呼び出し時に例外になります。
+- `host` は信頼済み設定値またはallowlistから取得してください。`localhost` やprivate IPを受け付けるため、Webサービスで外部入力をそのまま渡すと内部ネットワークへの接続を許す可能性があります。
 - アドレス系チャネルはNIS1テストネットの40文字アドレスに対応し、小文字・混在表記はcanonicalな大文字へ正規化されます。長さ、Base32、network byte、checksumが不正なアドレスは拒否されます。
 
 ## ライセンス

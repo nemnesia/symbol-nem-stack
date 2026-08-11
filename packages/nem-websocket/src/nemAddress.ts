@@ -45,10 +45,10 @@ function hasValidNemTestnetChecksum(decoded: Uint8Array): boolean {
  * NIS1のデフォルトネットワークはtestnetであるため、network byteは0x98に固定する。
  */
 export function normalizeNemTestnetAddress(address: string): string {
-  const normalizedAddress = address.toUpperCase();
-  if (normalizedAddress.length !== NEM_ADDRESS_LENGTH) {
+  if (typeof address !== 'string' || address.length !== NEM_ADDRESS_LENGTH) {
     throw new TypeError('address must be a valid NEM testnet address');
   }
+  const normalizedAddress = address.toUpperCase();
 
   const decodedAddress = decodeNemBase32(normalizedAddress);
   if (!decodedAddress || decodedAddress[0] !== NEM_TESTNET_VERSION || !hasValidNemTestnetChecksum(decodedAddress)) {
