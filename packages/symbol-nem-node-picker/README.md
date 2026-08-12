@@ -1,6 +1,6 @@
 # NEM/Symbol Node Picker
 
-[![npm version](https://badge.fury.io/js/nem-symbol-node-picker.svg)](https://badge.fury.io/js/nem-symbol-node-picker)
+[![npm version](https://badge.fury.io/js/%40nemnesia%2Fsymbol-nem-node-picker.svg)](https://badge.fury.io/js/%40nemnesia%2Fsymbol-nem-node-picker)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 NodeWatch API から NEM および Symbol ブロックチェーンノードをランダムに取得する軽量な Node.js およびブラウザ向けパッケージです。
@@ -20,7 +20,7 @@ A lightweight Node.js and browser package for picking random NEM and Symbol bloc
 ## インストール / Installation
 
 ```bash
-npm install nem-symbol-node-picker
+npm install @nemnesia/symbol-nem-node-picker
 ```
 
 ## 使い方 / Usage
@@ -28,7 +28,7 @@ npm install nem-symbol-node-picker
 ### ES Modules (Node.js 20+)
 
 ```javascript
-import { nemSymbolNodePicker } from 'nem-symbol-node-picker';
+import { nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
 
 // Symbolメインネットから3つのランダムノードを取得 (HTTP/HTTPS)
 // Get 3 random Symbol mainnet nodes (HTTP/HTTPS)
@@ -66,7 +66,7 @@ console.log(nemNodes);
 ### CommonJS (Node.js)
 
 ```javascript
-const { nemSymbolNodePicker } = require('nem-symbol-node-picker');
+const { nemSymbolNodePicker } = require('@nemnesia/symbol-nem-node-picker');
 
 async function getNodes() {
   const nodes = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1 });
@@ -74,15 +74,16 @@ async function getNodes() {
 }
 ```
 
-### ブラウザ (CDN) / Browser (CDN)
+### ブラウザ (バンドラ使用) / Browser (with a bundler)
 
-```html
-<script type="module">
-  import { nemSymbolNodePicker } from 'https://cdn.jsdelivr.net/npm/nem-symbol-node-picker/dist/browser/nem-symbol-node-picker.es.min.js';
+ブラウザ向けのバンドラでパッケージをimportして使用できます。
+Use a browser bundler to import the package:
 
-  const nodes = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1 });
-  console.log(nodes);
-</script>
+```javascript
+import { nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
+
+const nodes = await nemSymbolNodePicker({ chainName: 'symbol', network: 'mainnet', count: 1 });
+console.log(nodes);
 ```
 
 ## API
@@ -109,7 +110,7 @@ async function getNodes() {
 ## 使用例 / Examples
 
 ```javascript
-import { nemSymbolNodePicker } from 'nem-symbol-node-picker';
+import { nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
 
 // 基本的な使用方法 - Symbolメインネットノードを1つ取得
 // Basic usage - get 1 Symbol mainnet node
@@ -148,6 +149,11 @@ This package uses the [NodeWatch API](https://nodewatch.symbol.tools/api/openapi
   - `https://testnet.sse2.nemnesia.com`
 
 `nodewatchMainnetUrls`および`nodewatchTestnetUrls`もexportされます。NodeWatchのheightとNode一覧を取得する場合は、`@nemnesia/nodewatch-openapi-provider`のsnapshot APIへこれらのURLリストを渡してください。
+
+## セキュリティ上の注意 / Security
+
+取得したノードURLは外部のNodeWatch APIが提供する値です。接続前に用途に応じてURLとノードを検証し、通信時にHTTPSを要求する場合は `isSsl: true` を指定してください。
+The returned node URLs come from an external NodeWatch API. Validate URLs and nodes before connecting, and use `isSsl: true` when HTTPS-only transport is required.
 
 ## キャッシュ機能 / Caching
 
