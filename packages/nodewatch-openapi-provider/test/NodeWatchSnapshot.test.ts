@@ -144,7 +144,8 @@ describe('NodeWatch snapshot', () => {
   it('不正なheight responseでURL組全体をfailoverする', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith('https://first.example.com')) {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol === 'https:' && parsedUrl.hostname === 'first.example.com') {
         if (url.endsWith('/api/symbol/height')) return Promise.resolve(jsonResponse({ height: 'invalid' }));
         return Promise.resolve(jsonResponse([nodeResponse('https://first-node.example.com')]));
       }
@@ -164,7 +165,8 @@ describe('NodeWatch snapshot', () => {
   it('不正なNode responseでURL組全体をfailoverする', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith('https://first.example.com')) {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol === 'https:' && parsedUrl.hostname === 'first.example.com') {
         if (url.endsWith('/api/symbol/height'))
           return Promise.resolve(jsonResponse({ height: 400, finalizedHeight: 399 }));
         return Promise.resolve(jsonResponse([{ endpoint: 'https://missing-required-fields.example.com' }]));
