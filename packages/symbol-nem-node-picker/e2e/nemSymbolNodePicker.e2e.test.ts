@@ -7,17 +7,107 @@ const E2E_TIMEOUT = 60000; // 60秒
 const NODEWATCH_AVAILABILITY_TIMEOUT = 10000; // 10秒
 const E2E_REQUEST_TIMEOUT = 45000; // フェイルオーバーを含むリクエスト全体の待機時間
 
-async function hasAvailableNodeWatch(): Promise<boolean> {
+type ChainName = 'nem' | 'symbol';
+
+const nodeWatchPaths: Record<ChainName, { height: string; nodes: string }> = {
+  symbol: { height: '/api/symbol/height', nodes: '/api/symbol/nodes/peer' },
+  nem: { height: '/api/nem/height', nodes: '/api/nem/nodes' },
+};
+
+interface CandidateNode extends Record<string, unknown> {
+  endpoint: string;
+  height: number;
+  finalizedHeight: number;
+}
+
+interface CandidateHeightInfo {
+  height: number;
+  finalizedHeight: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isAbsoluteUri(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isCandidateNode(value: unknown): value is CandidateNode {
+  if (!isRecord(value)) return false;
+
+  return (
+    typeof value.mainPublicKey === 'string' &&
+    /^[0-9A-Fa-f]{64}$/.test(value.mainPublicKey) &&
+    typeof value.endpoint === 'string' &&
+    value.endpoint.trim().length > 0 &&
+    isAbsoluteUri(value.endpoint) &&
+    typeof value.name === 'string' &&
+    typeof value.version === 'string' &&
+    typeof value.height === 'number' &&
+    Number.isInteger(value.height) &&
+    value.height >= 0 &&
+    typeof value.finalizedHeight === 'number' &&
+    Number.isInteger(value.finalizedHeight) &&
+    value.finalizedHeight >= 0 &&
+    typeof value.balance === 'number' &&
+    Number.isFinite(value.balance) &&
+    value.balance >= 0
+  );
+}
+
+function isCandidateHeightInfo(value: unknown): value is CandidateHeightInfo {
+  if (!isRecord(value)) return false;
+
+  return (
+    typeof value.height === 'number' &&
+    Number.isInteger(value.height) &&
+    value.height >= 1 &&
+    typeof value.finalizedHeight === 'number' &&
+    Number.isInteger(value.finalizedHeight) &&
+    value.finalizedHeight >= 1
+  );
+}
+
+function hasPickableNode(heightInfo: unknown, nodes: unknown): boolean {
+  if (!isCandidateHeightInfo(heightInfo) || !Array.isArray(nodes)) return false;
+
+  const nodesWithEndpoint = nodes.filter(
+    (node): node is Record<string, unknown> =>
+      isRecord(node) && typeof node.endpoint === 'string' && node.endpoint.trim().length > 0
+  );
+
+  const candidateNodes = nodesWithEndpoint.filter((node): node is CandidateNode => isCandidateNode(node));
+  if (candidateNodes.length !== nodesWithEndpoint.length) return false;
+
+  return candidateNodes.some(
+    (node) => node.height !== 0 && node.finalizedHeight !== 0 && node.height >= heightInfo.height
+  );
+}
+
+async function hasAvailableNodeWatch(chainName: ChainName): Promise<boolean> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), NODEWATCH_AVAILABILITY_TIMEOUT);
+  const paths = nodeWatchPaths[chainName];
 
   try {
     await Promise.any(
       nodewatchMainnetUrls.map(async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/api/symbol/height`, { signal: controller.signal });
-        if (!response.ok) {
-          throw new Error(`NodeWatch returned HTTP ${response.status}`);
+        const [heightResponse, nodesResponse] = await Promise.all([
+          fetch(`${baseUrl}${paths.height}`, { signal: controller.signal }),
+          fetch(`${baseUrl}${paths.nodes}`, { signal: controller.signal }),
+        ]);
+        if (!heightResponse.ok || !nodesResponse.ok) {
+          throw new Error('NodeWatch returned an unsuccessful response');
         }
+
+        const [heightInfo, nodes] = await Promise.all([heightResponse.json(), nodesResponse.json()]);
+        if (!hasPickableNode(heightInfo, nodes)) throw new Error('No pickable nodes available');
       })
     );
     return true;
@@ -29,10 +119,15 @@ async function hasAvailableNodeWatch(): Promise<boolean> {
   }
 }
 
-// 外部依存のため、すべてのNodeWatchが利用不能な環境ではE2Eをスキップする。
-const describeWithNodeWatch = (await hasAvailableNodeWatch()) ? describe : describe.skip;
+// 外部依存のため、chainごとに選択可能なNodeWatchがない場合は該当E2Eをスキップする。
+const [hasAvailableSymbolNodeWatch, hasAvailableNemNodeWatch] = await Promise.all([
+  hasAvailableNodeWatch('symbol'),
+  hasAvailableNodeWatch('nem'),
+]);
+const describeWithSymbolNodeWatch = hasAvailableSymbolNodeWatch ? describe : describe.skip;
+const describeWithNemNodeWatch = hasAvailableNemNodeWatch ? describe : describe.skip;
 
-describeWithNodeWatch('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
+describeWithSymbolNodeWatch('nemSymbolNodePicker - E2E (公開メソッドのみ)', () => {
   test(
     'Symbol mainnet から1つ取得できる',
     async () => {
@@ -60,23 +155,6 @@ describeWithNodeWatch('nemSymbolNodePicker - E2E (公開メソッドのみ)', ()
       expect(result.length).toBeLessThanOrEqual(3);
       // 形式チェック
       result.forEach((ep) => expect(ep).toMatch(/^https?:\/\//));
-      console.log('取得したノード:', result);
-    },
-    E2E_TIMEOUT
-  );
-
-  test(
-    'nem mainnet を取得できる',
-    async () => {
-      const result = await nemSymbolNodePicker({
-        chainName: 'nem',
-        network: 'mainnet',
-        count: 1,
-        timeoutMs: E2E_REQUEST_TIMEOUT,
-      });
-      expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBeGreaterThanOrEqual(1);
-      expect(result[0]).toMatch(/^https?:\/\//);
       console.log('取得したノード:', result);
     },
     E2E_TIMEOUT
@@ -176,6 +254,25 @@ describeWithNodeWatch('nemSymbolNodePicker - E2E (公開メソッドのみ)', ()
         // 到達不能でもテスト自体を失敗させない（ネットワーク依存のため）
         console.warn('node reachability check failed:', (err as Error).message);
       }
+    },
+    E2E_TIMEOUT
+  );
+});
+
+describeWithNemNodeWatch('nemSymbolNodePicker - NEM E2E (公開メソッドのみ)', () => {
+  test(
+    'nem mainnet を取得できる',
+    async () => {
+      const result = await nemSymbolNodePicker({
+        chainName: 'nem',
+        network: 'mainnet',
+        count: 1,
+        timeoutMs: E2E_REQUEST_TIMEOUT,
+      });
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBeGreaterThanOrEqual(1);
+      expect(result[0]).toMatch(/^https?:\/\//);
+      console.log('取得したノード:', result);
     },
     E2E_TIMEOUT
   );
