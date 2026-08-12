@@ -91,7 +91,8 @@ describe('NodeWatch snapshot', () => {
   it('heightまたはNode一覧の失敗時はURL組全体をfailoverする', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith('https://first.example.com')) {
+      const origin = new URL(url).origin;
+      if (origin === 'https://first.example.com') {
         return Promise.reject(new Error('first endpoint failed'));
       }
       if (url.endsWith('/api/symbol/height')) {
