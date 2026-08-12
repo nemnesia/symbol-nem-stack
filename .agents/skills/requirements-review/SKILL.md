@@ -13,7 +13,7 @@ description: 要件定義書を複数の観点でレビューし、仕様設計�
 - 明示されない場合は、`requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown ファイルの順で候補を探す。`reviews/` ディレクトリ、`*-review-findings.md`、コンセプトシート、仕様書、設計資料、実装コードは除外する。
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
 - 要件定義書を選択した後、そのファイルと同じディレクトリで、`concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順にコンセプトシート候補を探索する。`reviews/` ディレクトリと `*-review-findings.md` は候補から除外する。候補が1件ならレビューの根拠として確認し、コンセプトシートの拡張子を除いたベース名に `-review-findings.md` を付加した、同じディレクトリの `reviews/` 内のコンセプトレビュー結果も確認する。候補が複数なら自動選択せず、候補のパスを示してユーザーに対象の指定を求めて終了する。候補がない場合は、Evidence Used に「コンセプト本文: 未確認」「コンセプトレビュー結果: 未確認」と記録してレビューを続行する。
-- 選択した要件定義書の拡張子を除いたベース名に `-review-findings.md` を付加し、要件定義書と同じディレクトリの `reviews/` に成果物を作成する。たとえば `doc/requirements.md` の成果物は `doc/reviews/requirements-review-findings.md` とする。`reviews/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
+- 選択した要件定義書の拡張子を除いたベース名に `-review-findings.md` を付加し、要件定義書と同じディレクトリの `reviews/` に成果物を作成する。たとえば `docs/requirements.md` の成果物は `docs/reviews/requirements-review-findings.md` とする。`reviews/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
 
 ## 実行主体と実行順序
 

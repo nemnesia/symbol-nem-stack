@@ -1,6 +1,6 @@
 # Release Readiness Review
 
-Review結果は、指定された対象パッケージに対応する `doc/reviews/<パッケージディレクトリ名>-release-readiness.md` だけを生成または更新する。実装者の内部思考、未採用の推測、外部へ公開しない診断情報は記載しない。
+Review結果は、指定された対象パッケージに対応する `docs/reviews/<パッケージディレクトリ名>-release-readiness.md` だけを生成または更新する。実装者の内部思考、未採用の推測、外部へ公開しない診断情報は記載しない。
 
 ```markdown
 # Release Readiness Review
