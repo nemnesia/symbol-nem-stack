@@ -157,7 +157,7 @@ describe('NodeWatch snapshot', () => {
 
     expect(result.heightInfo.height).toBe(300);
     expect(result.nodes[0].endpoint).toBe('https://second-node.example.com');
-    expect(fetchMock.mock.calls.every(([input]) => !String(input).startsWith('https://third.example.com'))).toBe(true);
+    expect(fetchMock.mock.calls.every(([input]) => new URL(String(input)).hostname !== 'third.example.com')).toBe(true);
   });
 
   it('不正なNode responseでURL組全体をfailoverする', async () => {
