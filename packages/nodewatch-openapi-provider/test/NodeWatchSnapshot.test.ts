@@ -107,10 +107,16 @@ describe('NodeWatch snapshot', () => {
     expect(result.heightInfo.height).toBe(200);
     expect(result.nodes.map((node) => node.endpoint)).toEqual(['https://second-node.example.com']);
     expect(
-      fetchMock.mock.calls.filter(([input]) => String(input).startsWith('https://first.example.com'))
+      fetchMock.mock.calls.filter(([input]) => {
+        const parsed = new URL(String(input));
+        return parsed.protocol === 'https:' && parsed.hostname === 'first.example.com';
+      })
     ).toHaveLength(2);
     expect(
-      fetchMock.mock.calls.filter(([input]) => String(input).startsWith('https://second.example.com'))
+      fetchMock.mock.calls.filter(([input]) => {
+        const parsed = new URL(String(input));
+        return parsed.protocol === 'https:' && parsed.hostname === 'second.example.com';
+      })
     ).toHaveLength(2);
   });
 
