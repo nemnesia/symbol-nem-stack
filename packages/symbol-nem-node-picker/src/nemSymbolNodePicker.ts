@@ -1,6 +1,6 @@
-import type { HeightInfo, Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
+import type { HeightInfo, Node } from '@nemnesia/nodewatch-openapi-provider';
 
-import { createNemNodeWatchApi, createSymbolNodeWatchApi } from './nodeWatchApi.js';
+import { fetchNemNodeWatchSnapshot, fetchSymbolNodeWatchSnapshot } from './nodeWatchApi.js';
 
 /** NodeWatch メインネット用URLリスト */
 export const nodewatchMainnetUrls = ['https://sse.nemnesia.com', 'https://sse2.nemnesia.com'];
@@ -36,62 +36,29 @@ export const nemCache = new Map<string, CacheEntry>(); // NEMノード用キャ�
 
 // 設定値
 const CACHE_DURATION = 60000; // 1分間キャッシュ
-const NODEWATCH_BATCH_SIZE = 3;
 
 /**
- * NodeWatchの候補へ並列にリクエストを送る。
- * 最初に成功した応答を採用し、候補がすべて失敗した場合だけ次の塊を試す。
- * @param baseUrls NodeWatchのベースURL一覧
+ * NodeWatchへリクエストを送り、pickerのタイムアウトを適用する。
  * @param timeoutMs timeout時間（ミリ秒）
- * @param request ベースURLとAbortSignalを受け取るリクエスト関数
+ * @param request AbortSignalを受け取るリクエスト関数
  */
-async function _fetchFromNodeWatch<T>(
-  baseUrls: string[],
-  timeoutMs: number,
-  request: (baseUrl: string, signal: AbortSignal) => Promise<T>
-): Promise<T> {
-  let lastError: unknown;
-
-  for (let start = 0; start < baseUrls.length; start += NODEWATCH_BATCH_SIZE) {
-    const batchUrls = baseUrls.slice(start, start + NODEWATCH_BATCH_SIZE);
-    const controller = new AbortController();
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        controller.abort();
-        reject(new Error('Request timeout'));
-      }, timeoutMs);
-    });
-
-    try {
-      return await Promise.race([
-        Promise.any(batchUrls.map((baseUrl) => request(baseUrl, controller.signal))),
-        timeoutPromise,
-      ]);
-    } catch (error) {
-      lastError = error;
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+async function _fetchWithTimeout<T>(timeoutMs: number, request: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
       controller.abort();
-    }
+      reject(new Error('Request timeout'));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([request(controller.signal), timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    controller.abort();
   }
-
-  throw lastError;
 }
-
-/**
- * NodeWatchからSymbolノード一覧を取得する。
- * 複数のNodeWatch候補に並列アクセスし、最初に成功した結果を返す。
- */
-export const fetchSymbolPeerNodesFromNodeWatch = async (
-  network: NetworkName,
-  timeoutMs: number = 3000
-): Promise<Node[]> => {
-  const nodewatchUrls = network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
-  return _fetchFromNodeWatch(nodewatchUrls, timeoutMs, (baseUrl, signal) =>
-    createSymbolNodeWatchApi(baseUrl).getSymbolPeerNodes({}, { signal })
-  );
-};
 
 /**
  * Symbolノードを取得する
@@ -118,12 +85,11 @@ async function _symbolNodePicker(
   } else {
     try {
       const nodewatchUrls = network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
-      const [height, nodeList] = await _fetchFromNodeWatch(nodewatchUrls, timeoutMs, async (baseUrl, signal) => {
-        const nodeWatchApi = createSymbolNodeWatchApi(baseUrl);
-        return Promise.all([nodeWatchApi.getSymbolHeight({ signal }), nodeWatchApi.getSymbolPeerNodes({}, { signal })]);
+      const snapshot = await _fetchWithTimeout(timeoutMs, (signal) => {
+        return fetchSymbolNodeWatchSnapshot(nodewatchUrls, { signal });
       });
-      heightInfo = height;
-      nodes = nodeList;
+      heightInfo = snapshot.heightInfo;
+      nodes = snapshot.nodes;
       symbolCache.set(cacheKey, {
         heightInfo,
         nodes,
@@ -173,12 +139,11 @@ async function _nemNodePicker(
   } else {
     const nodewatchUrls = network === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
     try {
-      const [height, nodeList] = await _fetchFromNodeWatch(nodewatchUrls, timeoutMs, async (baseUrl, signal) => {
-        const nodeWatchApi = createNemNodeWatchApi(baseUrl);
-        return Promise.all([nodeWatchApi.getNemHeight({ signal }), nodeWatchApi.getNemNodes({ signal })]);
+      const snapshot = await _fetchWithTimeout(timeoutMs, (signal) => {
+        return fetchNemNodeWatchSnapshot(nodewatchUrls, { signal });
       });
-      heightInfo = height;
-      nodes = nodeList;
+      heightInfo = snapshot.heightInfo;
+      nodes = snapshot.nodes;
       nemCache.set(cacheKey, {
         heightInfo,
         nodes,

@@ -26,7 +26,7 @@
     "@nemnesia/symbol-openapi-typescript-fetch-client": "workspace:*",
     "@nemnesia/symbol-sdk": "workspace:*",
     "@nemnesia/symbol-websocket": "workspace:*",
-    "nem-symbol-node-picker": "workspace:*",
+    "@nemnesia/symbol-nem-node-picker": "workspace:*",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },

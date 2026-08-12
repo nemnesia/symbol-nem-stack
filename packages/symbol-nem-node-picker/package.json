@@ -1,6 +1,6 @@
 {
-  "name": "nem-symbol-node-picker",
-  "version": "1.2.0",
+  "name": "@nemnesia/symbol-nem-node-picker",
+  "version": "2.0.0",
   "description": "A lightweight Node.js package for picking random NEM and Symbol blockchain nodes from NodeWatch API",
   "keywords": [
     "nem",
@@ -15,12 +15,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nemnesia/nem-symbol-node-picker.git"
+    "url": "git+https://github.com/nemnesia/symbol-nem-stack.git"
   },
   "bugs": {
-    "url": "https://github.com/nemnesia/nem-symbol-node-picker/issues"
+    "url": "https://github.com/nemnesia/symbol-nem-stack/issues"
   },
-  "homepage": "https://github.com/nemnesia/nem-symbol-node-picker#readme",
+  "homepage": "https://github.com/nemnesia/symbol-nem-stack/tree/main/packages/symbol-nem-node-picker#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -38,6 +38,7 @@
   "files": [
     "dist/**/*",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "sideEffects": false,
@@ -46,7 +47,7 @@
     "build": "pnpm run clean && tsup",
     "lint": "eslint \"{src,test,e2e}/**/*.ts\" --fix",
     "format": "prettier --write \"{src,test,e2e}/**/*.ts\"",
-    "test": "vitest run",
+    "test": "vitest run --dir test",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
     "test:coverage:ui": "vitest --ui --coverage",
@@ -60,15 +61,13 @@
     "publish:release": "npm run build && npm publish"
   },
   "dependencies": {
-    "@nemnesia/nodewatch-openapi-typescript-fetch-client": "^1.0.1",
-    "@nemnesia/nodewatch-openapi-provider": "^0.1.0"
+    "@nemnesia/nodewatch-openapi-provider": "workspace:^"
   },
   "devDependencies": {},
   "engines": {
     "node": ">=20.0.0"
   },
-  "volta": {
-    "node": "20.19.5",
-    "yarn": "4.12.0"
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,6 +1,7 @@
 import { Box } from '@mui/material';
+import { fetchSymbolNodeWatchSnapshot } from '@nemnesia/nodewatch-openapi-provider';
 import { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
-import { type NetworkName, fetchSymbolPeerNodesFromNodeWatch } from 'nem-symbol-node-picker';
+import { type NetworkName, nodewatchMainnetUrls, nodewatchTestnetUrls } from '@nemnesia/symbol-nem-node-picker';
 import { useEffect, useState } from 'react';
 
 import '../App.css';
@@ -11,6 +12,30 @@ const PASOMI_NODE_HOSTS = ['seattle.pasomi.net', 'pasomi.net', 'shoestring.pasom
 const PASOMI_NODE_INFO_PATH = '/node/info';
 const PASOMI_NODE_INFO_PORT = 3001;
 const PASOMI_NODE_INFO_TIMEOUT_MS = 5000;
+const NODEWATCH_REQUEST_TIMEOUT_MS = 3000;
+
+const fetchSymbolNodeWatchNodes = async (networkName: NetworkName): Promise<Node[]> => {
+  const baseUrls = networkName === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error('Request timeout'));
+    }, NODEWATCH_REQUEST_TIMEOUT_MS);
+  });
+
+  try {
+    const snapshot = await Promise.race([
+      fetchSymbolNodeWatchSnapshot(baseUrls, { signal: controller.signal }),
+      timeoutPromise,
+    ]);
+    return snapshot.nodes;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    controller.abort();
+  }
+};
 
 const parseEndpointHostname = (endpoint: string): string | null => {
   try {
@@ -117,7 +142,7 @@ function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'te
     const fetchVotingNodes = async () => {
       try {
         const isMainNet = networkName === 'mainnet';
-        const nodes = await fetchSymbolPeerNodesFromNodeWatch(networkName);
+        const nodes = await fetchSymbolNodeWatchNodes(networkName);
         const votingNodes: Node[] = nodes.filter((node) => (node.roles ?? 0) & 4);
 
         if (!isActive) return;

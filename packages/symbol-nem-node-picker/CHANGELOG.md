@@ -6,6 +6,14 @@
 変更履歴のフォーマットは[変更履歴の管理](https://keepachangelog.com/en/1.0.0/)に基づいています。  
 / The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.0.0] - 2026/08/12
+
+### 変更 / Changed
+
+- HeightInfoとNodeのNodeWatch取得処理を`@nemnesia/nodewatch-openapi-provider`へ移行。
+- `fetchSymbolPeerNodesFromNodeWatch`を削除。Node一覧が必要な場合はproviderのsnapshot APIを使用。
+- NodeWatch URL定数を公開exportへ追加。
+
 ## [1.2.0] - 2025/12/29
 
 ### 追加 / Added

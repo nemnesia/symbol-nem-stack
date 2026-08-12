@@ -21,7 +21,11 @@ npm install @nemnesia/nodewatch-openapi-provider @nemnesia/nodewatch-openapi-typ
 ネットワークを表す引数はありません。利用するネットワークのNodeWatch URLリストを指定して、SymbolまたはNEM用のAPIを作成します。
 
 ```typescript
-import { createNemNodeWatchApi, createSymbolNodeWatchApi } from '@nemnesia/nodewatch-openapi-provider';
+import {
+  createNemNodeWatchApi,
+  createSymbolNodeWatchApi,
+  fetchSymbolNodeWatchSnapshot,
+} from '@nemnesia/nodewatch-openapi-provider';
 
 const mainnetUrls = ['https://nodewatch.symbol.tools'];
 const testnetUrls = ['https://nodewatch.symbol.tools/testnet'];
@@ -32,8 +36,9 @@ const nemApi = createNemNodeWatchApi(testnetUrls);
 const height = await symbolApi.getSymbolHeight();
 const nodes = await symbolApi.getSymbolPeerNodes({ limit: 10 });
 const nemNodes = await nemApi.getNemNodes();
+const snapshot = await fetchSymbolNodeWatchSnapshot(mainnetUrls);
 
-console.log({ height, nodes, nemNodes });
+console.log({ height, nodes, nemNodes, snapshot });
 ```
 
 URLを複数指定すると、リクエストに失敗したとき次のURLへ切り替えます。URLリストは少なくとも1件必要です。指定したURLがmainnet用かtestnet用かは、利用者側で管理してください。
@@ -44,8 +49,19 @@ URLを複数指定すると、リクエストに失敗したとき次のURLへ�
 
 - `createSymbolNodeWatchApi(baseUrls)` — Symbol用NodeWatch APIを作成します。
 - `createNemNodeWatchApi(baseUrls)` — NEM用NodeWatch APIを作成します。
+- `fetchSymbolNodeWatchSnapshot(baseUrls, initOverrides?)` — Symbolのheightとpeer node一覧を同じURL組から取得します。
+- `fetchNemNodeWatchSnapshot(baseUrls, initOverrides?)` — NEMのheightとnode一覧を同じURL組から取得します。
+- `HeightInfo`、`Node`、`NodeWatchSnapshot` — NodeWatch応答の公開型です。
 
 作成したAPIでは、NodeWatch OpenAPI clientが提供するheight取得、ノード一覧取得などのメソッドを呼び出せます。
+snapshot APIではheightまたはノード一覧の取得に失敗した場合、同じURL組全体を次のURLへ切り替えます。
+`initOverrides`に`AbortSignal`を指定して中止した場合は、RequestInit形式・関数形式のどちらでも別URLへのfailoverを行わず、キャンセルをそのまま返します。
+snapshotの2xx応答は、height情報とNodeの必須フィールドおよび基本型を検証します。不適合な応答はURL組の失敗として扱います。
+Nodeの`height`と`finalizedHeight`は通常`1`以上を必要とします。実応答に含まれる`0`のNodeは未観測・未同期として一覧から除外します。型不正や負数は不適合な応答として扱います。`endpoint`は絶対URIである必要があり、相対URIやhostのみの値は不適合な応答として扱います。
+
+## セキュリティ上の注意
+
+接続先NodeWatchのURLは利用者が指定する外部入力です。信頼できるURLリストを使用し、可能な場合はHTTPSを使用してください。NodeWatch応答の`endpoint`を使って接続する場合も、用途に応じてURLと接続先を検証してください。
 
 ## 対応環境
 

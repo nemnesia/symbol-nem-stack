@@ -1,5 +1,5 @@
 import { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
-import type { NetworkName } from 'nem-symbol-node-picker';
+import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
 import { useEffect, useState } from 'react';
 
 import { VotingNodeInfoData } from '../types/votingNode';

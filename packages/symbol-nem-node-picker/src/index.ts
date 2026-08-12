@@ -1,5 +1,6 @@
 export {
-  fetchSymbolPeerNodesFromNodeWatch,
+  nodewatchMainnetUrls,
+  nodewatchTestnetUrls,
   nemSymbolNodePicker,
   type ChainName,
   type NetworkName,

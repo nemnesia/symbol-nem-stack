@@ -16,6 +16,7 @@ ignoredBuiltDependencies:
 
 minimumReleaseAgeExclude:
   - '@nemnesia/symbol-websocket@0.2.2 || 1.0.0'
+  - '@nemnesia/nodewatch-openapi-provider@1.1.0'
 
 onlyBuiltDependencies:
   - esbuild

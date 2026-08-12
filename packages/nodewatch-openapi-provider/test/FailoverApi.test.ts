@@ -5,7 +5,7 @@ import { FailoverApi, createNemNodeWatchApi, createSymbolNodeWatchApi } from '..
 
 // Mock API class for testing
 class MockApi {
-  private config: Configuration;
+  protected config: Configuration;
 
   constructor(config: Configuration) {
     this.config = config;
@@ -112,8 +112,61 @@ describe('FailoverApi', () => {
       const failoverApi = new FailoverApi(TestApi, baseUrls, false) as any;
 
       await expect(failoverApi.failingMethod()).rejects.toThrow(/All endpoints failed/);
-      // retryOnError=false の場合でも最初のエンドポイントは試行されるため、callCountは1または2になる可能性がある
-      expect(TestApi.callCount).toBeLessThanOrEqual(2);
+      expect(TestApi.callCount).toBe(1);
+    });
+
+    it('should not fail over after an abort signal is cancelled', async () => {
+      const controller = new AbortController();
+      const calls: string[] = [];
+
+      class AbortApi extends MockApi {
+        async signalMethod(): Promise<string> {
+          calls.push(this.config.basePath);
+          controller.abort();
+          throw new Error('request cancelled');
+        }
+      }
+
+      const failoverApi = new FailoverApi(
+        AbortApi,
+        ['https://api1.example.com', 'https://api2.example.com'],
+        true
+      ) as any;
+
+      await expect(failoverApi.signalMethod({ signal: controller.signal })).rejects.toBe(controller.signal.reason);
+      expect(calls).toEqual(['https://api1.example.com']);
+    });
+
+    it('should keep failover endpoint selection local to concurrent requests', async () => {
+      const calls: string[] = [];
+
+      class ConcurrentApi extends MockApi {
+        async concurrentMethod(requestId: string): Promise<string> {
+          calls.push(`${requestId}:${this.config.basePath}`);
+          if (this.config.basePath === 'https://api1.example.com') {
+            await new Promise((resolve) => setTimeout(resolve, requestId === 'first' ? 10 : 0));
+            throw new Error(`${requestId} failed`);
+          }
+          if (this.config.basePath === 'https://api2.example.com') return this.config.basePath;
+          throw new Error(`${requestId} reached unexpected endpoint`);
+        }
+      }
+
+      const failoverApi = new FailoverApi(
+        ConcurrentApi,
+        ['https://api1.example.com', 'https://api2.example.com', 'https://api3.example.com'],
+        true
+      ) as any;
+
+      await expect(
+        Promise.all([failoverApi.concurrentMethod('first'), failoverApi.concurrentMethod('second')])
+      ).resolves.toEqual(['https://api2.example.com', 'https://api2.example.com']);
+      expect(calls).toEqual(
+        expect.arrayContaining(['first:https://api1.example.com', 'second:https://api1.example.com'])
+      );
+      expect(calls).toEqual(
+        expect.arrayContaining(['first:https://api2.example.com', 'second:https://api2.example.com'])
+      );
     });
 
     it('should respect maxRetries limit', async () => {

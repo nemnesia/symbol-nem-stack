@@ -25,12 +25,41 @@ function filterNodeListResult<R>(methodName: string, result: R): R {
   return result.filter(hasUsableEndpoint) as R;
 }
 
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return typeof value === 'object' && value !== null && typeof (value as { aborted?: unknown }).aborted === 'boolean';
+}
+
+function findAbortSignal(args: readonly unknown[]): AbortSignal | undefined {
+  for (let index = args.length - 1; index >= 0; index--) {
+    const value = args[index];
+    if (typeof value !== 'object' || value === null) continue;
+
+    const signal = (value as { signal?: unknown }).signal;
+    if (isAbortSignal(signal)) return signal;
+  }
+
+  return undefined;
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
+}
+
+function getAbortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+}
+
+type AbortSignalProvider = AbortSignal | (() => AbortSignal | undefined);
+
+function resolveAbortSignal(provider?: AbortSignalProvider): AbortSignal | undefined {
+  return typeof provider === 'function' ? provider() : provider;
+}
+
 /**
  * フェールオーバー対応のAPIクラス
  */
 export class FailoverApi<T> {
   private apis: T[];
-  private currentIndex = 0;
   private maxRetries: number;
 
   /**
@@ -66,37 +95,36 @@ export class FailoverApi<T> {
 
         // APIのメソッドをフェールオーバー対応で呼び出す
         return function (...args: any[]) {
-          return target.executeWithFailover((api) => (api as any)[prop](...args), prop);
+          return target.executeWithFailover((api) => (api as any)[prop](...args), prop, findAbortSignal(args));
         };
       },
     }) as any;
   }
 
   /**
-   * フェールオーバー対応でAPIメソッドを実行
-   *
-   * @param apiMethod APIメソッド
-   * @param methodName APIメソッド名
-   * @returns APIメソッドの結果
+   * フェールオーバー対応で複数のAPIメソッドを同じAPIインスタンス上で実行
    */
-  private async executeWithFailover<R>(apiMethod: (api: T) => Promise<R>, methodName?: string): Promise<R> {
+  async executeBatch<R>(apiMethod: (api: T) => Promise<R>, signal?: AbortSignalProvider): Promise<R> {
     let lastError: Error | undefined;
     const attemptLimit = Math.min(this.maxRetries, this.apis.length);
 
     for (let attempt = 0; attempt < attemptLimit; attempt++) {
-      const api = this.apis[this.currentIndex];
+      const currentSignal = resolveAbortSignal(signal);
+      if (currentSignal?.aborted) throw getAbortReason(currentSignal);
+
+      const endpointIndex = attempt;
+      const api = this.apis[endpointIndex];
 
       try {
         const result = await apiMethod(api);
-        return methodName ? filterNodeListResult(methodName, result) : result;
+        return result;
       } catch (error) {
-        lastError = error as Error;
-        console.warn(
-          `Request failed on endpoint ${this.currentIndex} (attempt ${attempt + 1}/${attemptLimit}):`,
-          error
-        );
+        const currentSignal = resolveAbortSignal(signal);
+        if (currentSignal?.aborted) throw getAbortReason(currentSignal);
+        if (isAbortError(error)) throw error;
 
-        this.currentIndex = (this.currentIndex + 1) % this.apis.length;
+        lastError = error as Error;
+        console.warn(`Request failed on endpoint ${endpointIndex} (attempt ${attempt + 1}/${attemptLimit}):`, error);
 
         if (!this.retryOnError || attempt === attemptLimit - 1) {
           break;
@@ -105,6 +133,18 @@ export class FailoverApi<T> {
     }
 
     throw new Error(`All endpoints failed after ${attemptLimit} attempts. Last error: ${lastError?.message}`);
+  }
+
+  /**
+   * フェールオーバー対応でAPIメソッドを実行
+   */
+  private async executeWithFailover<R>(
+    apiMethod: (api: T) => Promise<R>,
+    methodName: string,
+    signal?: AbortSignal
+  ): Promise<R> {
+    const result = await this.executeBatch(apiMethod, signal);
+    return filterNodeListResult(methodName, result);
   }
 }
 

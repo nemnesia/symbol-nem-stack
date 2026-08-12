@@ -1,3 +1,4 @@
+import { type NetworkName, nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
 import {
   AccountInfoDTO,
   AccountRoutesApi,
@@ -6,7 +7,6 @@ import {
   FinalizationProofDTO,
   FinalizationRoutesApi,
 } from '@nemnesia/symbol-openapi-typescript-fetch-client';
-import { type NetworkName, nemSymbolNodePicker } from 'nem-symbol-node-picker';
 
 export const findAccountByPublicKey = async (
   publicKey: string,
