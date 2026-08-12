@@ -11,7 +11,7 @@ export type DisconnectCallback = (nodeUrl: string) => void;
  * 管理対象ノードの現在の接続状態。
  */
 export interface NodeConnectionStatus {
-  /** ノードのホスト名または IP アドレス。 */
+  /** 入力された NodeWatch ノード endpoint URL。 */
   nodeUrl: string;
   /** 内部 WebSocket が OPEN 状態かどうか。 */
   connected: boolean;
@@ -24,17 +24,17 @@ export interface NodeConnectionStatus {
  */
 export interface SymbolEventStreamOptions {
   /**
-   * 接続候補となるノードのホスト名または IP アドレス。プロトコル・ポート・パスは含めません。
+   * NodeWatch/picker が返した接続候補のノード endpoint URL。
+   * `http://` または `https://` の absolute root endpoint を指定します。ポートは省略するか、
+   * `http` では `3000`、`https` では `3001` を指定します。path、query、fragment は指定できません。
    * 少なくとも 1 つ指定します。
    */
-  nodeUrls: string[];
+  nodewatchUrls: string[];
   /**
    * 同時に維持する接続数。正の安全な整数を指定します。
-   * `nodeUrls` の件数を超える場合は、すべての候補ノードへ接続します。
+   * `nodewatchUrls` の件数を超える場合は、すべての候補ノードへ接続します。
    */
   connections: number;
-  /** SSL を使用するかどうか。 @defaultValue true */
-  ssl?: boolean;
   /**
    * 重複排除キャッシュの最大エントリ数。正の安全な整数を指定します。
    * @defaultValue 10000

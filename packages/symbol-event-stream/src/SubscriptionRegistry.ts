@@ -87,11 +87,24 @@ export class SubscriptionRegistry {
     }
   }
 
-  /** 現在保持している全購読を新しいWebSocketへ復元します。 */
+  /** 現在保持している全購読を新しいWebSocketへ復元します。失敗時は部分購読を解除します。 */
   public restore(ws: SymbolWebSocket): void {
-    for (const key of this.callbacks.keys()) {
-      const [channel, address] = this.parseKey(key);
-      this.subscribeSocket(ws, channel, address, key);
+    const attempted: Array<[SymbolChannel, string | undefined]> = [];
+    try {
+      for (const key of this.callbacks.keys()) {
+        const [channel, address] = this.parseKey(key);
+        attempted.push([channel, address]);
+        this.subscribeSocket(ws, channel, address, key);
+      }
+    } catch (error) {
+      for (const [channel, address] of attempted) {
+        try {
+          this.unsubscribeSocket(ws, channel, address);
+        } catch {
+          // 元の購読復元エラーを維持する。
+        }
+      }
+      throw error;
     }
   }
 
