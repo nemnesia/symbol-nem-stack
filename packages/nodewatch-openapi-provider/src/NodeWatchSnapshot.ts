@@ -58,7 +58,6 @@ function isValidNode(value: unknown): value is Node {
     isAbsoluteUri(value.endpoint) &&
     typeof value.name === 'string' &&
     typeof value.version === 'string' &&
-    // 現行NodeWatch実応答では未観測ノードのheightが0になるため、下限は0とする。
     isIntegerAtLeast(value.height, 0) &&
     isIntegerAtLeast(value.finalizedHeight, 0) &&
     typeof value.balance === 'number' &&
@@ -77,12 +76,31 @@ function validateNodeList(value: unknown): Node[] {
 
   const usableNodes = value.filter(hasUsableEndpoint);
   if (!usableNodes.every(isValidNode)) throw new Error('Invalid NodeWatch node response');
-  return usableNodes;
+  return usableNodes.filter((node) => node.height !== 0 && node.finalizedHeight !== 0);
 }
 
-function getRequestSignal(initOverrides?: NodeWatchInitOverrides): AbortSignal | undefined {
-  if (typeof initOverrides !== 'object' || initOverrides === null) return undefined;
-  return initOverrides.signal ?? undefined;
+function prepareInitOverrides(initOverrides?: NodeWatchInitOverrides): {
+  requestInitOverrides?: NodeWatchInitOverrides;
+  getSignal: () => AbortSignal | undefined;
+} {
+  if (typeof initOverrides !== 'function') {
+    return {
+      requestInitOverrides: initOverrides,
+      getSignal: () => initOverrides?.signal ?? undefined,
+    };
+  }
+
+  const signals = new Set<AbortSignal>();
+  const requestInitOverrides: InitOverrideFunction = async (requestContext) => {
+    const requestInit = await initOverrides(requestContext);
+    if (requestInit.signal) signals.add(requestInit.signal);
+    return requestInit;
+  };
+
+  return {
+    requestInitOverrides,
+    getSignal: () => [...signals].find((signal) => signal.aborted) ?? [...signals][0],
+  };
 }
 
 async function fetchSnapshot<TApi>(
@@ -92,7 +110,11 @@ async function fetchSnapshot<TApi>(
   initOverrides?: NodeWatchInitOverrides
 ): Promise<NodeWatchSnapshot> {
   const failoverApi = new FailoverApi(ApiClass, baseUrls, true);
-  return failoverApi.executeBatch((api) => request(api, initOverrides), getRequestSignal(initOverrides));
+  const preparedInitOverrides = prepareInitOverrides(initOverrides);
+  return failoverApi.executeBatch(
+    (api) => request(api, preparedInitOverrides.requestInitOverrides),
+    preparedInitOverrides.getSignal
+  );
 }
 
 /** Symbolのheightとpeer node一覧を同じNodeWatch URL組から取得する */

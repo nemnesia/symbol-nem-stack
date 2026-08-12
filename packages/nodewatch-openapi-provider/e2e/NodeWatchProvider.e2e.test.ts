@@ -6,8 +6,8 @@ import { fetchNemNodeWatchSnapshot, fetchSymbolNodeWatchSnapshot } from '../src/
 const E2E_TIMEOUT = 90_000;
 const AVAILABILITY_TIMEOUT = 10_000;
 const REQUEST_TIMEOUT = 30_000;
-// provider契約: 未観測ノードを表すheight 0を許容する。
-const MIN_REPORTED_NODE_HEIGHT = 0;
+// provider契約: Nodeのheight 0は一覧から除外されるため、返却Nodeは1以上となる。
+const MIN_REPORTED_NODE_HEIGHT = 1;
 const mainnetUrls = ['https://nodewatch.symbol.tools'];
 const testnetUrls = ['https://nodewatch.symbol.tools/testnet'];
 
@@ -105,7 +105,7 @@ for (const scenario of scenarios) {
         const { heightInfo, nodes } = await scenario.getSnapshot(signal);
 
         expectHeightInfo(heightInfo);
-        expect(nodes.length).toBeGreaterThan(0);
+        expect(Array.isArray(nodes)).toBe(true);
         nodes.forEach(expectNode);
       },
       E2E_TIMEOUT

@@ -54,9 +54,9 @@ URLを複数指定すると、リクエストに失敗したとき次のURLへ�
 
 作成したAPIでは、NodeWatch OpenAPI clientが提供するheight取得、ノード一覧取得などのメソッドを呼び出せます。
 snapshot APIではheightまたはノード一覧の取得に失敗した場合、同じURL組全体を次のURLへ切り替えます。
-`initOverrides`に`AbortSignal`を指定して中止した場合は、別URLへのfailoverを行わず、キャンセルをそのまま返します。
+`initOverrides`に`AbortSignal`を指定して中止した場合は、RequestInit形式・関数形式のどちらでも別URLへのfailoverを行わず、キャンセルをそのまま返します。
 snapshotの2xx応答は、height情報とNodeの必須フィールドおよび基本型を検証します。不適合な応答はURL組の失敗として扱います。
-Nodeの`height`と`finalizedHeight`は`0`以上を許容します。`endpoint`は絶対URIである必要があり、相対URIやhostのみの値は不適合な応答として扱います。
+Nodeの`height`と`finalizedHeight`は通常`1`以上を必要とします。実応答に含まれる`0`のNodeは未観測・未同期として一覧から除外します。型不正や負数は不適合な応答として扱います。`endpoint`は絶対URIである必要があり、相対URIやhostのみの値は不適合な応答として扱います。
 
 ## 対応環境
 

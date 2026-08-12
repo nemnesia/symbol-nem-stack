@@ -51,7 +51,29 @@ describe('NodeWatch snapshot', () => {
     expect(fetchMock).toHaveBeenCalledWith('https://symbol.example.com/api/symbol/nodes/peer', expect.anything());
   });
 
-  it('Nodeのheight 0とfinalizedHeight 0を許容する', async () => {
+  it('Nodeのheight 0またはfinalizedHeight 0を除外する', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/symbol/height')) {
+        return Promise.resolve(jsonResponse({ height: 100, finalizedHeight: 99 }));
+      }
+      return Promise.resolve(
+        jsonResponse([
+          nodeResponse('https://unsynced.example.com', 0, 0),
+          nodeResponse('https://valid.example.com', 1, 1),
+        ])
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchSymbolNodeWatchSnapshot(['https://symbol.example.com']);
+
+    expect(result.heightInfo.height).toBe(100);
+    expect(result.nodes[0].endpoint).toBe('https://valid.example.com');
+    expect(result.nodes).toHaveLength(1);
+  });
+
+  it('全Nodeのheight 0またはfinalizedHeight 0の場合は空一覧を返す', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/api/symbol/height')) {
@@ -63,8 +85,7 @@ describe('NodeWatch snapshot', () => {
 
     const result = await fetchSymbolNodeWatchSnapshot(['https://symbol.example.com']);
 
-    expect(result.nodes).toHaveLength(1);
-    expect(result.nodes[0]).toMatchObject({ height: 0, finalizedHeight: 0 });
+    expect(result.nodes).toEqual([]);
   });
 
   it('heightまたはNode一覧の失敗時はURL組全体をfailoverする', async () => {
@@ -162,7 +183,7 @@ describe('NodeWatch snapshot', () => {
       }
       if (url.endsWith('/api/symbol/height'))
         return Promise.resolve(jsonResponse({ height: 501, finalizedHeight: 500 }));
-      return Promise.resolve(jsonResponse([nodeResponse('https://valid-node.example.com', 0, 0)]));
+      return Promise.resolve(jsonResponse([nodeResponse('https://valid-node.example.com', 1, 1)]));
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -184,6 +205,22 @@ describe('NodeWatch snapshot', () => {
       fetchSymbolNodeWatchSnapshot(['https://first.example.com', 'https://second.example.com'], {
         signal: controller.signal,
       })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock.mock.calls.every(([input]) => String(input).startsWith('https://first.example.com'))).toBe(true);
+  });
+
+  it('関数形式InitOverrideFunctionのAbortSignalでも後続URLへfailoverしない', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn((_input: RequestInfo | URL) => {
+      controller.abort();
+      return Promise.reject(new Error('request cancelled'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetchSymbolNodeWatchSnapshot(['https://first.example.com', 'https://second.example.com'], async () => ({
+        signal: controller.signal,
+      }))
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(fetchMock.mock.calls.every(([input]) => String(input).startsWith('https://first.example.com'))).toBe(true);
   });

@@ -49,6 +49,12 @@ function getAbortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
 }
 
+type AbortSignalProvider = AbortSignal | (() => AbortSignal | undefined);
+
+function resolveAbortSignal(provider?: AbortSignalProvider): AbortSignal | undefined {
+  return typeof provider === 'function' ? provider() : provider;
+}
+
 /**
  * フェールオーバー対応のAPIクラス
  */
@@ -98,12 +104,13 @@ export class FailoverApi<T> {
   /**
    * フェールオーバー対応で複数のAPIメソッドを同じAPIインスタンス上で実行
    */
-  async executeBatch<R>(apiMethod: (api: T) => Promise<R>, signal?: AbortSignal): Promise<R> {
+  async executeBatch<R>(apiMethod: (api: T) => Promise<R>, signal?: AbortSignalProvider): Promise<R> {
     let lastError: Error | undefined;
     const attemptLimit = Math.min(this.maxRetries, this.apis.length);
 
     for (let attempt = 0; attempt < attemptLimit; attempt++) {
-      if (signal?.aborted) throw getAbortReason(signal);
+      const currentSignal = resolveAbortSignal(signal);
+      if (currentSignal?.aborted) throw getAbortReason(currentSignal);
 
       const endpointIndex = attempt;
       const api = this.apis[endpointIndex];
@@ -112,7 +119,8 @@ export class FailoverApi<T> {
         const result = await apiMethod(api);
         return result;
       } catch (error) {
-        if (signal?.aborted) throw getAbortReason(signal);
+        const currentSignal = resolveAbortSignal(signal);
+        if (currentSignal?.aborted) throw getAbortReason(currentSignal);
         if (isAbortError(error)) throw error;
 
         lastError = error as Error;
