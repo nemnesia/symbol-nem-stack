@@ -25,6 +25,10 @@ function nodeResponse(
   };
 }
 
+function hasOrigin(input: RequestInfo | URL, origin: string): boolean {
+  return new URL(String(input)).origin === origin;
+}
+
 describe('NodeWatch snapshot', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -185,7 +189,7 @@ describe('NodeWatch snapshot', () => {
   it('絶対URIでないNode endpointでURL組全体をfailoverする', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith('https://first.example.com')) {
+      if (hasOrigin(input, 'https://first.example.com')) {
         if (url.endsWith('/api/symbol/height'))
           return Promise.resolve(jsonResponse({ height: 500, finalizedHeight: 499 }));
         return Promise.resolve(jsonResponse([nodeResponse('node.example.com')]));
@@ -215,7 +219,7 @@ describe('NodeWatch snapshot', () => {
         signal: controller.signal,
       })
     ).rejects.toMatchObject({ name: 'AbortError' });
-    expect(fetchMock.mock.calls.every(([input]) => String(input).startsWith('https://first.example.com'))).toBe(true);
+    expect(fetchMock.mock.calls.every(([input]) => hasOrigin(input, 'https://first.example.com'))).toBe(true);
   });
 
   it('関数形式InitOverrideFunctionのAbortSignalでも後続URLへfailoverしない', async () => {
@@ -231,7 +235,7 @@ describe('NodeWatch snapshot', () => {
         signal: controller.signal,
       }))
     ).rejects.toMatchObject({ name: 'AbortError' });
-    expect(fetchMock.mock.calls.every(([input]) => String(input).startsWith('https://first.example.com'))).toBe(true);
+    expect(fetchMock.mock.calls.every(([input]) => hasOrigin(input, 'https://first.example.com'))).toBe(true);
   });
 
   it('空URL配列を拒否する', async () => {
