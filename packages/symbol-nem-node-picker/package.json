@@ -61,7 +61,7 @@
     "publish:release": "npm run build && npm publish"
   },
   "dependencies": {
-    "@nemnesia/nodewatch-openapi-provider": "workspace:^"
+    "@nemnesia/nodewatch-openapi-provider": "^1.1.0"
   },
   "devDependencies": {},
   "engines": {
