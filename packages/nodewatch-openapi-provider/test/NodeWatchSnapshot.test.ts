@@ -137,7 +137,8 @@ describe('NodeWatch snapshot', () => {
 
     expect(result.heightInfo).toEqual({ height: 300, finalizedHeight: 299 });
     expect(result.nodes[0].endpoint).toBe('https://nem-node.example.com');
-    expect(receivedSignal).toBe(controller.signal);
+      const origin = new URL(url).origin;
+      if (origin === 'https://first.example.com') {
   });
 
   it('不正なheight responseでURL組全体をfailoverする', async () => {
