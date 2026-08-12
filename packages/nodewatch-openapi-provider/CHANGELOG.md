@@ -11,6 +11,13 @@
 - Symbol/NEMのheightとノード一覧を同じNodeWatch URL組から取得するsnapshot APIを追加。
 - `HeightInfo`および`Node`型を生成clientから再エクスポート。
 
+### 修正
+
+- `initOverrides`のRequestInit形式・関数形式でAbortSignalが中止された場合、後続URLへのfailoverを行わずキャンセルを返すように修正。
+- snapshot APIでheight情報とNode一覧の必須フィールドおよび基本型を検証し、不適合な応答をURL組の失敗として扱うように修正。
+- Nodeの`height`または`finalizedHeight`が`0`の未観測・未同期Nodeをsnapshotの結果から除外するように修正。
+- snapshotのNode `endpoint`に絶対URIを要求し、相対URIやhostのみの値を不適合な応答として扱うように修正。
+
 ## [1.0.0] - 2026/08/11
 
 ### 変更
