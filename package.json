@@ -26,7 +26,7 @@
     "openapi"
   ],
   "author": "ccHarvestasya",
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@11.21.0",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@openapitools/openapi-generator-cli": "^2.40.1",
