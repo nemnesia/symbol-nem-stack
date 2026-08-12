@@ -14,8 +14,8 @@ description: 仕様書を複数の観点でレビューし、実装へ安全に�
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
 - 仕様書を選択した後、同じディレクトリでコンセプトシートと要件定義書の候補を探索する。コンセプトシートは `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順、要件定義書は `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown ファイルの順とする。`reviews/` ディレクトリ、`*-review-findings.md`、仕様書、実装コードは候補から除外する。
 - 上流候補が複数ある場合は自動選択せず、候補のパスを示して対象を確認して終了する。候補が1件の場合は本文と、拡張子を除いたベース名に `-review-findings.md` を付加した同じディレクトリの `reviews/` 内のレビュー結果を確認する。候補がない場合は Evidence Used に「未確認」と記録し、レビューを続行する。
-- 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/doc/reviews/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `doc/` を含み、`package.json` と `src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
-- 選択した仕様書の拡張子を除いたベース名に `-review-findings.md` を付加し、仕様書と同じディレクトリの `reviews/` に成果物を作成する。たとえば `doc/spec.md` の成果物は `doc/reviews/spec-review-findings.md` とする。`reviews/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
+- 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/docs/reviews/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `docs/` を含み、`package.json` と `src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
+- 選択した仕様書の拡張子を除いたベース名に `-review-findings.md` を付加し、仕様書と同じディレクトリの `reviews/` に成果物を作成する。たとえば `docs/spec.md` の成果物は `docs/reviews/spec-review-findings.md` とする。`reviews/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
 
 ## 実行主体と実行順序
 
