@@ -10,7 +10,7 @@ Symbol および NEM ブロックチェーンのための TypeScript/JavaScript 
 
 - **[symbol-sdk](./packages/symbol-sdk)**
   [![npm version](https://img.shields.io/npm/v/@nemnesia/symbol-sdk?style=flat-square)](https://www.npmjs.com/package/@nemnesia/symbol-sdk)  
-   Node.js/ブラウザ両対応のSymbol公式SDK移植版。
+  Node.js/ブラウザ両対応のSymbol公式SDK移植版。
 
 - **[simple-password-crypto](./packages/simple-password-crypto)**
   [![npm version](https://img.shields.io/npm/v/@nemnesia/simple-password-crypto?style=flat-square)](https://www.npmjs.com/package/@nemnesia/simple-password-crypto)  
@@ -44,8 +44,8 @@ Symbol および NEM ブロックチェーンのための TypeScript/JavaScript 
   [![npm version](https://img.shields.io/npm/v/@nemnesia/symbol-announcer?style=flat-square)](https://www.npmjs.com/package/@nemnesia/symbol-announcer)  
   Symbolトランザクションのアナウンス＆WebSocket監視ツール。
 
-- **[nem-symbol-node-picker](./packages/nem-symbol-node-picker)**
-  [![npm version](https://img.shields.io/npm/v/nem-symbol-node-picker?style=flat-square)](https://www.npmjs.com/package/nem-symbol-node-picker)  
+- **[symbol-nem-node-picker](./packages/symbol-nem-node-picker)**
+  [![npm version](https://img.shields.io/npm/v/@nemnesia/symbol-nem-node-picker?style=flat-square)](https://www.npmjs.com/package/@nemnesia/symbol-nem-node-picker)
   NodeWatch APIからNEM/Symbolノードをランダム取得するユーティリティ。
 
 - **[nem-websocket](./packages/nem-websocket)**
@@ -67,10 +67,10 @@ Symbol および NEM ブロックチェーンのための TypeScript/JavaScript 
 
 ## 前提条件
 
-- Node.js 20.19.6
-- pnpm 11.18.0
+- Node.js 26（[`mise.toml`](./mise.toml)で指定）
+- pnpm 11.21.0（[`package.json`](./package.json)の`packageManager`で指定）
 
-各パッケージの `engines` で指定されているNode.jsの最低バージョンは20.0.0です。
+各パッケージの対応Node.jsバージョンは、パッケージごとの `package.json` にある `engines` を参照してください。
 
 ## セットアップ
 
@@ -81,32 +81,39 @@ pnpm install
 
 ## 開発
 
-このプロジェクトは pnpm ワークスペースを使用したモノレポ構成になっています。
+このプロジェクトは pnpm ワークスペースを使用したモノレポ構成になっています。特定のパッケージだけ操作する場合は、`--filter` を指定します。
+
+```bash
+pnpm --filter @nemnesia/symbol-sdk test
+pnpm --filter @nemnesia/symbol-sdk build
+```
 
 ### 利用可能なコマンド
 
 ```bash
-# ビルド
-pnpm build              # すべてのパッケージをビルド
+# ビルド（buildスクリプトを持つworkspaceを対象）
+pnpm build
 
-# テスト
-pnpm test               # すべてのパッケージのテストを実行
-pnpm test:ui            # テストUIで実行
-pnpm test:coverage      # カバレッジ付きでテストを実行
+# テスト（testスクリプトを持つworkspaceを対象）
+pnpm test
+pnpm test:ui
+pnpm test:coverage
 
 # コード品質
-pnpm lint               # ESLintでコードをチェック
-pnpm lint:fix           # ESLintで自動修正
-pnpm format             # Prettierでフォーマット
-pnpm format:check       # フォーマットをチェックのみ
-pnpm typecheck          # TypeScript型チェック
+pnpm lint
+pnpm lint:fix
+pnpm format
+pnpm format:check
+pnpm typecheck
 
-# 開発
-pnpm dev                # すべてのパッケージを開発モードで起動
+# 開発（devスクリプトを持つworkspaceを対象）
+pnpm dev
 
 # クリーンアップ
-pnpm clean              # ビルド成果物とnode_modulesを削除
+pnpm clean
 ```
+
+`pnpm test` はテストスクリプトを持つworkspaceをすべて対象にします。公開パッケージだけをテストする場合は、対象を `--filter` で指定してください。
 
 ### コード品質ツール
 
