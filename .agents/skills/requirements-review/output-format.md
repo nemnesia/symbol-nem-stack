@@ -1,6 +1,6 @@
 # Output Format
 
-Review Board Chair は、選択した要件定義書と同じディレクトリの `reviews/` にある、要件定義書のベース名へ `-review-findings.md` を付加したファイルだけを生成する。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
+Review Board Chair は、対象パッケージの `docs/reviews/requirements/` にある、要件定義書のベース名へ `-review.md` を付加したファイルだけを生成する。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
 
 ```markdown
 # Requirements Review Findings
@@ -9,6 +9,7 @@ Review Board Chair は、選択した要件定義書と同じディレクトリ�
 
 - 対象: <要件定義書のパス>
 - 確認日: <YYYY-MM-DD HH:mm>
+- 成果物: <対象パッケージ>/docs/reviews/requirements/<ベース名>-review.md
 
 ## Execution Audit
 
@@ -28,7 +29,7 @@ Review Board Chair は、選択した要件定義書と同じディレクトリ�
 | --- | --- | --- |
 | 要件本文 | <見出しまたは行> | <確認した内容> |
 | コンセプト本文 | <コンセプトシートのパス・見出し、または未確認> | <要件定義書との整合性確認> |
-| コンセプトレビュー結果 | <対応する reviews/<ベース名>-review-findings.md のパス、または未確認> | <対象一致、鮮度、Review Result、Required Changes、Review Gates の確認> |
+| コンセプトレビュー結果 | <対象パッケージ/docs/reviews/concept/<ベース名>-review-<最大3桁連番>.md のパス、または未確認> | <対象一致、鮮度、Review Result、Required Changes、Review Gates の確認> |
 
 確認できない事実は「未確認」と記載し、推測を事実として記載しない。
 

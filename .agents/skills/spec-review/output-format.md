@@ -1,6 +1,6 @@
 # Output Format
 
-Review Board Chair は、選択した仕様書と同じディレクトリの `reviews/` にある、仕様書のベース名へ `-review-findings.md` を付加したファイルだけを生成する。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
+Review Board Chair は、対象パッケージの `docs/reviews/specifications/` に、仕様書のベース名へ `-review.md` を付加したファイルだけを生成する。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
 
 ```markdown
 # Specification Review Findings
@@ -9,6 +9,7 @@ Review Board Chair は、選択した仕様書と同じディレクトリの `re
 
 - 対象: <仕様書のパス>
 - 確認日: <YYYY-MM-DD HH:mm>
+- 成果物: <対象パッケージ>/docs/reviews/specifications/<ベース名>-review.md
 
 ## Execution Audit
 
@@ -28,10 +29,10 @@ Review Board Chair は、選択した仕様書と同じディレクトリの `re
 | ------------------------------ | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | 仕様本文                       | <見出しまたは行>                                                               | <確認した内容>                                                         |
 | コンセプト本文                 | <パス・見出しまたは未確認>                                                     | <仕様書との整合性確認>                                                 |
-| コンセプトレビュー結果         | <対応する reviews/<ベース名>-review-findings.md のパスまたは未確認>            | <対象一致、鮮度、Review Result、Required Changes、Review Gates の確認> |
+| コンセプトレビュー結果         | <対象パッケージ/docs/reviews/concept/<ベース名>-review-<最大3桁連番>.md のパスまたは未確認> | <対象一致、鮮度、Review Result、Required Changes、Review Gates の確認> |
 | 要件本文                       | <パス・見出しまたは未確認>                                                     | <要件、制約、受け入れ条件の引継ぎ確認>                                 |
-| 要件レビュー結果               | <対応する reviews/<ベース名>-review-findings.md のパスまたは未確認>            | <対象一致、鮮度、Review Result、Required Changes、Review Gates の確認> |
-| 実装者からの仕様フィードバック | `<source-root>/docs/reviews/implement-spec-feedback.md`、指定パス、または未確認 | <実装で判明した仕様の曖昧さ、矛盾、欠落の確認>                         |
+| 要件レビュー結果               | <対象パッケージ/docs/reviews/requirements/<ベース名>-review.md のパスまたは未確認> | <対象一致、鮮度、Review Result、Required Changes、Review Gates の確認> |
+| 実装者からの仕様フィードバック | `<source-root>/docs/reviews/implementation/implement-spec-feedback.md`、指定パス、または未確認 | <実装で判明した仕様の曖昧さ、矛盾、欠落の確認>                         |
 
 確認できない事実は「未確認」と記載し、推測を事実として記載しない。
 
