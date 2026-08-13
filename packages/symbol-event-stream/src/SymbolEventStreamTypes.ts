@@ -6,6 +6,11 @@ export type InternalEventCallback = (payload: unknown) => void;
 export type ErrorCallback = (error: SymbolWebSocketError) => void;
 export type ConnectCallback = (nodeUrl: string, uid: string) => void;
 export type DisconnectCallback = (nodeUrl: string) => void;
+/**
+ * 追加の接続候補を取得するcallback。
+ * EventStreamはpickerへ直接依存せず、利用側がチェーン・ネットワーク等の条件を束縛します。
+ */
+export type NodeProvider = () => Promise<string[]>;
 
 /**
  * 管理対象ノードの現在の接続状態。
@@ -30,6 +35,11 @@ export interface SymbolEventStreamOptions {
    * 少なくとも 1 つ指定します。
    */
   nodewatchUrls: string[];
+  /**
+   * 候補ノードが枯渇したときに追加候補を取得するcallback。
+   * 指定しない場合は、固定された`nodewatchUrls`だけで動作します。
+   */
+  nodeProvider?: NodeProvider;
   /**
    * 同時に維持する接続数。正の安全な整数を指定します。
    * `nodewatchUrls` の件数を超える場合は、すべての候補ノードへ接続します。

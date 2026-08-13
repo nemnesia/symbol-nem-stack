@@ -10,10 +10,11 @@ import type {
   ErrorCallback,
   EventCallback,
   NodeConnectionStatus,
+  NodeProvider,
   SymbolEventStreamOptions,
 } from './SymbolEventStreamTypes.js';
 
-export type { NodeConnectionStatus, SymbolEventStreamOptions } from './SymbolEventStreamTypes.js';
+export type { NodeConnectionStatus, NodeProvider, SymbolEventStreamOptions } from './SymbolEventStreamTypes.js';
 
 interface BlacklistedNode {
   /** 切替候補から除外する対象ノード。 */
@@ -69,7 +70,9 @@ export class SymbolEventStream {
   private socketReconnectCount: Map<SymbolWebSocket, number> = new Map();
 
   // ノード切り替え関連
-  private readonly allNodewatchUrls: string[];
+  private allNodewatchUrls: string[];
+  private readonly nodeProvider?: NodeProvider;
+  private providerRefillPromise: Promise<void> | null = null;
   private readonly maxReconnectBeforeSwitching: number;
   private blacklistedNodes: Map<string, BlacklistedNode> = new Map();
   private readonly blacklistTtl: number;
@@ -90,6 +93,7 @@ export class SymbolEventStream {
   constructor(options: SymbolEventStreamOptions) {
     const {
       nodewatchUrls,
+      nodeProvider,
       connections,
       maxCacheSize = 10_000,
       cacheTtl = 60_000,
@@ -122,6 +126,7 @@ export class SymbolEventStream {
     this.deduplicator = new EventDeduplicator(maxCacheSize, cacheTtl);
     this.subscriptions = new SubscriptionRegistry((key, message) => this.dispatch(key, message));
     this.allNodewatchUrls = [...nodewatchUrls];
+    this.nodeProvider = nodeProvider;
     this.maxReconnectBeforeSwitching = maxReconnectBeforeSwitching;
     this.blacklistTtl = blacklistTtl;
 
@@ -165,6 +170,7 @@ export class SymbolEventStream {
     this.socketNodeMap.clear();
     this.socketReconnectCount.clear();
     this.blacklistedNodes.clear();
+    this.providerRefillPromise = null;
 
     for (const ws of this.sockets) {
       try {
@@ -251,7 +257,7 @@ export class SymbolEventStream {
    * 明示的なcloseと切替用closeを区別するため、close前に`replacingSockets`へ登録します。
    * 既存購読の復元はSubscriptionRegistryへ委譲します。
    */
-  private switchNode(oldWs: SymbolWebSocket): void {
+  private switchNode(oldWs: SymbolWebSocket, allowProviderRefill = true): void {
     if (this.closed || this.switchingSockets.has(oldWs) || this.replacingSockets.has(oldWs)) return;
 
     const oldNode = this.socketNodeMap.get(oldWs);
@@ -260,7 +266,8 @@ export class SymbolEventStream {
     // 利用可能なノードを取得（ブラックリスト以外で未使用のノード）
     const availableNodes = this.getAvailableNodes();
     if (availableNodes.length === 0) {
-      // 利用可能なノードがない場合は何もしない（既存の接続を維持）
+      // 利用可能なノードがない場合はProviderで候補を補充してから再試行します。
+      if (allowProviderRefill) void this.refillCandidatesAndSwitch(oldWs);
       return;
     }
 
@@ -292,6 +299,66 @@ export class SymbolEventStream {
       this.removeManagedSocket(oldWs, false);
       this.switchingSockets.delete(oldWs);
     }
+  }
+
+  /** Providerから候補を取得し、候補枯渇による切替を再試行します。 */
+  private async refillCandidatesAndSwitch(oldWs: SymbolWebSocket): Promise<void> {
+    if (this.closed || !this.nodeProvider || this.switchingSockets.has(oldWs) || this.replacingSockets.has(oldWs))
+      return;
+
+    if (!this.providerRefillPromise) {
+      const refillPromise = this.fetchProviderCandidates();
+      this.providerRefillPromise = refillPromise;
+      void refillPromise.finally(() => {
+        if (this.providerRefillPromise === refillPromise) this.providerRefillPromise = null;
+      });
+    }
+
+    await this.providerRefillPromise;
+
+    if (this.closed || this.switchingSockets.has(oldWs) || this.replacingSockets.has(oldWs)) return;
+    // このProvider結果については一度だけ切替を試みます。空応答や候補不足時に
+    // 同じ失敗した補充を直ちに再帰呼出ししないようにします。
+    if (this.getAvailableNodes().length > 0) this.switchNode(oldWs, false);
+  }
+
+  /** Providerの結果を検証し、切替候補へ追加します。 */
+  private async fetchProviderCandidates(): Promise<void> {
+    let candidates: unknown;
+    try {
+      candidates = await this.nodeProvider!();
+    } catch {
+      return;
+    }
+
+    if (!Array.isArray(candidates)) return;
+
+    const knownNodeKeys = new Set(this.allNodewatchUrls.map((nodeUrl) => this.getNodeKey(nodeUrl)));
+    const usedNodeKeys = new Set([...this.socketNodeMap.values()].map((nodeUrl) => this.getNodeKey(nodeUrl)));
+    const blacklistedNodeKeys = new Set([...this.blacklistedNodes.keys()].map((nodeUrl) => this.getNodeKey(nodeUrl)));
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') continue;
+
+      let candidateKey: string;
+      try {
+        candidateKey = this.getNodeKey(candidate);
+      } catch {
+        continue;
+      }
+
+      if (knownNodeKeys.has(candidateKey) || usedNodeKeys.has(candidateKey) || blacklistedNodeKeys.has(candidateKey)) {
+        continue;
+      }
+
+      this.allNodewatchUrls.push(candidate);
+      knownNodeKeys.add(candidateKey);
+    }
+  }
+
+  /** 接続先の表記差を吸収する候補識別子を生成します。 */
+  private getNodeKey(nodewatchUrl: string): string {
+    const target = this.resolveWebSocketTarget(nodewatchUrl);
+    return `${target.ssl ? 'https' : 'http'}://${target.host}`;
   }
 
   /** 管理対象からWebSocketを除去し、必要に応じて接続を閉じます。 */
@@ -561,6 +628,7 @@ export class SymbolEventStream {
     this.socketNodeMap.clear();
     this.socketReconnectCount.clear();
     this.blacklistedNodes.clear();
+    this.providerRefillPromise = null;
   }
 
   /**
