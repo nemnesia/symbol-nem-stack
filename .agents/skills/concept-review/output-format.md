@@ -14,6 +14,7 @@ Review Board Chair は、対象パッケージの `docs/reviews/concept/` に、
 ## Execution Audit
 
 - 実行モード: 3つの独立した Reviewer サブエージェント
+- Reviewer 起動設定: `reasoning_effort: "medium"`（`low` は使用しない）
 - Reviewer A agent_id: <実行時に返された ID>
 - Reviewer B agent_id: <実行時に返された ID>
 - Reviewer C agent_id: <実行時に返された ID>
@@ -116,6 +117,8 @@ Review Board Chair は、対象パッケージの `docs/reviews/concept/` に、
 ```
 
 指摘は、コンセプトシートの修正として実行可能な粒度にする。
+
+文章表現の指摘は、重複・冗長さ、説明の不足または過剰さ、不自然または不要な英語・カタカナ表記、専門用語・略語・技術的な前提知識への過度な依存が、非技術者によるコンセプト理解に与える影響を示す。定着した固有名詞・製品名・技術用語を、単に英語やカタカナであるという理由だけで修正要求にしてはならない。
 
 修正内容は、課題、対象ユーザー、提供価値、スコープ、MVP、
 またはコンセプト成立前提の追記、削除、明確化に限定する。
