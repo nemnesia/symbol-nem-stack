@@ -1,6 +1,6 @@
 # Output Format
 
-Review Board Chair は、選択したコンセプトシートと同じディレクトリの `reviews/` にある、コンセプトシートのベース名へ `-review-findings.md` を付加したファイルだけを生成する。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
+Review Board Chair は、対象パッケージの `docs/reviews/concept/` に、コンセプトシートのベース名へ `-review-<3桁連番>.md` を付加した新規ファイルだけを生成する。既存のレビュー成果物は上書きしない。Reviewer 個人の意見、討議、投票、反論、却下理由、思考過程は記載しない。
 
 ```markdown
 # Concept Review Findings
@@ -9,6 +9,7 @@ Review Board Chair は、選択したコンセプトシートと同じディレ�
 
 - 対象: <コンセプトシートのパス>
 - 確認日: <YYYY-MM-DD HH:mm>
+- 成果物: <対象パッケージ>/docs/reviews/concept/<ベース名>-review-<3桁連番>.md
 
 ## Execution Audit
 
@@ -38,13 +39,22 @@ Review Board Chair は、選択したコンセプトシートと同じディレ�
 
 <改善案を含めない総合評価を3〜10行で記載する。>
 
+## Finding Status
+
+対象コンセプトで確認された正式指摘を、今回の状態とともに一覧化する。過去に対応済みとなった指摘も除外せず、状態を `Resolved` として記載する。該当しない場合は「なし」とする。
+
+| ID | Priority | Status | 初出レビュー | 今回の確認 |
+| --- | --- | --- | --- | --- |
+| CR-001 | <Critical \| Major \| Minor> | <New \| Open \| Resolved \| Deferred \| Reopened> | <レビュー番号> | <状態の根拠> |
+
 ## Required Changes
 
-Critical と Major の採用指摘だけを記載する。該当しない場合は「なし」とする。
+現在対応が必要な Critical と Major の採用指摘（`New`、`Open`、`Reopened`）だけを記載する。該当しない場合は「なし」とする。
 
 ### CR-001
 
 - Priority: <Critical | Major>
+- Status: <New | Open | Reopened>
 - 対象箇所: <見出しまたは行>
 - 問題: <問題>
 - 根拠: <種別と参照箇所>
@@ -54,15 +64,39 @@ Critical と Major の採用指摘だけを記載する。該当しない場合�
 
 ## Optional Improvements
 
-Minor の採用指摘だけを記載する。該当しない場合は「なし」とする。
+現在対応が必要な Minor の採用指摘（`New`、`Open`、`Reopened`）だけを記載する。該当しない場合は「なし」とする。
 
 ### CR-010
 
 - Priority: Minor
+- Status: <New | Open | Reopened>
 - 対象箇所: <見出しまたは行>
 - 改善内容: <改善提案>
 - 根拠: <種別と参照箇所>
 - 影響: <改善する理由>
+
+## Resolved Findings
+
+対応済みと確認できた過去指摘だけを記載する。対応確認の根拠を必ず付ける。該当しない場合は「なし」とする。
+
+### CR-020
+
+- Priority: <Critical | Major | Minor>
+- Status: Resolved
+- 初出レビュー: <レビュー番号>
+- 対象箇所: <見出しまたは行>
+- 対応確認: <現在のコンセプト本文の参照箇所>
+
+## Deferred Findings
+
+後工程へ引き継ぐと判定した指摘だけを記載する。該当しない場合は「なし」とする。
+
+### CR-030
+
+- Priority: <Critical | Major | Minor>
+- Status: Deferred
+- 対象箇所: <見出しまたは行>
+- 引継ぎ内容: <要件定義以降で確認する内容>
 
 ## Review Gates
 

@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: 仕様書を複数の観点でレビューし、実装へ安全に進める品質かを判定する。仕様書レビュー、実装前確認、設計の矛盾・欠落・安全性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象仕様書と同じディレクトリの reviews 配下に、仕様書のベース名へ -review-findings.md を付加したファイルとして生成する。
+description: 仕様書を複数の観点でレビューし、実装へ安全に進める品質かを判定する。仕様書レビュー、実装前確認、設計の矛盾・欠落・安全性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象パッケージの docs/reviews/specifications 配下に、仕様書のベース名へ -review.md を付加したファイルとして生成する。
 ---
 
 # Specification Review Board
@@ -10,12 +10,13 @@ description: 仕様書を複数の観点でレビューし、実装へ安全に�
 ## 対象と成果物
 
 - レビュー対象は、ユーザーが明示した仕様書1件とする。
-- 明示されない場合は、`specification.md`、`spec.md`、ファイル名に `spec` または `specification` を含む Markdown ファイルの順で候補を探す。レビュー結果、要件定義書、コンセプトシート、設計資料、実装コードは除外する。
+- 対象パッケージは、ユーザーが指定したパッケージ、または対象仕様書が属するパッケージのルートとする。対象パッケージを特定できない場合は、推測で選ばず対象を確認して終了する。
+- 仕様書が明示されない場合は、対象パッケージの `docs/specifications/` で `specification.md`、`spec.md`、ファイル名に `spec` または `specification` を含む Markdown ファイルの順で候補を探す。レビュー結果、要件定義書、コンセプトシート、設計資料、実装コードは除外する。
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
-- 仕様書を選択した後、同じディレクトリでコンセプトシートと要件定義書の候補を探索する。コンセプトシートは `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順、要件定義書は `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown ファイルの順とする。`reviews/` ディレクトリ、`*-review-findings.md`、仕様書、実装コードは候補から除外する。
-- 上流候補が複数ある場合は自動選択せず、候補のパスを示して対象を確認して終了する。候補が1件の場合は本文と、拡張子を除いたベース名に `-review-findings.md` を付加した同じディレクトリの `reviews/` 内のレビュー結果を確認する。候補がない場合は Evidence Used に「未確認」と記録し、レビューを続行する。
-- 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/docs/reviews/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `docs/` を含み、`package.json` と `src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
-- 選択した仕様書の拡張子を除いたベース名に `-review-findings.md` を付加し、仕様書と同じディレクトリの `reviews/` に成果物を作成する。たとえば `docs/spec.md` の成果物は `docs/reviews/spec-review-findings.md` とする。`reviews/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
+- 仕様書を選択した後、対象パッケージの `docs/consept/` と `docs/requirements/` でコンセプトシートと要件定義書の候補を探索する。コンセプトシートは `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown の順、要件定義書は `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown の順とする。`reviews/` ディレクトリ、`*-review-*.md`、仕様書、実装コードは候補から除外する。
+- 上流候補が複数ある場合は自動選択せず、候補のパスを示して対象を確認して終了する。候補が1件の場合は本文と、コンセプトレビューは対象パッケージの `docs/reviews/concept/` にある対象ベース名のレビュー番号最大のファイル1件、要件レビューは `docs/reviews/requirements/<ベース名>-review.md` を確認する。候補がない場合は Evidence Used に「未確認」と記録し、レビューを続行する。
+- 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/docs/reviews/implementation/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `docs/` を含み、`package.json` と `src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
+- 選択した仕様書の拡張子を除いたベース名に `-review.md` を付加し、対象パッケージの `docs/reviews/specifications/` に成果物を作成する。たとえば対象パッケージの `docs/specifications/specification.md` の成果物は `docs/reviews/specifications/specification-review.md` とする。`docs/reviews/specifications/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
 
 ## 実行主体と実行順序
 
