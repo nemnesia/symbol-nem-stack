@@ -1,6 +1,6 @@
 ---
 name: requirements-review
-description: 要件定義書を複数の観点でレビューし、仕様設計へ安全に進める品質かを判定する。要件定義レビュー、仕様化前確認、要件の矛盾・欠落・検証可能性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象要件定義書と同じディレクトリの reviews 配下に、要件定義書のベース名へ -review-findings.md を付加したファイルとして生成する。
+description: 要件定義書を複数の観点でレビューし、仕様設計へ安全に進める品質かを判定する。要件定義レビュー、仕様化前確認、要件の矛盾・欠落・検証可能性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象パッケージの docs/reviews/requirements 配下に、要件定義書のベース名へ -review.md を付加したファイルとして生成する。
 ---
 
 # Requirements Review Board
@@ -10,10 +10,11 @@ description: 要件定義書を複数の観点でレビューし、仕様設計�
 ## 対象と成果物
 
 - レビュー対象は、ユーザーが明示した要件定義書1件とする。
-- 明示されない場合は、`requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown ファイルの順で候補を探す。`reviews/` ディレクトリ、`*-review-findings.md`、コンセプトシート、仕様書、設計資料、実装コードは除外する。
+- 対象パッケージは、ユーザーが指定したパッケージ、または対象要件定義書が属するパッケージのルートとする。対象パッケージを特定できない場合は、推測で選ばず対象を確認して終了する。
+- 要件定義書が明示されない場合は、対象パッケージの `docs/requirements/` で `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown ファイルの順で候補を探す。`reviews/` ディレクトリ、`*-review.md`、`*-review-findings.md`、コンセプトシート、仕様書、設計資料、実装コードは除外する。
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
-- 要件定義書を選択した後、そのファイルと同じディレクトリで、`concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順にコンセプトシート候補を探索する。`reviews/` ディレクトリと `*-review-findings.md` は候補から除外する。候補が1件ならレビューの根拠として確認し、コンセプトシートの拡張子を除いたベース名に `-review-findings.md` を付加した、同じディレクトリの `reviews/` 内のコンセプトレビュー結果も確認する。候補が複数なら自動選択せず、候補のパスを示してユーザーに対象の指定を求めて終了する。候補がない場合は、Evidence Used に「コンセプト本文: 未確認」「コンセプトレビュー結果: 未確認」と記録してレビューを続行する。
-- 選択した要件定義書の拡張子を除いたベース名に `-review-findings.md` を付加し、要件定義書と同じディレクトリの `reviews/` に成果物を作成する。たとえば `docs/requirements.md` の成果物は `docs/reviews/requirements-review-findings.md` とする。`reviews/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
+- 要件定義書を選択した後、対象パッケージの `docs/consept/` で `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順にコンセプトシート候補を探索する。`reviews/` ディレクトリと `*-review-*.md` は候補から除外する。候補が1件ならレビューの根拠として確認し、対応するコンセプトレビュー結果が対象パッケージの `docs/reviews/concept/` にある場合は、対象ベース名のレビュー番号最大のファイル1件だけを確認する。候補が複数なら自動選択せず、候補のパスを示してユーザーに対象の指定を求めて終了する。候補がない場合は、Evidence Used に「コンセプト本文: 未確認」「コンセプトレビュー結果: 未確認」と記録してレビューを続行する。
+- 選択した要件定義書の拡張子を除いたベース名に `-review.md` を付加し、対象パッケージの `docs/reviews/requirements/` に成果物を作成する。たとえば対象パッケージの `docs/requirements/requirements.md` の成果物は `docs/reviews/requirements/requirements-review.md` とする。`docs/reviews/requirements/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
 
 ## 実行主体と実行順序
 

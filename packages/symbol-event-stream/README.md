@@ -17,6 +17,7 @@ Symbol ブロックチェーンのイベントを、複数ノードから冗長�
 - 同じ購読に複数ノードから届いた同一イベントを 1 回だけ配信する
 - 切断したノードを再接続し、失敗が続けば未使用の別ノードへ切り替える
 - 切り替えたノードを一時的に候補から除外する
+- 候補が枯渇した場合は、任意の NodeProvider から新しい候補を補充する
 
 つまり、利用側は通常の `on()` コールバックを 1 回登録するだけで、複数ノード監視を利用できます。
 
@@ -35,18 +36,18 @@ npm install @nemnesia/symbol-event-stream
 ```
 
 ```bash
-pnpm add @nemnesia/symbol-event-stream
+pnpm add @nemnesia/symbol-event-stream @nemnesia/symbol-nem-node-picker
 ```
 
 ## 最短の例
 
 ```typescript
 import { SymbolEventStream } from '@nemnesia/symbol-event-stream';
+import { nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
 
-const stream = new SymbolEventStream({
-  nodeUrls: ['001-sai-dual.symboltest.net', '201-sai-dual.symboltest.net', '401-sai-dual.symboltest.net'],
-  connections: 2,
-});
+const nodeProvider = () => nemSymbolNodePicker({ count: 3, isSsl: true });
+const nodewatchUrls = await nodeProvider();
+const stream = new SymbolEventStream({ nodewatchUrls, connections: 2, nodeProvider });
 
 // 2 ノードのどちらから届いても、同じブロックは 1 回だけ処理される。
 stream.on('block', (message) => {
@@ -61,7 +62,12 @@ stream.onError((error) => {
 process.on('SIGINT', () => stream.close());
 ```
 
-`nodeUrls` にはプロトコル・ポート・パスを含めないホスト名または IP アドレスを指定します。既定では `wss://{host}:3001/ws` へ接続します。
+`nodewatchUrls` には `nemSymbolNodePicker()` が返すノード endpoint URLを指定します。利用側でhostへ変換する必要はありません。入力は `http://` または `https://` の root endpoint（path、query、fragmentなし）とし、ポートは省略するか `http` では `3000`、`https` では `3001` を指定します。`https` endpointは `wss://{host}:3001/ws`、`http` endpointは `ws://{host}:3000/ws`へ接続します。非標準のport/pathを含むendpointは受け付けません。
+ノードの選出数は picker の `count` で指定します。
+
+`nodeProvider` を指定すると、固定候補がすべて使用中または一時除外中になったとき、EventStream が
+`nodeProvider()` を呼び出して候補を補充します。EventStream は picker に直接依存しないため、
+NodeWatch以外の候補取得処理も指定できます。
 
 ## 購読する
 
@@ -114,6 +120,13 @@ ID を持たない通知は重複排除できないため、届くたびに配�
 
 切り替え元ノードは `blacklistTtl` の間だけ候補から除外されます。代替候補がない場合は、現在の接続で再接続を継続します。
 
+`nodeProvider` を指定した場合、固定候補に利用可能な代替がないときだけ非同期で追加候補を取得します。
+同時に複数の接続が候補補充を要求しても、Providerは1回だけ呼び出されます。Providerが失敗した場合、
+空配列を返した場合、または不正な候補しか返さなかった場合は、新しい接続を作成せず現在の接続で
+再接続を継続します。Providerが返した候補は、EventStreamのendpoint検証、重複、使用中および
+blacklist中の候補の除外を通過したものだけが利用されます。`close()` 後にProviderが解決しても、
+接続や購読は再開されません。
+
 ```typescript
 stream.onConnect((nodeUrl, uid) => {
   console.log('接続完了:', nodeUrl, uid);
@@ -133,9 +146,9 @@ console.log(stream.getBlacklistedNodes());
 
 | オプション                    | 必須   | 既定値   | 説明                                                                             |
 | ----------------------------- | ------ | -------- | -------------------------------------------------------------------------------- |
-| `nodeUrls`                    | はい   | —        | 接続候補のホスト名または IP アドレス。1 件以上必要です。                         |
+| `nodewatchUrls`               | はい   | —        | pickerが返すノード endpoint URL。1件以上必要です。                               |
+| `nodeProvider`                | いいえ | —        | 候補枯渇時に追加 endpoint URLを返す非同期 callback。                             |
 | `connections`                 | はい   | —        | 同時接続数。正の安全な整数を指定します。候補数を超える場合は全候補へ接続します。 |
-| `ssl`                         | いいえ | `true`   | SSL を使用するかどうか。`false` の場合は `ws://{host}:3000/ws` へ接続します。    |
 | `maxCacheSize`                | いいえ | `10000`  | 重複排除キャッシュの最大件数。正の安全な整数です。                               |
 | `cacheTtl`                    | いいえ | `60000`  | 重複排除の有効期間（ミリ秒）。正の有限数です。                                   |
 | `maxReconnectBeforeSwitching` | いいえ | `5`      | ノード切り替えを試みる再接続回数。正の安全な整数です。                           |
@@ -143,7 +156,11 @@ console.log(stream.getBlacklistedNodes());
 
 ```typescript
 const stream = new SymbolEventStream({
-  nodeUrls: ['node-1.example.com', 'node-2.example.com', 'node-3.example.com'],
+  nodewatchUrls: [
+    'https://node-1.example.com:3001',
+    'https://node-2.example.com:3001',
+    'https://node-3.example.com:3001',
+  ],
   connections: 2,
   maxCacheSize: 5_000,
   cacheTtl: 30_000,
@@ -155,11 +172,13 @@ const stream = new SymbolEventStream({
 ## 公開 API
 
 ```typescript
-import type { NodeConnectionStatus, SymbolEventStreamOptions } from '@nemnesia/symbol-event-stream';
+import type { NodeConnectionStatus, NodeProvider, SymbolEventStreamOptions } from '@nemnesia/symbol-event-stream';
 
+const provider: NodeProvider = async () => ['https://another-node.example.com:3001'];
 const options: SymbolEventStreamOptions = {
-  nodeUrls: ['node.example.com'],
+  nodewatchUrls: ['https://node.example.com:3001'],
   connections: 1,
+  nodeProvider: provider,
 };
 
 const stream = new SymbolEventStream(options);
@@ -174,6 +193,9 @@ const statuses: NodeConnectionStatus[] = stream.getConnectionStatus();
 - `getBlacklistedNodes()` — 一時的に除外中の候補を取得
 - `close()` — すべての接続とコールバックを破棄
 
+`NodeProvider` は `() => Promise<string[]>` 型です。実運用では、たとえば
+`@nemnesia/symbol-nem-node-picker` の呼出しをチェーン・ネットワーク条件付きで渡します。
+
 ## 動作環境
 
 - Node.js 20 以上
@@ -182,6 +204,7 @@ const statuses: NodeConnectionStatus[] = stream.getConnectionStatus();
 ## 関連パッケージ
 
 - [@nemnesia/symbol-websocket](https://www.npmjs.com/package/@nemnesia/symbol-websocket) — 単一ノード接続用の WebSocket クライアント
+- [@nemnesia/symbol-nem-node-picker](https://www.npmjs.com/package/@nemnesia/symbol-nem-node-picker) — NodeWatchから接続候補を選出
 
 ## コントリビューション
 

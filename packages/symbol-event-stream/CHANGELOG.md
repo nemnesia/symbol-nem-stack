@@ -4,6 +4,13 @@
 
 変更履歴のフォーマットは[変更履歴の管理](https://keepachangelog.com/en/1.0.0/)に基づいています。
 
+## [未リリース]
+
+### 追加
+
+- 候補枯渇時に追加候補を取得する任意の `NodeProvider` callback
+- Provider候補の検証、重複排除および同時呼出しのsingle-flight制御
+
 ## [1.0.0] - 2026/08/11
 
 ### 追加

@@ -23,6 +23,7 @@ let mockInstances: MockSymbolWebSocket[] = [];
 let mockConstructionError: Error | null = null;
 let mockConstructionAttempt = 0;
 let mockConstructionErrorOnAttempt = 0;
+let mockRestoreFailureOnReplacement = false;
 
 vi.mock('@nemnesia/symbol-websocket', () => {
   return {
@@ -47,6 +48,12 @@ vi.mock('@nemnesia/symbol-websocket', () => {
         }
 
         const instance = new MockSymbolWebSocket(options);
+        if (mockRestoreFailureOnReplacement && mockInstances.length > 0) {
+          instance.on.mockImplementation((channel: string) => {
+            if (channel === 'confirmedAdded') throw new TypeError('replacement subscription failed');
+          });
+          mockRestoreFailureOnReplacement = false;
+        }
         mockInstances.push(instance);
         this.on = instance.on;
         this.off = instance.off;
@@ -71,6 +78,7 @@ describe('SymbolEventStream', () => {
     mockConstructionError = null;
     mockConstructionAttempt = 0;
     mockConstructionErrorOnAttempt = 0;
+    mockRestoreFailureOnReplacement = false;
   });
 
   afterEach(() => {
@@ -80,7 +88,7 @@ describe('SymbolEventStream', () => {
   describe('コンストラクタ', () => {
     it('正常にインスタンス化されるべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 2,
       });
 
@@ -88,13 +96,13 @@ describe('SymbolEventStream', () => {
       expect(stream.getActiveConnectionCount()).toBe(2);
     });
 
-    it('nodeUrlsが空の場合、エラーをスローするべきである', () => {
+    it('nodewatchUrlsが空の場合、エラーをスローするべきである', () => {
       expect(() => {
         new SymbolEventStream({
-          nodeUrls: [],
+          nodewatchUrls: [],
           connections: 1,
         });
-      }).toThrow('nodeUrls must not be empty');
+      }).toThrow('nodewatchUrls must not be empty');
     });
 
     it.each([
@@ -108,39 +116,63 @@ describe('SymbolEventStream', () => {
     ])('不正なオプション %o の場合、エラーをスローするべきである', (options, message) => {
       expect(() => {
         new SymbolEventStream({
-          nodeUrls: ['node1.example.com'],
+          nodewatchUrls: ['https://node1.example.com:3001'],
           connections: 1,
           ...options,
         });
       }).toThrow(message);
     });
 
-    it('SSLがデフォルトでtrueであるべきである', () => {
+    it('NodeWatchのabsolute endpointを利用側の変換なしで受け付けるべきである', () => {
       new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
-        connections: 1,
+        nodewatchUrls: ['https://secure.example.com:3001', 'http://plain.example.com:3000'],
+        connections: 2,
       });
 
-      expect(mockInstances[0].options).toMatchObject({
-        ssl: true,
-      });
+      const optionsByHost = new Map(mockInstances.map((instance) => [instance.options.host, instance.options]));
+      expect(optionsByHost.get('secure.example.com')).toMatchObject({ ssl: true });
+      expect(optionsByHost.get('plain.example.com')).toMatchObject({ ssl: false });
     });
 
-    it('SSL設定を上書きできるべきである', () => {
+    it('標準ポートを省略したroot endpointを受け付けるべきである', () => {
       new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
-        connections: 1,
-        ssl: false,
+        nodewatchUrls: ['https://secure.example.com/', 'http://plain.example.com'],
+        connections: 2,
       });
 
-      expect(mockInstances[0].options).toMatchObject({
-        ssl: false,
-      });
+      expect(mockInstances.map((instance) => instance.options)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ host: 'secure.example.com', ssl: true }),
+          expect.objectContaining({ host: 'plain.example.com', ssl: false }),
+        ])
+      );
+    });
+
+    it.each([
+      'node1.example.com',
+      'ftp://node1.example.com',
+      'not a URL',
+      'https://node1.example.com:3443',
+      'http://node1.example.com:8080',
+      'https://node1.example.com:443',
+      'http://node1.example.com:80',
+      'https://node1.example.com/custom-path',
+      'http://node1.example.com/custom-path',
+      'https://node1.example.com?network=test',
+      'http://node1.example.com#node',
+    ])('完全endpoint以外を拒否するべきである: %s', (url) => {
+      expect(() => {
+        new SymbolEventStream({
+          nodewatchUrls: ['https://valid.example.com:3001', url],
+          connections: 1,
+        });
+      }).toThrow();
+      expect(mockInstances).toHaveLength(0);
     });
 
     it('autoReconnectがtrueで設定されるべきである', () => {
       new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
 
@@ -151,7 +183,11 @@ describe('SymbolEventStream', () => {
 
     it('指定された数の接続を作成するべきである', () => {
       new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com', 'node3.example.com'],
+        nodewatchUrls: [
+          'https://node1.example.com:3001',
+          'https://node2.example.com:3001',
+          'https://node3.example.com:3001',
+        ],
         connections: 3,
       });
 
@@ -167,7 +203,7 @@ describe('SymbolEventStream', () => {
       try {
         expect(() => {
           new SymbolEventStream({
-            nodeUrls: ['node1.example.com', 'node2.example.com'],
+            nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
             connections: 2,
           });
         }).toThrow(initializationError);
@@ -180,9 +216,9 @@ describe('SymbolEventStream', () => {
       }
     });
 
-    it('nodeUrlsより多い接続数を指定しても、nodeUrlsの数までしか作成しないべきである', () => {
+    it('nodewatchUrlsより多い接続数を指定しても、nodewatchUrlsの数までしか作成しないべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 5,
       });
 
@@ -195,7 +231,7 @@ describe('SymbolEventStream', () => {
 
     beforeEach(() => {
       stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
     });
@@ -280,7 +316,7 @@ describe('SymbolEventStream', () => {
 
     beforeEach(() => {
       stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
     });
@@ -322,7 +358,7 @@ describe('SymbolEventStream', () => {
     beforeEach(() => {
       vi.useFakeTimers();
       stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 2,
         maxCacheSize: 5,
         cacheTtl: 10000,
@@ -542,7 +578,7 @@ describe('SymbolEventStream', () => {
   describe('close メソッド', () => {
     it('全てのWebSocketを閉じるべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 2,
       });
 
@@ -554,7 +590,7 @@ describe('SymbolEventStream', () => {
 
     it('closeフラグがtrueになるべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
 
@@ -567,7 +603,7 @@ describe('SymbolEventStream', () => {
 
     it('2回呼んでも問題ないべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
 
@@ -581,7 +617,7 @@ describe('SymbolEventStream', () => {
       vi.useFakeTimers();
 
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
 
@@ -600,7 +636,7 @@ describe('SymbolEventStream', () => {
   describe('購読登録の失敗処理', () => {
     it('一部のWebSocketで購読登録に失敗した場合は内部状態を残さない', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 2,
       });
       const callback = vi.fn();
@@ -626,7 +662,7 @@ describe('SymbolEventStream', () => {
 
     beforeEach(() => {
       stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
       errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -686,8 +722,8 @@ describe('SymbolEventStream', () => {
         originalError: new Error('network error'),
       });
 
-      expect(secondConnect).toHaveBeenCalledWith('node1.example.com', 'uid-2');
-      expect(secondDisconnect).toHaveBeenCalledWith('node1.example.com');
+      expect(secondConnect).toHaveBeenCalledWith('https://node1.example.com:3001', 'uid-2');
+      expect(secondDisconnect).toHaveBeenCalledWith('https://node1.example.com:3001');
       expect(secondError).toHaveBeenCalled();
     });
   });
@@ -695,7 +731,11 @@ describe('SymbolEventStream', () => {
   describe('ヘルパーメソッド', () => {
     it('getActiveConnectionCount が正しい接続数を返すべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com', 'node3.example.com'],
+        nodewatchUrls: [
+          'https://node1.example.com:3001',
+          'https://node2.example.com:3001',
+          'https://node3.example.com:3001',
+        ],
         connections: 2,
       });
 
@@ -706,7 +746,7 @@ describe('SymbolEventStream', () => {
 
     it('getIsClosed がクローズ状態を正しく返すべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
       });
 
@@ -728,7 +768,12 @@ describe('SymbolEventStream', () => {
         mockInstances = [];
 
         new SymbolEventStream({
-          nodeUrls: ['node1.example.com', 'node2.example.com', 'node3.example.com', 'node4.example.com'],
+          nodewatchUrls: [
+            'https://node1.example.com:3001',
+            'https://node2.example.com:3001',
+            'https://node3.example.com:3001',
+            'https://node4.example.com:3001',
+          ],
           connections: 2,
         });
 
@@ -746,7 +791,7 @@ describe('SymbolEventStream', () => {
 
     beforeEach(() => {
       stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 2,
       });
     });
@@ -825,8 +870,8 @@ describe('SymbolEventStream', () => {
         wsCloseCallback1();
         wsCloseCallback2();
 
-        expect(disconnectCallback).toHaveBeenCalledWith('node1.example.com');
-        expect(disconnectCallback).toHaveBeenCalledWith('node2.example.com');
+        expect(disconnectCallback).toHaveBeenCalledWith('https://node1.example.com:3001');
+        expect(disconnectCallback).toHaveBeenCalledWith('https://node2.example.com:3001');
       });
     });
 
@@ -872,8 +917,8 @@ describe('SymbolEventStream', () => {
         const connectedNodes = stream.getConnectedNodes();
 
         expect(connectedNodes).toHaveLength(2);
-        expect(connectedNodes).toContain('node1.example.com');
-        expect(connectedNodes).toContain('node2.example.com');
+        expect(connectedNodes).toContain('https://node1.example.com:3001');
+        expect(connectedNodes).toContain('https://node2.example.com:3001');
       });
 
       it('全て切断されている場合は空配列を返すべきである', () => {
@@ -946,7 +991,11 @@ describe('SymbolEventStream', () => {
 
     it('再接続試行回数が上限を超えたら別のノードに切り替えるべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com', 'node3.example.com'],
+        nodewatchUrls: [
+          'https://node1.example.com:3001',
+          'https://node2.example.com:3001',
+          'https://node3.example.com:3001',
+        ],
         connections: 1,
         maxReconnectBeforeSwitching: 3,
       });
@@ -968,7 +1017,7 @@ describe('SymbolEventStream', () => {
 
     it('fatalエラー時に代替ノードへ切り替え、購読を復元するべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 1,
       });
       const callback = vi.fn();
@@ -987,7 +1036,7 @@ describe('SymbolEventStream', () => {
       });
 
       expect(mockInstances).toHaveLength(2);
-      expect(stream.getBlacklistedNodes()).toContain(initialWs.options.host);
+      expect(stream.getBlacklistedNodes()).toContain(`https://${initialWs.options.host}:3001`);
       expect(mockInstances[1].on).toHaveBeenCalledWith('block', expect.any(Function));
 
       const replacementCallback = mockInstances[1].on.mock.calls[0][1];
@@ -997,9 +1046,77 @@ describe('SymbolEventStream', () => {
       stream.close();
     });
 
+    it('代替WebSocketの生成に失敗した場合は旧接続を維持するべきである', () => {
+      const stream = new SymbolEventStream({
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
+        connections: 1,
+      });
+      const callback = vi.fn();
+      stream.on('block', callback);
+      const initialWs = mockInstances[0];
+      mockConstructionError = new Error('replacement construction failed');
+      mockConstructionErrorOnAttempt = 2;
+
+      initialWs.onError.mock.calls[0][0]({
+        type: 'timeout',
+        severity: 'fatal',
+        host: 'node1.example.com',
+        reconnecting: false,
+        reconnectAttempts: 0,
+        timestamp: Date.now(),
+        message: 'Connection timeout',
+        originalError: new Error('timeout'),
+      });
+
+      expect(mockInstances).toHaveLength(1);
+      expect(stream.getActiveConnectionCount()).toBe(1);
+      expect(stream.getBlacklistedNodes()).toEqual([]);
+
+      const oldCallback = initialWs.on.mock.calls[0][1];
+      oldCallback({ data: { meta: { hash: 'old-connection-event' } }, topic: 'block' });
+      expect(callback).toHaveBeenCalledTimes(1);
+      stream.close();
+    });
+
+    it('購読復元の途中で失敗した場合は新接続と部分購読をロールバックするべきである', () => {
+      const stream = new SymbolEventStream({
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
+        connections: 1,
+      });
+      const blockCallback = vi.fn();
+      const confirmedCallback = vi.fn();
+      stream.on('block', blockCallback);
+      stream.on('confirmedAdded', 'TCHBDENCLKEBILBPWP3JPB2XNY64OE7PYHHE32I', confirmedCallback);
+      const initialWs = mockInstances[0];
+      mockRestoreFailureOnReplacement = true;
+
+      initialWs.onError.mock.calls[0][0]({
+        type: 'timeout',
+        severity: 'fatal',
+        host: 'node1.example.com',
+        reconnecting: false,
+        reconnectAttempts: 0,
+        timestamp: Date.now(),
+        message: 'Connection timeout',
+        originalError: new Error('timeout'),
+      });
+
+      expect(mockInstances).toHaveLength(2);
+      expect(stream.getActiveConnectionCount()).toBe(1);
+      expect(stream.getBlacklistedNodes()).toEqual([]);
+      expect(mockInstances[1].off).toHaveBeenCalledWith('block');
+      expect(mockInstances[1].close).toHaveBeenCalledTimes(1);
+
+      const oldCallback = initialWs.on.mock.calls[0][1];
+      oldCallback({ data: { meta: { hash: 'old-after-rollback' } }, topic: 'block' });
+      expect(blockCallback).toHaveBeenCalledTimes(1);
+      expect(confirmedCallback).not.toHaveBeenCalled();
+      stream.close();
+    });
+
     it('terminal close時に代替ノードへ切り替えるべきである', async () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 1,
       });
       const initialWs = mockInstances[0];
@@ -1009,14 +1126,14 @@ describe('SymbolEventStream', () => {
       await Promise.resolve();
 
       expect(mockInstances).toHaveLength(2);
-      expect(stream.getBlacklistedNodes()).toContain(initialWs.options.host);
+      expect(stream.getBlacklistedNodes()).toContain(`https://${initialWs.options.host}:3001`);
 
       stream.close();
     });
 
     it('通常の再接続に伴うcloseでは即時にノードを切り替えない', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 1,
       });
       const initialWs = mockInstances[0];
@@ -1033,7 +1150,7 @@ describe('SymbolEventStream', () => {
 
     it('明示的なcloseではノードを切り替えない', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 1,
       });
       const initialWs = mockInstances[0];
@@ -1049,7 +1166,11 @@ describe('SymbolEventStream', () => {
 
     it('ブラックリストに登録されたノードは選択されないべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com', 'node3.example.com'],
+        nodewatchUrls: [
+          'https://node1.example.com:3001',
+          'https://node2.example.com:3001',
+          'https://node3.example.com:3001',
+        ],
         connections: 1,
         maxReconnectBeforeSwitching: 2,
       });
@@ -1068,7 +1189,11 @@ describe('SymbolEventStream', () => {
 
     it('ブラックリストはTTL後にクリアされるべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com', 'node3.example.com'],
+        nodewatchUrls: [
+          'https://node1.example.com:3001',
+          'https://node2.example.com:3001',
+          'https://node3.example.com:3001',
+        ],
         connections: 1,
         maxReconnectBeforeSwitching: 2,
         blacklistTtl: 10000,
@@ -1096,7 +1221,7 @@ describe('SymbolEventStream', () => {
 
     it('利用可能なノードがない場合は切り替えを行わないべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001'],
         connections: 1,
         maxReconnectBeforeSwitching: 2,
       });
@@ -1115,9 +1240,139 @@ describe('SymbolEventStream', () => {
       stream.close();
     });
 
+    it('候補が枯渇した場合はNodeProviderから候補を補充して切り替えるべきである', async () => {
+      const nodeProvider = vi.fn(async () => ['https://provided.example.com:3001']);
+      const stream = new SymbolEventStream({
+        nodewatchUrls: ['https://node1.example.com:3001'],
+        connections: 1,
+        maxReconnectBeforeSwitching: 2,
+        nodeProvider,
+      });
+
+      const initialWs = mockInstances[0];
+      initialWs.onReconnect.mock.calls[0][0](2);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(nodeProvider).toHaveBeenCalledTimes(1);
+      expect(mockInstances).toHaveLength(2);
+      expect(mockInstances[1].options.host).toBe('provided.example.com');
+      expect(stream.getBlacklistedNodes()).toContain('https://node1.example.com:3001');
+
+      stream.close();
+    });
+
+    it('NodeProviderの不正候補・重複候補を除外するべきである', async () => {
+      const nodeProvider = vi.fn(async () => [
+        'https://node1.example.com:3001',
+        'https://provided.example.com:3001',
+        'https://provided.example.com:3001/',
+        'ftp://invalid.example.com',
+      ]);
+      const stream = new SymbolEventStream({
+        nodewatchUrls: ['https://node1.example.com:3001'],
+        connections: 1,
+        maxReconnectBeforeSwitching: 2,
+        nodeProvider,
+      });
+
+      mockInstances[0].onReconnect.mock.calls[0][0](2);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockInstances).toHaveLength(2);
+      expect(mockInstances[1].options.host).toBe('provided.example.com');
+      expect(mockInstances.every((instance) => instance.options.host !== 'invalid.example.com')).toBe(true);
+
+      stream.close();
+    });
+
+    it.each([
+      ['空配列', () => Promise.resolve<string[]>([])],
+      ['reject', () => Promise.reject<string[]>(new Error('provider failed'))],
+    ])('NodeProviderが%sを返した場合は既存接続を維持するべきである', async (_label, providerFactory) => {
+      const nodeProvider = vi.fn(providerFactory);
+      const stream = new SymbolEventStream({
+        nodewatchUrls: ['https://node1.example.com:3001'],
+        connections: 1,
+        maxReconnectBeforeSwitching: 2,
+        nodeProvider,
+      });
+
+      mockInstances[0].onReconnect.mock.calls[0][0](2);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(nodeProvider).toHaveBeenCalledTimes(1);
+      expect(mockInstances).toHaveLength(1);
+      expect(stream.getBlacklistedNodes()).toEqual([]);
+
+      stream.close();
+    });
+
+    it('同時に候補が枯渇してもNodeProviderをsingle-flightで1回だけ呼び出すべきである', async () => {
+      let resolveProvider!: (nodes: string[]) => void;
+      const nodeProvider = vi.fn(
+        () =>
+          new Promise<string[]>((resolve) => {
+            resolveProvider = resolve;
+          })
+      );
+      const stream = new SymbolEventStream({
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
+        connections: 2,
+        maxReconnectBeforeSwitching: 2,
+        nodeProvider,
+      });
+
+      mockInstances[0].onReconnect.mock.calls[0][0](2);
+      mockInstances[1].onReconnect.mock.calls[0][0](2);
+
+      expect(nodeProvider).toHaveBeenCalledTimes(1);
+      resolveProvider(['https://provided1.example.com:3001', 'https://provided2.example.com:3001']);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockInstances).toHaveLength(4);
+      expect(stream.getActiveConnectionCount()).toBe(2);
+
+      stream.close();
+    });
+
+    it('NodeProviderの処理中にcloseしても解決後に接続を作成しないべきである', async () => {
+      let resolveProvider!: (nodes: string[]) => void;
+      const nodeProvider = vi.fn(
+        () =>
+          new Promise<string[]>((resolve) => {
+            resolveProvider = resolve;
+          })
+      );
+      const stream = new SymbolEventStream({
+        nodewatchUrls: ['https://node1.example.com:3001'],
+        connections: 1,
+        maxReconnectBeforeSwitching: 2,
+        nodeProvider,
+      });
+
+      mockInstances[0].onReconnect.mock.calls[0][0](2);
+      stream.close();
+      resolveProvider(['https://provided.example.com:3001']);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(mockInstances).toHaveLength(1);
+      expect(stream.getIsClosed()).toBe(true);
+    });
+
     it('getBlacklistedNodesでブラックリスト一覧を取得できるべきである', () => {
       const stream = new SymbolEventStream({
-        nodeUrls: ['node1.example.com', 'node2.example.com'],
+        nodewatchUrls: ['https://node1.example.com:3001', 'https://node2.example.com:3001'],
         connections: 1,
         maxReconnectBeforeSwitching: 2,
       });
