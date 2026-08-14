@@ -1,548 +1,435 @@
 # Symbol Event Stream 仕様書
 
-## 1. 文書の位置付け
+## 1. 文書の位置付けと根拠
 
-本仕様書は、`@nemnesia/symbol-event-stream` v1.0.0 の現行コード、公開README、CHANGELOG、型定義およびテストから確認できる実装契約を記述する。
+本仕様書は、@nemnesia/symbol-event-stream の実装可能な設計を定める。規範仕様の根拠は、次の順序で扱う。
 
-対象パッケージ内には、承認済みのコンセプトシート、要件定義書、既存仕様書、対応する仕様レビュー結果および実装者フィードバックが存在しない。そのため、本仕様書はSymbolプロトコルの規範仕様ではなく、次の実装と依存パッケージの公開契約に基づく。
+1. packages/symbol-event-stream/docs/requirements/requirements.md の要件と受け入れ条件
+2. packages/symbol-event-stream/docs/consept/concept-sheet.md の目的、v1スコープおよび責任境界
+3. 本仕様書で要件を実装可能にするために明示した設計決定
+4. AGENTS.md および確認済みの依存パッケージ契約
 
-- `@nemnesia/symbol-event-stream` の実装契約
-- `@nemnesia/symbol-websocket` が公開する接続・購読・通知型契約
-- リポジトリ内のREADME、CHANGELOGおよびテストで確認できる利用契約
+既存仕様書およびREADMEは移行対象・公開説明の確認に限って参照し、規範根拠にはしない。実装コードとテストは本仕様書の根拠資料および補助資料に含めない。
 
-Symbol Gatewayの対象ネットワーク、通知スキーマの対象バージョン、通知の配信保証およびネットワーク整合性は、本仕様書では確定しない。
+本仕様書はSymbolプロトコル、Gateway、NodeWatchまたはProviderの適合性を保証するプロトコル仕様ではない。Providerが提供する候補、Gateway通信契約および通知形式をEvent Streamが利用するためのアプリケーション設計を定める。
 
-## 2. 概要
+## 2. 目的と適用範囲
 
 ### 2.1 目的
 
-`SymbolEventStream` は、複数のSymbol WebSocket Gateway接続から受信した通知を、購読単位で重複排除してTypeScriptアプリケーションへ配信する。
+Event Streamは、複数のSymbol WebSocket Gateway接続からの通知を、利用者アプリケーションから一つの論理的なリアルタイム監視として扱えるようにする。監視対象の継続、通知レベルの重複抑制、異常接続の扱い、接続状態と監視状態の観測、および明示的な終了後の継続処理停止を対象とする。
 
-接続の切断や再接続が発生した場合は、利用可能な候補ノードへの切り替えと購読の復元を試みる。利用者は、通知購読、接続状態、接続エラーおよびノード切り替え後の状態を公開APIから扱う。
+「一つの監視」は、複数接続を一つの論理的な監視状態として統合することを意味する。完全配信、通知順序、通知の真正性・完全性、欠落補償または業務処理の一度だけの実行を意味しない。
 
-### 2.2 対象範囲
+### 2.2 対象
 
-- Symbol WebSocket Gatewayへの複数接続
-- NodeWatch endpoint URLの入力検証とWebSocket接続先への変換
-- Symbol通知チャネルの購読・解除
-- TypeScriptのチャネル別通知型
-- 購読単位の通知重複排除
-- 接続・切断・再接続・fatalエラー時のノード切り替え
-- NodeProviderによる接続候補の補充
-- 接続状態、UIDおよびblacklist状態の取得
-- 明示的な終了とリソース解放
+- Symbol WebSocket Gatewayから、利用者が選択した監視対象に対応する通知を受信すること
+- 複数のGateway接続を一つの論理的な監視へ統合すること
+- 同一監視の範囲で、同一イベントとして識別できる通知の通知レベル重複を抑制すること
+- 初回接続時の状態差を許容し、初回受入れ後のブロック進行差を監視すること
+- 遅延・異常接続の一時除外、Provider候補による補充、要件に従った接続再利用を行うこと
+- 異常処理後の接続状態および監視状態を利用者が確認できること
+- 明示的な監視終了後に、接続、購読およびその他の監視継続処理を停止すること
 
 ### 2.3 対象外
 
+- NEMチェーンおよびSymbol WebSocket Gateway以外の通知方式
+- Mainnet、Testnetその他のネットワークの選択、切替または自動判定
+- Gateway接続候補のチェーン、ネットワーク、プロトコルまたはGateway適合性の保証・自動検証
 - トランザクションの作成、署名、暗号化、アナウンスおよび秘密情報管理
-- Symbolネットワークの自動選択またはMainnet/Testnetの自動判定
-- NodeProviderが返すノードのチェーン・ネットワーク一致性の検証
-- 通知の署名、真正性、業務上の意味または完全性の検証
-- 通知の永続化、履歴取得、リプレイ、欠落・重複・遅延の補償
-- REST APIを用いたイベント履歴の照合
-- NEMのWebSocketまたはSTOMP接続
-- Gatewayの可用性、通知生成、通知配信の保証
+- 通知の署名検証、真正性、完全性、業務上の正当性、完全配信、順序または欠落補償
+- 通知履歴の永続化、履歴取得、リプレイ、外部履歴サービスによる欠落補完
+- 短時間フォークの発生有無または正当性の判定
 
-## 3. 用語
+## 3. 用語と責任境界
 
 | 用語 | 定義 |
 | --- | --- |
-| EventStream | `SymbolEventStream` のインスタンス。複数の `SymbolWebSocket` を統合する。 |
-| NodeWatch endpoint | `http://` または `https://` のroot endpoint URL。EventStreamの入力候補となる。 |
-| WebSocket接続 | NodeWatch endpointをhostとSSL設定へ変換して生成する `SymbolWebSocket` インスタンス。 |
-| 購読キー | アドレスなしではチャネル名、アドレスありではチャネル名とアドレスを結合した内部識別子。 |
-| 通知ID | 通知の重複排除に利用する文字列。通常は `meta.hash`、`hash` または `uid`、cosignatureでは3フィールドの組み合わせである。 |
-| blacklist | ノード切り替え成功後、指定時間だけ候補から除外するノード集合。 |
-| NodeProvider | 候補が不足したときに追加のendpoint URL配列を返す利用者callback。 |
-| Gateway UID | WebSocket接続の最初の通知で受信する接続識別子。 |
+| 監視対象 | 利用者が選択した、ProviderのSymbol WebSocket Gateway契約上の購読対象範囲。 |
+| 通知 | 監視対象に関して、Providerが提供するSymbol WebSocket Gateway契約から届くイベント情報。 |
+| Gateway接続候補 | Providerが提供し、利用者がEvent Streamへ渡す未接続の接続先候補。候補であることは接続成立または健全性を意味しない。 |
+| 成立済み接続 | Event Streamと一つのGatewayとの接続が、下位Gateway接続契約上成立した状態。初回接続に失敗した候補は成立済み接続ではない。 |
+| 初回受入れ | 成立済み接続を他接続との状態差にかかわらず監視へ利用し始める段階。初回受入れ後は通常の遅延・異常判定を適用する。 |
+| 健全な接続 | 本仕様で定める異常条件に該当せず、監視の継続に利用できる成立済み接続。 |
+| ブラックリスト | 一時的に監視から除外された接続または候補を、除外原因と関連付けて管理する状態。 |
+| 同一イベント | 同じ監視対象について、Provider契約上同じイベントと判断できる通知。具体的な識別は10章で定める。 |
+| 監視終了 | 利用者が明示的にEvent Streamの監視を終了させる操作。終了後は同一インスタンスで再開しない。 |
 
-## 4. 公開API
-
-### 4.1 エントリポイントの公開物
-
-パッケージエントリポイントは、次を公開する。
-
-- `SymbolEventStream` クラス
-- `NodeConnectionStatus` 型
-- `NodeProvider` 型
-- `SymbolEventStreamOptions` 型
-
-通知callbackの型は、`SymbolEventStream` のジェネリックなメソッドシグネチャを通じてチャネル別に適用される。`EventCallback`、`ErrorCallback`、`ConnectCallback`、`DisconnectCallback` および `AddressableSymbolChannel` はパッケージエントリポイントから直接exportされない。
-
-### 4.2 `SymbolEventStream` の公開メソッド
-
-| メソッド | 動作 |
+| 主体 | 責任 |
 | --- | --- |
-| `on(channel, callback)` | アドレスなしのチャネル購読を追加する。 |
-| `on(channel, address, callback)` | アドレス付きのチャネル購読を追加する。アドレス指定可能なチャネルだけで利用できる。 |
-| `off(channel, callback?)` | アドレスなし購読について、指定callbackまたは全callbackを解除する。 |
-| `off(channel, address, callback?)` | アドレス付き購読について、指定callbackまたは全callbackを解除する。 |
-| `onError(callback)` | 下位 `SymbolWebSocket` から受け取ったエラーを転送するcallbackを追加する。 |
-| `onConnect(callback)` | ノードURLとGateway UIDを受け取る接続callbackを追加する。 |
-| `onDisconnect(callback)` | 切断ノードのURLを受け取る切断callbackを追加する。 |
-| `close()` | 全接続、購読、callback、タイマーおよび内部状態を破棄する。冪等である。 |
-| `getActiveConnectionCount()` | EventStreamが管理しているWebSocket数を返す。OPEN状態の数ではない。 |
-| `getIsClosed()` | `close()` 実行後かどうかを返す。 |
-| `isConnected()` | 管理中のいずれかのWebSocketがOPEN状態なら `true` を返す。 |
-| `getConnectedNodes()` | OPEN状態のノードの入力endpoint URL配列を返す。 |
-| `getConnectionStatus()` | 管理中の全ノードについてURL、OPEN状態およびUIDを返す。 |
-| `getBlacklistedNodes()` | blacklist中の入力endpoint URL配列を返す。 |
+| 開発者・利用者アプリケーション | 監視対象と候補を準備し、Event Streamを開始・終了する。通知を業務処理へ渡す。 |
+| 運用者 | 接続状態と監視状態を確認し、継続・停止・復旧を判断する。 |
+| 利用者アプリケーション | 通知の必要な真正性・完全性確認、保存、欠落時の照合および復旧を行う。 |
+| Provider | NodeWatch情報等を利用してGateway接続候補を提供する。候補の具体的な契約はProviderに従う。 |
+| Gateway・ネットワーク | 通知の生成、接続サービスおよび配信を提供する。 |
+| Event Stream | 複数接続の統合、監視対象の購読、通知レベルの重複抑制、接続・監視状態の観測、異常接続処理および終了を担う。 |
 
-各callback登録メソッドは解除関数を返さない。callbackの登録・解除は同期的に行われる。
+同じ監視へ渡す候補は、同じSymbolネットワーク、互換性のあるGateway通信・通知契約、および同じ監視対象を共有することを前提とする。この確認と候補の準備は利用者の責任であり、Event Streamはその前提を自動検証または保証しない。
 
-### 4.3 `NodeConnectionStatus`
+## 4. 設計原則
 
-`getConnectionStatus()` の各要素は次の形を持つ。
+- 複数接続で監視を継続するが、完全配信または一度だけの業務処理を保証しない。
+- 初回受入れと通常監視を分離し、初回の状態差だけで成立済み接続を除外しない。
+- 遅延判定はブロック進行差だけで行い、短時間フォークの正当性を判断しない。
+- Provider候補の提供とEvent Streamの監視処理を分離し、候補の適合性をEvent Streamの保証に含めない。
+- 監視状態の公開は異常対処後の最終状態を主とし、ブラックリスト移動や候補補充などの途中経過を個別通知しない。
+- 高さなどの整数文字列表現は正確な整数として比較し、浮動小数を使用しない。
 
-```ts
+## 5. 監視モデルと状態
+
+### 5.1 監視状態
+
+一つのEvent Streamインスタンスは一つの監視を表す。監視は、監視対象、候補集合、成立済み接続集合、ブラックリスト、同一イベント識別状態および監視状態を持つ。
+
+| 状態 | 意味 |
+| --- | --- |
+| active | 1つ以上の健全な接続を利用して監視対象を扱っている。 |
+| degraded | 健全な接続は残るが、候補不足または一部接続の異常により指定接続数を満たしていない。 |
+| stopped | 健全な接続がすべてなくなり、監視を停止した。監視上の異常として観測できる。 |
+| closed | 利用者が明示的に監視を終了した。 |
+
+stoppedは接続健全性の喪失、closedは利用者の終了操作を表し、混同してはならない。
+
+### 5.2 接続状態
+
+接続は少なくとも次を区別する。
+
+- candidate: 未接続の候補
+- connecting: 接続処理中
+- accepted: 初回受入れ済みで監視に利用中
+- excluded: 原因付きで一時除外中
+- closed: 終了済みまたは監視から破棄済み
+
+遅延、初回接続失敗、タイムアウト切断は同じexcludedにまとめず、除外原因として区別する。
+
+## 6. 入力と公開データモデル
+
+### 6.1 公開APIの設計方針
+
+既存パッケージの公開名（SymbolEventStream、SymbolEventStreamOptions、NodeProvider、NodeConnectionStatus、on、off、close等）は、公開パッケージの利用契約との整合性を保つ設計基準として維持する。これはリポジトリ固有の設計判断であり、Symbolプロトコルの規範ではない。
+
+既存APIだけではFR-006の監視状態・健全性・異常原因を十分に観測できないため、次の状態取得契約を追加または同等の公開表現へ拡張する。
+
+```typescript
+type MonitoringState = 'active' | 'degraded' | 'stopped' | 'closed';
+
+type ConnectionExclusionReason =
+  | 'block-progress-lag'
+  | 'initial-connection-failure'
+  | 'timeout-disconnect';
+
 interface NodeConnectionStatus {
   nodeUrl: string;
-  connected: boolean;
+  state: 'candidate' | 'connecting' | 'accepted' | 'excluded' | 'closed';
+  healthy: boolean;
   uid: string | null;
+  latestBlockProgress: string | null;
+  exclusionReason: ConnectionExclusionReason | null;
+}
+
+interface MonitoringStatus {
+  state: MonitoringState;
+  healthyConnectionCount: number;
+  anomaly: 'candidate-shortage' | 'all-connections-unhealthy' | null;
 }
 ```
 
-- `nodeUrl` はEventStreamが管理する入力endpoint URLである。
-- `connected` は下位 `SymbolWebSocket.isConnected` の値であり、Gateway UID受信済みかどうかとは独立している。
-- `uid` はGateway UID受信前または切断中に `null` である。
+latestBlockProgressはProviderのブロック通知から得た正確な整数文字列表現で、存在しない場合はnullとする。anomalyは異常対処後に残る監視上の状態を表し、候補追加のイベントログではない。
 
-### 4.4 `NodeProvider`
+### 6.2 Event Streamの操作
 
-```ts
-type NodeProvider = () => Promise<string[]>;
-```
+| 操作 | 規範動作 |
+| --- | --- |
+| 監視開始 | 利用者が監視対象とGateway接続候補を指定してインスタンスを初期化する。 |
+| on | 監視対象に対応する通知購読と利用者callbackを追加する。接続交換後も同じ監視へ復元する。 |
+| off | 指定した通知購読またはcallbackを解除する。監視終了とは異なる。 |
+| getConnectionStatus | 接続中、受入れ済み、除外中の状態を原因付きで取得する。 |
+| getMonitoringStatus | 異常対処後の監視状態、健全な接続数および監視上の異常を取得する。 |
+| onError / onConnect / onDisconnect | 下位接続の状態変化または接続エラーを通知する。最終的な監視状態はgetMonitoringStatusで確認する。 |
+| close | 監視を終了し、継続処理を停止する。同一インスタンスで再開しない。 |
 
-ProviderはEventStreamに直接依存するpickerではなく、利用者が候補取得条件を束縛するcallbackである。
+getActiveConnectionCount、isConnected、getConnectedNodes、getBlacklistedNodesなどの既存操作は、状態モデルと矛盾しない範囲で互換性のために提供してよい。これらだけをFR-006の監視状態の代替にしてはならない。
 
-## 5. 入力データモデルと制約
+### 6.3 初期化入力
 
-### 5.1 `SymbolEventStreamOptions`
+リポジトリ固有の公開設計として、監視開始時の入力は次の形を基準とする。
 
-```ts
+```typescript
 interface SymbolEventStreamOptions {
   nodewatchUrls: string[];
   nodeProvider?: NodeProvider;
   connections: number;
-  maxCacheSize?: number;
-  cacheTtl?: number;
-  maxReconnectBeforeSwitching?: number;
-  blacklistTtl?: number;
 }
 ```
 
-| 項目 | 必須 | 既定値 | 制約 |
-| --- | --- | --- | --- |
-| `nodewatchUrls` | MUST | なし | 1件以上のendpoint URLを指定する。 |
-| `nodeProvider` | MAY | なし | `Promise<string[]>` を返すcallback。 |
-| `connections` | MUST | なし | 1以上の安全な整数。 |
-| `maxCacheSize` | MAY | `10000` | 1以上の安全な整数。 |
-| `cacheTtl` | MAY | `60000` ms | 正の有限数。 |
-| `maxReconnectBeforeSwitching` | MAY | `5` | 1以上の安全な整数。 |
-| `blacklistTtl` | MAY | `300000` ms | 正の有限数。 |
+nodewatchUrlsは1件以上の候補endpoint、connectionsは1以上の安全な整数とする。候補数がconnections未満でも、Event Streamは不足分を不健全な接続で補ってはならない。候補数、接続数およびProvider候補の適合性は利用者の責任境界に属する。
 
-### 5.2 NodeWatch endpoint URL
+既存実装にあるmaxCacheSize、cacheTtl、maxReconnectBeforeSwitching、blacklistTtl等のオプションは、要件から定まる規範入力ではない。これらを採用する場合も、10.3の重複抑制範囲、8章の遅延判定および9章の原因別再利用条件を弱めてはならない。
 
-各 `nodewatchUrls` 要素は、次の条件をすべて満たさなければならない。
+### 6.4 候補供給
 
-- 絶対URLである。
-- schemeは `http:` または `https:` である。
-- usernameとpasswordを含まない。
-- root endpointであり、pathは `/` だけである。
-- queryとfragmentを含まない。
-- `http:` の明示ポートは `3000`、`https:` の明示ポートは `3001` である。ポート省略は許可され、schemeに応じた標準ポートとして扱う。
+Provider候補の補充を実装するリポジトリ固有の公開設計として、次の型を採用する。
 
-URLが条件を満たさない場合、コンストラクタは `TypeError` を送出し、接続生成を開始しない。
+```typescript
+type NodeProvider = () => Promise<string[]>;
+```
 
-EventStreamはendpointを次の情報へ変換して `SymbolWebSocket` を生成する。
+NodeProviderはProvider実装そのものではなく、利用者が候補取得条件を束縛したcallbackである。NodeWatch情報、対象ネットワーク、候補の信頼性およびGateway適合性をEvent Streamが検証する契約ではない。
 
-| endpoint scheme | WebSocket接続先 | `ssl` |
+### 6.5 候補endpoint
+
+リポジトリ固有の接続入力契約として、候補endpointは次を満たすものを受け付ける。
+
+- 絶対URLであること
+- schemeがhttpまたはhttpsであること
+- username、password、query、fragmentを含まないこと
+- root endpointであり、pathは/だけであること
+- httpの明示ポートは3000、httpsの明示ポートは3001であること。ポート省略はschemeに対応する標準ポートとして扱う
+
+接続先は、httpでは ws://{host}:3000/ws、httpsでは wss://{host}:3001/ws へ変換する。この構文検証は、チェーン・ネットワーク・Gateway適合性の検証ではない。
+
+### 6.6 通知チャネル
+
+通知チャネルと通知データ型は、@nemnesia/symbol-websocketおよびProviderのGateway契約に従う。現行の依存契約で扱うチャネルは次のとおりである。Event Streamはこの表を独自のwire仕様として再定義しない。
+
+| チャネル | アドレス指定 | 主な意味 |
 | --- | --- | --- |
-| `http` | `ws://{host}:3000/ws` | `false` |
-| `https` | `wss://{host}:3001/ws` | `true` |
+| block | 不可 | ブロック生成通知。ブロック進行値を含む。 |
+| finalizedBlock | 不可 | ファイナライズ通知。 |
+| confirmedAdded | 可 | 承認済みトランザクション追加通知。 |
+| unconfirmedAdded | 可 | 未承認トランザクション追加通知。 |
+| unconfirmedRemoved | 可 | 未承認トランザクション削除通知。 |
+| partialAdded | 可 | アグリゲートボンデッドトランザクション追加通知。 |
+| partialRemoved | 可 | アグリゲートボンデッドトランザクション削除通知。 |
+| cosignature | 可 | 連署通知。 |
+| status | 可 | トランザクション状態通知。 |
 
-入力URLのネットワーク、チェーン、ノード実体およびGateway互換性は検証しない。
+Providerが提供しないイベント種別、通知方式、通知フォーマットまたはプロトコルバージョンをEvent Streamが追加・固定・自動判定してはならない。
 
-## 6. 通知データモデル
+## 7. 購読と通知処理
 
-### 6.1 通知エンベロープ
+### 7.1 購読の適用範囲
 
-購読callbackには、下位 `SymbolWebSocket` が受信した通知エンベロープを渡す。通知エンベロープは `topic` と `data` を持つ。
+監視対象と購読は、監視に参加するすべての成立済み接続へ適用する。接続切替、Provider候補による補充、許可された接続再利用、再接続および再購読の後も同じ監視対象を扱う。
 
-EventStreamは通知のJSON解析、topicの再解釈またはpayloadの実行時スキーマ変換を行わない。通知の解析とチャネル振り分けは依存する `SymbolWebSocket` の責任である。
+具体的なチャネル・アドレス表現はProviderおよびsymbol-websocket契約に従う。Event Streamは通知payloadを業務データとして再解釈、永続化または補償しない。
 
-### 6.2 対応チャネル
+### 7.2 通知の採用
 
-| チャネル | `data` 型の概要 | アドレス指定 |
-| --- | --- | --- |
-| `block` | ブロック情報と `meta.hash`、`meta.generationHash` | 不可 |
-| `finalizedBlock` | finalization epoch、point、height、hash | 不可 |
-| `confirmedAdded` | transactionとmeta情報 | 可 |
-| `unconfirmedAdded` | transactionとmeta情報 | 可 |
-| `unconfirmedRemoved` | `meta.hash` | 可 |
-| `partialAdded` | transactionとmeta情報 | 可 |
-| `partialRemoved` | `meta.hash` | 可 |
-| `cosignature` | version、signerPublicKey、signature、parentHash | 可 |
-| `status` | hash、code、deadline | 可 |
+1. Gateway接続から通知を受信する。
+2. 下位Gateway契約の購読結果として、監視対象に対応する通知を扱う。
+3. ブロック進行を含む通知を8章の状態更新へ反映する。
+4. 10章の同一イベント判定を行う。
+5. 重複でない通知だけを利用者callbackへ渡す。
 
-`transaction` の具体的な型は依存パッケージの公開型で `unknown` とされており、EventStreamは内容を検証しない。
+Event StreamはProvider契約にない通知を合成してはならない。Gatewayから連続して届いた通知は、同一イベントと判定できる根拠がない限り別通知として扱う。
 
-### 6.3 アドレス付き購読
+### 7.3 通知がない状態
 
-アドレス指定可能なチャネルの購読パスは、下位パッケージの定義に従い、次の形式で生成される。
+通知がないことだけを、ブロック進行の遅延、異常または停止の根拠にしてはならない。通知がない状態で下位接続がタイムアウト切断になった場合は、timeout-disconnectとして異常処理する。
+
+## 8. 初回受入れと遅延判定
+
+### 8.1 初回受入れ
+
+Gateway接続契約上成立した接続は、他接続とのブロック進行差にかかわらず初回受入れし、監視へ利用する。初回受入れ時点では状態差だけを理由に除外してはならない。
+
+初回接続に失敗した候補は初回受入れせず、initial-connection-failureとして除外対象に関連付ける。
+
+### 8.2 ブロック進行の観測
+
+Event Streamは、監視に利用する接続ごとに、Gatewayから届いた最新のblock通知のブロック進行を保持する。利用者のblock購読とは独立して、遅延判定に必要な内部観測を行う。
+
+ブロック進行を持たない接続は、その事実だけで遅延と判定しない。比較可能な最新値が得られた接続についてだけ比較する。
+
+### 8.3 遅延判定
+
+初回受入れ後、各接続の最新ブロック進行を比較する。最大値をHmax、対象接続の値をHnodeとすると、次を満たす接続を遅延・異常と扱う。
 
 ```text
-{channel}/{address}
+Hmax - Hnode >= 3
 ```
 
-`block` と `finalizedBlock` にアドレスを指定した場合、下位 `SymbolWebSocket` が `TypeError` を送出する。アドレスの形式検証も下位 `SymbolWebSocket` に委譲され、空文字、Symbol encoded addressまたは16文字の16進数namespace IDが受け付けられる。
+判定はブロック進行差だけで行い、一時的な差も遅延として扱う。通知の他のフィールド、Gatewayの評判、NodeWatch情報または短時間フォークの正当性を判定材料に加えてはならない。
 
-## 7. 初期化と接続管理
+高さが整数文字列の場合は、任意精度または同等の正確な整数演算で比較する。浮動小数へ変換してはならない。
 
-### 7.1 初期化順序
+## 9. 異常接続、候補補充および再利用
 
-コンストラクタは次の順序で処理する。
+### 9.1 除外と原因
 
-1. `nodewatchUrls`、URL、数値オプションを検証する。
-2. 候補URLから、`connections` 件を上限としてランダムに候補を選択する。
-3. 選択した各候補に `SymbolWebSocket({ host, ssl, autoReconnect: true })` を生成する。
-4. 全接続生成後に重複排除のクリーンアップタイマーを開始する。
-5. blacklistクリーンアップタイマーを `blacklistTtl / 2` 間隔で開始する。
+| 原因 | 対象 | 同一監視中の再利用 |
+| --- | --- | --- |
+| block-progress-lag | 3ブロック以上遅れた成立済み接続 | 条件を満たす場合に限り許可 |
+| initial-connection-failure | 初回接続に失敗した候補 | 禁止 |
+| timeout-disconnect | タイムアウトにより切断された成立済み接続または候補 | 禁止 |
 
-接続生成はコンストラクタ中に開始される。接続完了を待つPromiseは返さない。
+除外は対象を監視から一時的に外す処理であり、利用者へ途中経過イベントを送ることを意味しない。
 
-候補数が `connections` 未満の場合、候補数まで接続する。候補の選択順序や乱数分布は公開契約ではない。
+### 9.2 Provider候補の優先
 
-### 7.2 初期化失敗
+接続が減少した場合、利用可能なProvider候補がある限り、それをブラックリスト接続の再利用より優先して補充する。Provider候補が残っている間、ブラックリスト接続を再利用してはならない。
 
-接続生成または初期化中に例外が発生した場合、コンストラクタは次を行った後、元の例外を再送出する。
+Provider候補の取得結果が空、利用可能候補なし、または補充に失敗した場合は、補充できない状態として扱う。補充できないことだけで、健全な接続を停止してはならない。補充失敗の再試行間隔、Providerへのエラー通知およびProvider内部の再試行は本仕様で定めない。
 
-- EventStreamを終了状態にする。
-- 開始済みタイマーを停止する。
-- 重複排除キャッシュを破棄する。
-- 購読状態、コールバック、接続管理状態およびblacklistを破棄する。
-- 既に生成したWebSocketを閉じる。
+NodeProviderの候補endpoint構文検証と重複除外は6章の設計に従う。ただし、候補のチェーン・ネットワーク適合性検証ではない。
 
-初期化時のcleanupで発生したWebSocket close例外は、初期化時の元例外を隠さないため無視する。
+### 9.3 候補枯渇時の再利用
 
-### 7.3 接続数
+Provider候補が枯渇した場合に限り、次のすべてを満たすblock-progress-lag対象の成立済み接続を再利用候補とする。
 
-- `getActiveConnectionCount()` は管理中のWebSocket配列の要素数を返す。
-- `isConnected()` は管理中のWebSocketのうち少なくとも1つがOPENなら `true` を返す。
-- 初期候補選択およびノード切り替え時の候補選択はランダムである。
+- 再利用時点で最新ブロック進行値を持つこと
+- 再利用時点の成立済み接続の最新ブロック進行最大値との差が3未満であること
+- 初回接続失敗またはタイムアウト切断を原因とする除外対象ではないこと
 
-## 8. 購読ライフサイクル
+候補が複数ある場合は、その集合からランダムに1接続を選択する。選択された接続は監視へ戻し、以後ふたたび8章の判定対象とする。
 
-### 8.1 購読登録
+### 9.4 継続と停止
 
-購読キーは次のように扱う。
+補充または再利用できなくても、1つ以上の健全な接続が残る限り、その接続だけで監視対象の扱いを継続する。この場合、監視状態は少なくともdegradedとして観測できる。
 
-- アドレスなし: `{channel}`
-- アドレスあり: `{channel}:{address}`
+健全な接続がすべてなくなった場合、監視をstoppedへ遷移させ、監視上の異常として利用者が把握できるようにする。stoppedから自動的に監視を再開してはならない。再度監視する場合は新しいインスタンスを初期化する。指定接続数を無理に満たすこと、完全配信を維持することまたは不健全な接続を隠すことをしてはならない。
 
-同一購読キーに複数callbackを登録できる。callbackはSetで保持されるため、同一関数オブジェクトを同じキーへ複数回登録しても1回だけ保持する。
+## 10. 通知レベルの重複抑制
 
-購読キーに対する最初のcallback登録時だけ、管理中の全WebSocketへ下位購読を登録する。同じキーへ後からcallbackを追加しても、下位WebSocket購読は追加作成しない。
+### 10.1 適用範囲
 
-### 8.2 購読登録の失敗
+一つの監視の開始から明示的な終了まで、同一監視対象に関する同一イベントとして識別できる通知を、接続切替、候補補充、許可された接続再利用、再接続および再購読をまたいで重複抑制する。
 
-複数WebSocketへの購読登録中に例外が発生した場合、登録を試みたWebSocketの購読を解除し、EventStream内部へ購読キーとcallbackを保存せず、元の例外を再送出する。
+同じ監視対象でも同一イベントと識別できない通知は別通知として扱う。明示的終了後または新しいインスタンスとの間で重複抑制を保証しない。通知レベルの重複抑制は、業務処理の二重実行を制御または保証しない。
 
-ロールバック中の解除例外は、元の購読登録例外を維持するため無視する。
+### 10.2 同一イベント識別
 
-### 8.3 購読解除
+現行のProvider依存契約に対応するリポジトリ固有設計として、通知IDは次の優先順で抽出する。これはSymbolプロトコル全体の規範ではない。
 
-- callbackを指定した場合、そのcallbackだけを購読キーから削除する。
-- callbackが残っている場合、下位WebSocketの購読は解除しない。
-- 最後のcallbackが削除された場合、またはcallbackを省略した場合、購読キーを削除し、全WebSocketから下位購読を解除する。
-- 未登録の購読キーを解除しても何もしない。
+| 通知 | 識別値 |
+| --- | --- |
+| cosignature | parentHash、signerPublicKey、signatureの3値を順序どおりに組み合わせた値。3値が揃わない場合は共通規則へ進む。 |
+| その他 | data.meta.hash、data.hash、data.uidの順で、文字列値が存在する最初の値。 |
 
-### 8.4 ノード切り替え時の購読復元
+dataを持つ通知はdataを対象にし、持たない通知は通知オブジェクト自体を対象にする。文字列IDがない通知は同一性を判定できないため、受信ごとに渡す。
 
-EventStreamが保持する全購読キーを、新たに生成したWebSocketへ登録する。復元途中で失敗した場合は、部分的に登録した購読を解除し、新WebSocketを閉じ、旧接続を管理対象として維持する。
+重複抑制キーは、監視インスタンス、購読チャネル、アドレス指定がある場合のアドレス、および通知IDから構成する。異なるチャネルまたはアドレス購読を監視対象が同じという理由だけで統合してはならない。
 
-復元失敗時は旧ノードをblacklistへ登録せず、復元処理の例外を `onError` へ転送しない。
+### 10.3 保持期間
 
-## 9. 通知配信と重複排除
+同一監視中の重複抑制に使用した識別状態は、明示的終了まで有効でなければならない。cacheTtlや固定サイズによる早期破棄で、この範囲を短縮してはならない。内部保持方式、容量対策または永続化方式は本仕様の対象外であり、通知履歴の永続化・リプレイを提供するものではない。
 
-### 9.1 ID抽出
+## 11. 状態・エラーの公開契約
 
-通知のpayloadは、通知オブジェクトに `data` プロパティが存在する場合は `data` の値、存在しない場合は通知オブジェクト自身として扱う。
+### 11.1 観測可能な状態
 
-`cosignature` 以外の通知では、次の順で文字列IDを抽出する。
+異常対処後、利用者は少なくとも次を確認できなければならない。
 
-1. `data.meta.hash`
-2. `data.hash`
-3. `data.uid`
+- 各接続の状態（候補、接続中、受入れ済み、除外中、終了済み）
+- 各接続の健全性
+- 除外原因（ブロック進行遅延、初回接続失敗、タイムアウト切断）
+- 接続先識別子と、Gateway契約上利用可能な接続UID
+- 監視状態、健全な接続数および全接続不健全による異常
 
-`cosignature` では、`parentHash`、`signerPublicKey`、`signature` のすべてが文字列の場合、3値のJSON配列表現をIDとして使用する。3値が揃わない場合は通常の `meta.hash`、`hash`、`uid` の抽出へ進む。
+ブラックリスト移動、候補補充、ブラックリスト接続再利用などの途中経過は、個別の通常通知として公開しない。
 
-文字列でない値はIDとして扱わない。IDが存在しない、または空文字列の場合、重複排除せず受信ごとにcallbackへ渡す。
+### 11.2 エラー
 
-### 9.2 重複排除キー
+下位WebSocketの接続・timeout・parse・networkその他のエラーを、onError等の既存公開契約へ渡してよい。ただし、下位エラーの転送だけではFR-006を満たさない。最終状態は11.1の状態取得契約で確認できなければならない。
 
-重複排除キーは次の連結で構成する。
-
-```text
-購読キー + U+0000 + 通知ID
-```
-
-したがって、同じIDでも次の単位が異なれば別通知として扱う。
-
-- チャネル
-- アドレス付き購読のアドレス
-
-### 9.3 TTL
-
-同じ重複排除キーが登録されており、現在時刻と登録時刻の差が `cacheTtl` 未満の場合、通知は重複として破棄する。それ以外の場合は新規通知としてcallbackへ渡し、登録時刻を現在時刻へ更新する。
-
-TTLは正の有限数で、既定値は `60000` msである。判定は厳密な「未満」であり、差がちょうど `cacheTtl` の場合は重複として扱わない。
-
-### 9.4 キャッシュ容量
-
-`maxCacheSize` は重複排除エントリの最大数で、既定値は `10000` である。
-
-新しいエントリの追加によって容量を超えた場合、登録timestampが古い順に削除し、最大数以内に戻す。同一timestampの場合の削除順序は仕様上定義しない。
-
-重複排除キャッシュの期限切れエントリは、`min(cacheTtl / 2, 60000)` ms間隔のタイマーで削除する。期限切れ判定は `現在時刻 - 登録時刻 > cacheTtl` である。
-
-### 9.5 配信callbackの例外
-
-同じ購読キーのcallbackは、通知開始時点のcallback集合を基準に個別実行する。あるcallbackが例外を送出しても、他のcallbackの実行を中断しない。callback例外はEventStreamの内部で `console.error` に出力する。
-
-## 10. 再接続とノード切り替え
-
-### 10.1 切り替え開始条件
-
-管理中WebSocketについて、次のいずれかが成立した場合、代替ノードへの切り替えを試みる。
-
-- 下位WebSocketの再接続試行回数が `maxReconnectBeforeSwitching` 以上になった。
-- 下位WebSocketから `severity: 'fatal'` のエラーを受け取った。
-- `onClose` 後、同じ処理ターン内に再接続callbackが発生せず、terminal closeと判定された。
-
-`maxReconnectBeforeSwitching` の既定値は `5` である。
-
-通常の切断で `onClose` に続いて同じ処理ターン内に再接続callbackが発生した場合、即時にノード切り替えを開始しない。
-
-### 10.2 利用可能候補
-
-切り替え候補は、次の条件を満たす候補から選択する。
-
-- 現在管理中の接続で使用されていない。
-- blacklistに登録されていない。
-- endpoint URLとして検証に合格している。
-
-代替候補がない場合、固定候補だけで動作しているときは切り替えず、現在の下位WebSocketの自動再接続に委ねる。代替候補がなくても旧ノードをblacklistへ登録しない。
-
-### 10.3 切り替え処理
-
-候補がある場合、次の順序で処理する。
-
-1. 候補から1件をランダムに選ぶ。
-2. 新しい `SymbolWebSocket` を生成する。
-3. EventStreamが保持する全購読を新しいWebSocketへ復元する。
-4. 購読復元が完了した後、旧WebSocketを閉じる。
-5. 旧ノードをblacklistへ登録する。
-6. 旧WebSocketを管理対象から除去する。
-
-新しいWebSocketの生成または購読復元に失敗した場合、次を行う。
-
-- 新しいWebSocketが生成済みなら閉じる。
-- 新しいWebSocketを管理対象から除去する。
-- 旧WebSocketを管理対象として維持する。
-- 旧ノードをblacklistへ登録しない。
-- 失敗を `onError` へ転送しない。
-
-切り替え処理は、新しいWebSocketがGateway UIDを受信して接続完了callbackを発火するまで待たない。新接続の生成と購読登録要求が完了した時点で旧接続を切り替える。
-
-### 10.4 blacklist
-
-切り替えに成功した旧ノードは、入力endpoint URLをキーとしてblacklistへ登録する。blacklistの有効期間は `blacklistTtl` で、既定値は `300000` msである。
-
-blacklistエントリは `blacklistTtl / 2` ms間隔のタイマーで確認し、登録時刻との差が `blacklistTtl` を超えたエントリを削除する。TTLと同値の時点では削除しない。
-
-`getBlacklistedNodes()` は、有効なblacklistキーを入力endpoint URL配列として返す。
-
-### 10.5 NodeProviderによる候補補充
-
-候補枯渇時に `nodeProvider` が指定されている場合、EventStreamはProviderを呼び出して候補を補充する。
-
-- 同時に複数の接続が候補補充を要求しても、進行中のProvider呼出しを共有する。
-- Providerがrejectした場合、候補を追加せず、既存接続を維持する。
-- Providerの結果が配列でない場合、候補を追加しない。
-- 配列要素が文字列でない場合、その要素を無視する。
-- endpoint検証に失敗した候補を無視する。
-- 既知候補、使用中候補、blacklist中候補および正規化キーが重複する候補を無視する。
-- 有効候補を追加できた場合、候補枯渇による切り替えを1回再試行する。
-- Provider結果の処理中に `close()` が呼ばれた場合、解決後に新接続を作成しない。
-
-Provider自身の再試行、呼び出し間隔、チェーン・ネットワーク一致性およびProvider失敗の `onError` 通知は本仕様で定義しない。現行実装ではProvider失敗を `onError` へ転送しない。
-
-## 11. 接続・切断・エラー通知
-
-### 11.1 接続callback
-
-`onConnect(callback)` に登録したcallbackは、次の引数を受け取る。
-
-```ts
-(nodeUrl: string, uid: string) => void
-```
-
-- 初回接続と下位WebSocketの自動再接続成功時に呼び出す。
-- `onConnect` 登録時に、すでにOPENかつUID受信済みの管理接続がある場合は、その接続ごとに直ちに呼び出す。
-- callback例外は他の接続callbackおよびEventStream処理を中断しない。
-
-### 11.2 切断callback
-
-`onDisconnect(callback)` に登録したcallbackは、次の引数を受け取る。
-
-```ts
-(nodeUrl: string) => void
-```
-
-予期しない切断およびノード切り替えのための旧接続終了時に呼び出す。`close()` による明示的な終了時は、callback集合が破棄されるため利用者の切断callbackを呼び出さない。
-
-### 11.3 エラーcallback
-
-`onError(callback)` は、下位 `SymbolWebSocket` の `SymbolWebSocketError` をそのまま転送する。
-
-エラー型の主要な項目は次のとおりである。
-
-```ts
-interface SymbolWebSocketError {
-  type: 'connection' | 'timeout' | 'parse' | 'network' | 'unknown';
-  severity: 'fatal' | 'recoverable';
-  host: string;
-  reconnecting: boolean;
-  reconnectAttempts: number;
-  originalError: Error | WebSocket.ErrorEvent;
-  timestamp: number;
-  message: string;
-}
-```
-
-`severity: 'fatal'` のエラーはノード切り替えの契機になる。`recoverable` のエラーはEventStream自身がノード切り替えを開始せず、下位WebSocketの自動再接続に委ねる。
-
-EventStream callbackの例外は、他のcallbackの実行を中断しない。EventStreamはcallback例外を別の `onError` callbackへ変換しない。
+Providerのreject、不正候補または候補枯渇は、健全な接続が残る場合に監視を継続する。これらをSymbol通知として扱ってはならない。Providerエラーの詳細なcallback分類は上流根拠がないため、本仕様で固定しない。
 
 ## 12. 終了とライフサイクル
 
-### 12.1 `close()`
+### 12.1 明示的終了
 
-`close()` は次を行う。
+利用者が監視を終了した後、Event Streamは次を停止する。
 
-- 終了フラグを設定する。
-- blacklistクリーンアップタイマーを停止する。
-- 重複排除タイマーとキャッシュを破棄する。
-- 管理中の全WebSocketを閉じる。
-- 管理中WebSocket、購読、接続・切断・エラーcallbackおよびblacklistを破棄する。
-- Providerの進行状態を解放する。
+- 管理中のGateway接続
+- Gateway購読
+- 自動再接続および候補補充
+- ブロック進行の監視
+- 重複抑制に関する監視継続処理
+- 終了前に開始したProvider処理の解決結果による新しい接続・購読の作成
 
-`close()` は複数回呼び出しても追加処理を行わない。終了後、接続、ノード切り替え、購読復元およびProvider解決後の接続作成は再開しない。再利用する場合は新しい `SymbolEventStream` を生成する。
+終了済みインスタンスは監視を開始または再開してはならない。再度監視する場合は新しいインスタンスを初期化する。
 
-### 12.2 終了後の公開メソッド
+### 12.2 終了後の操作
 
-`getIsClosed()`、`getActiveConnectionCount()`、`isConnected()`、`getConnectedNodes()`、`getConnectionStatus()` および `getBlacklistedNodes()` は、破棄後の状態を返す。
+終了後に監視対象の追加・解除、接続交換またはProvider候補補充を行っても、監視を再開してはならない。終了状態の取得操作は、終了済みであることと最終状態を返せるものとする。終了操作の冪等性、終了後操作の戻り値または例外は、既存公開契約と互換性を保つ範囲で定義する。
 
-終了後に `on()` または `off()` を呼び出した場合の利用者向け契約は、現行実装で明示されていないため要確認とする。現行コードでは `on()` が内部購読状態へcallbackを追加する可能性があるが、接続は再開しない。
+## 13. セキュリティと信頼境界
 
-## 13. エラー仕様
+- Event Streamは秘密鍵、ニーモニック、パスワードその他の署名・認証用秘密情報を要求、保存または処理してはならない。
+- Event Streamはトランザクション署名、署名検証、暗号化、認証または通知の真正性検証を行わない。
+- Event StreamはGateway通知の完全性、真正性、業務上の正当性、完全配信、順序または欠落補償を保証しない。
+- 利用者アプリケーションは、業務利用に必要な通知検証、保存、欠落時の照合および復旧を担う。
+- endpointの構文検証と接続先変換は、候補が正しいネットワークまたはGatewayであることの証明ではない。
+- 例外、ログ、状態通知へ秘密情報を出力してはならない。
 
-### 13.1 入力エラー
+## 14. エンコード、相互運用性およびバージョン
 
-| 条件 | エラー |
-| --- | --- |
-| `nodewatchUrls` が空 | `Error` |
-| endpointが絶対 `http(s)` root URLでない | `TypeError` |
-| endpointが認証情報、非標準ポート、path、queryまたはfragmentを含む | `TypeError` |
-| `connections` が正の安全整数でない | `Error` |
-| `maxCacheSize` が正の安全整数でない | `Error` |
-| `cacheTtl` が正の有限数でない | `Error` |
-| `maxReconnectBeforeSwitching` が正の安全整数でない | `Error` |
-| `blacklistTtl` が正の有限数でない | `Error` |
+Event Streamは、Providerが指定するGateway通信契約、購読パスおよび通知エンベロープを利用する。通知のwire形式、Symbolプロトコル、Gatewayおよび通知スキーマのバージョンを独自に固定または自動判定しない。
 
-### 13.2 購読エラー
+候補の相互適合性、対象ネットワーク、ノードのプロトコル・バージョンおよびGateway通知契約の確認は、利用者とProviderの責任境界に属する。
 
-購読登録または購読復元が下位WebSocketで同期的に失敗した場合、登録済み部分を解除して元の例外を扱う。部分復元失敗は旧接続を維持するノード切り替え失敗として処理する。
+TypeScriptの通知型、チャネル名、アドレス付き購読パスおよび下位WebSocketエラー型は、@nemnesia/symbol-websocketの公開契約に依存する。型定義だけで実Gatewayのwire形式、対象ネットワークまたは対象バージョンへの適合性を保証しない。
 
-### 13.3 下位WebSocketエラー
+## 15. 適合試験
 
-JSON解析、接続、ネットワークおよびtimeoutのエラー分類は下位 `SymbolWebSocket` の契約に従う。EventStreamはエラーを再分類しない。
+実装は少なくとも次の要件適合試験を持つ。既存のモックテストだけでは、実Gatewayとのwire適合性を証明しない。
 
-### 13.4 Providerエラー
-
-Providerのreject、不正な戻り値および不正候補は、既存接続を維持し、候補を追加せず、EventStreamの `onError` へ転送しない。
-
-## 14. セキュリティと責任境界
-
-- EventStreamは秘密鍵、ニーモニック、パスワード、署名対象データを扱わない。
-- EventStreamは認証、署名検証、暗号化、通知の真正性検証を行わない。
-- `http` endpointでは平文WebSocket、`https` endpointではTLS WebSocketを下位WebSocketへ指定するが、証明書、CA、プロキシおよび信頼設定の詳細は本仕様の対象外である。
-- endpointのuserinfo、path、queryおよびfragmentは受け付けない。
-- NodeProviderが返す候補のチェーン・ネットワーク一致性と、候補が正しいGatewayであることの確認は利用者の責任である。
-- 通知の欠落、重複、遅延、偽装および内容の不正利用をEventStreamが補償または防止するとは限らない。
-
-## 15. 互換性
-
-- 実行環境の最低Node.jsバージョンは20である。
-- 公開依存は `@nemnesia/symbol-websocket: ^1.0.0` である。
-- 通知チャネル名、通知型および下位WebSocketのエラー契約は依存パッケージの公開契約に依存する。
-- Symbolプロトコル、Gatewayおよび通知スキーマの対象バージョンは未確認であり、パッケージSemVerから推定しない。
-
-## 16. 検証項目
-
-現行テストで確認されている主な動作は次のとおりである。これらは実装の検証範囲であり、外部Gatewayとの適合性を保証するものではない。
-
-- endpoint URL、接続数および数値オプションの入力検証
-- 初期接続数、標準ポート省略および `autoReconnect` 設定
-- 購読登録、複数callback、個別解除、全解除および部分登録ロールバック
-- 9チャネルの型付き購読とアドレス指定制約
-- `meta.hash`、`hash`、`uid` およびcosignature複合IDの重複排除
-- 購読キー単位、TTLおよびcache sizeによる重複排除
-- callback例外の隔離
-- 接続・切断・エラーcallbackと接続状態取得
-- fatalエラー、再接続回数閾値、terminal closeによるノード切り替え
-- 購読復元失敗時のロールバックと旧接続維持
-- blacklistのTTLクリーンアップ
-- NodeProviderの候補補充、single-flight、不正候補除外、Provider失敗およびclose競合
-- `close()` の冪等性とタイマー停止
-
-## 17. 未決定・要確認事項
-
-次の事項は、現行コードから一意に確定できないため、仕様本文の規範要件とはしない。
-
-| ID | 事項 | 影響 |
+| 試験対象 | 確認内容 | 要件 |
 | --- | --- | --- |
-| U-001 | Mainnet/Testnet、対象ネットワークの固定および複数ネットワーク候補の混在可否 | 利用者が渡す候補の適合条件が定まらない。 |
-| U-002 | Symbolプロトコル、Gateway、通知スキーマの対象バージョン | 通知型と実Gatewayの相互運用性を判定できない。 |
-| U-003 | 公開型から導出される通知データが、実Gatewayの全チャネル通知と一致するか | 実通知の配信または重複排除が想定どおりにならない可能性がある。 |
-| U-004 | チャネル別の通知IDの規範性と、ID抽出優先順位の妥当性 | 誤重複排除または重複排除漏れの可能性がある。 |
-| U-005 | EventStream独自の通知payload・topic実行時検証の要否 | 不正または型不一致の通知をどの層で拒否するか定まらない。 |
-| U-006 | NodeProvider候補のチェーン・ネットワーク一致性を確認する責任主体 | 異なるネットワークへの接続を防ぐ主体が定まらない。 |
-| U-007 | ノード切り替えの完了条件を、購読要求登録とするか、Gateway UID受信・OPEN確認まで待つか | 切り替え中の接続喪失リスクとcallback順序に影響する。 |
-| U-008 | 切り替え、購読復元およびProvider失敗を利用者へ別エラーとして通知するか | 運用側が復旧判断に利用できる情報が定まらない。 |
-| U-009 | blacklistのノード同一性をURL文字列単位またはscheme・host等の正規化単位で扱う範囲 | URL表記差が候補重複や再利用判定へ影響する。 |
-| U-010 | `close()` 後に `on()`、`off()`、callback登録APIを呼んだ場合の公開契約 | 終了後の利用者操作の扱いが定まらない。 |
-| U-011 | `getConnectedNodes()` の返却値をendpoint URLとする現在実装と、JSDoc上のhost/IP説明の不一致 | 利用者が返却値を識別子として利用する際の解釈が分かれる。 |
-| U-012 | 実Gatewayまたは公式fixtureを使ったチャネル別適合試験の対象ネットワーク・ノードバージョン | モックテストだけでは実wire形式との一致を保証できない。 |
+| 監視対象・複数接続 | 選択した対象の通知を一つの論理監視へ渡し、契約外の通知を追加しない。 | FR-001、FR-002、AC-001、AC-002 |
+| 初回受入れ | 状態差がある接続を初回受入れし、初回接続失敗は受入れない。 | FR-001、FR-004、AC-001、AC-004 |
+| 遅延判定 | 最大値との差が2では除外せず、3以上では除外する。通知なしだけでは除外せず、timeout切断は異常にする。 | FR-004、AC-004 |
+| 原因別除外 | 遅延、初回接続失敗、timeout切断を別原因として状態へ反映する。 | FR-005、FR-006、AC-005、AC-006、AC-012 |
+| 候補補充 | Provider候補を優先し、候補が残る間はブラックリスト接続を再利用しない。 | FR-005、AC-005 |
+| 候補枯渇時再利用 | 条件を満たす遅延接続だけを候補とし、そこからランダムに選ぶ。初回失敗・timeout対象は再利用しない。 | FR-005、AC-011、AC-012 |
+| 継続・停止 | 健全接続が残る間は継続し、全接続不健全時は停止・異常状態を観測できる。 | FR-005、FR-006、AC-013、AC-014 |
+| 重複抑制 | 接続交換、補充、再利用、再接続、再購読をまたぐ同一イベントを一度だけ通知し、別イベントを統合しない。 | FR-003、AC-003 |
+| 最終状態 | 異常対処後の接続状態、健全性、原因、監視状態を取得でき、途中経過を通常通知しない。 | FR-006、AC-006 |
+| 終了 | 接続、購読、再接続、Provider解決後の接続作成等が再開しない。 | FR-007、AC-007 |
+| 責任境界 | 署名・暗号化・秘密情報を扱わず、真正性・完全性・完全配信・欠落補償を保証しない。 | SEC-001、SEC-002、DR-001、AC-008〜AC-010 |
+| 候補前提 | ネットワーク選択・自動判定・候補相互適合性検証を行わない。 | AC-015〜AC-017 |
 
-## 18. 参照資料
+AC-009は秘密情報を要求・保存・処理しないこと、AC-016はProviderが提供するノード・Gatewayのプロトコル・通知契約に従い独自固定・自動判定しないことを、それぞれ13章・14章で確認する。AC-015はProvider候補のネットワークに従い、AC-017は候補の共通前提を利用者が確認することに対応する。
 
-### 18.1 対象パッケージ
+### 15.1 外部Gateway適合試験
 
-- `packages/symbol-event-stream/src/SymbolEventStream.ts`
-- `packages/symbol-event-stream/src/EventDeduplicator.ts`
-- `packages/symbol-event-stream/src/SubscriptionRegistry.ts`
-- `packages/symbol-event-stream/src/SymbolEventStreamTypes.ts`
-- `packages/symbol-event-stream/src/index.ts`
-- `packages/symbol-event-stream/README.md`
-- `packages/symbol-event-stream/CHANGELOG.md`
-- `packages/symbol-event-stream/package.json`
-- `packages/symbol-event-stream/test/SymbolEventStream.test.ts`
-- `packages/symbol-event-stream/test/SymbolEventStream.types.test.ts`
+対象ネットワーク、Symbolプロトコル、Gateway、通知スキーマのバージョンおよび公式fixtureは上流資料で確定していない。実Gateway試験を実施しても、対象版を明記しない限り外部適合性を保証する試験とは扱わない。
 
-### 18.2 依存パッケージの契約
+## 16. 未確認事項
 
-- `packages/symbol-websocket/src/SymbolWebSocket.ts`
-- `packages/symbol-websocket/src/symbol.types.ts`
-- `packages/symbol-websocket/src/symbolChannelPaths.ts`
-- `packages/symbol-websocket/src/symbolNotifications.types.ts`
+次は本仕様の規範要件ではなく、外部契約または実装移行時に確認する事項である。
+
+- Providerが提供する対象ネットワーク、NodeWatch情報、Gateway版および通知契約
+- ブロック進行値の実wireフィールドと対象Gateway版での型
+- 公開パッケージの利用契約を維持したままMonitoringStatusと原因付き接続状態を追加する型互換性
+- 通知ID抽出方式が対象Providerの全通知チャネルで妥当であること
+- NodeProviderの失敗をどの公開状態または下位エラー通知へ反映するか
+- close後にon、off、callback登録操作を呼んだ場合の戻り値・例外
+- 実Gatewayおよび公式fixtureを用いたチャネル別wire適合性
+
+上記を埋めるために、要件にないネットワーク自動判定、通知履歴、再送、リトライ間隔、レート制限、監査または将来拡張を追加してはならない。
+
+## 17. 参照資料
+
+### 17.1 上流資料
+
+- packages/symbol-event-stream/docs/consept/concept-sheet.md
+- packages/symbol-event-stream/docs/requirements/requirements.md
+- packages/symbol-event-stream/docs/reviews/concept/concept-sheet-review-005.md
+- packages/symbol-event-stream/docs/reviews/requirements/requirements-review-002.md
+- AGENTS.md
+
+### 17.2 補助資料
+
+- packages/symbol-event-stream/README.md
+- packages/symbol-event-stream/package.json
+- packages/symbol-event-stream/src/SymbolEventStream.ts
+- packages/symbol-event-stream/src/SymbolEventStreamTypes.ts
+- packages/symbol-event-stream/src/EventDeduplicator.ts
+- packages/symbol-event-stream/src/SubscriptionRegistry.ts
+- packages/symbol-event-stream/test/SymbolEventStream.test.ts
+- packages/symbol-event-stream/test/SymbolEventStream.types.test.ts
+- packages/symbol-event-stream/docs/reviews/implementation/implement-spec-feedback.md
+- packages/symbol-websocket/src/symbolChannelPaths.ts
+- packages/symbol-websocket/src/symbolNotifications.types.ts
