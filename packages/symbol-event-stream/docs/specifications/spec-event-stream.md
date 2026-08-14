@@ -164,7 +164,7 @@ interface SymbolEventStreamOptions {
 
 `nodewatchUrls`は既存の公開プロパティ名を維持するが、その値はNodeWatchサービスのURLではなく、NodeWatch等のProviderが返したGateway接続候補endpointの配列として扱う。1件以上の候補endpointを指定し、`connections`は1以上の安全な整数とする。候補数がconnections未満でも、Event Streamは不足分を不健全な接続で補ってはならない。候補数、接続数およびProvider候補の適合性は利用者の責任境界に属する。
 
-既存実装にあるmaxCacheSize、cacheTtl、maxReconnectBeforeSwitching、blacklistTtl等のオプションは、要件から定まる規範入力ではない。これらを採用する場合も、10.3の重複抑制範囲、8章の遅延判定および9章の原因別再利用条件を弱めてはならない。
+READMEに記載されるmaxCacheSize、cacheTtl、maxReconnectBeforeSwitching、blacklistTtl等のオプションは、要件から定まる規範入力ではない。これらを採用する場合も、10.3の重複抑制範囲、8章の遅延判定および9章の原因別再利用条件を弱めてはならない。
 
 ### 6.4 候補供給
 
@@ -242,6 +242,8 @@ Gateway接続契約上成立した接続は、他接続とのブロック進行�
 
 Event Streamは、監視に利用する接続ごとに、Gatewayから届いた最新のblock通知のブロック進行を保持する。利用者のblock購読とは独立して、遅延判定に必要な内部観測を行う。
 
+依存するsymbol-websocket公開契約では、block通知のブロック進行は通知エンベロープの`data.block.height`で提供され、UInt64String（整数を表す文字列）として扱う。NodeWatch snapshotの`height`、`finalizedHeight`または`finalizedBlock`通知の高さを、成立済み接続の遅延判定値へ代用してはならない。
+
 ブロック進行を持たない接続は、その事実だけで遅延と判定しない。比較可能な最新値が得られた接続についてだけ比較する。
 
 ### 8.3 遅延判定
@@ -302,14 +304,17 @@ Provider候補が枯渇した場合に限り、次のすべてを満たすblock-
 
 ### 10.2 同一イベント識別
 
-現行のProvider依存契約に対応するリポジトリ固有設計として、通知IDは次の優先順で抽出する。これはSymbolプロトコル全体の規範ではない。
+現行のsymbol-websocket公開契約に対応するリポジトリ固有設計として、通知IDはチャネルごとに次の値から抽出する。これはSymbolプロトコル全体の規範ではない。
 
 | 通知 | 識別値 |
 | --- | --- |
-| cosignature | parentHash、signerPublicKey、signatureの3値を順序どおりに組み合わせた値。3値が揃わない場合は共通規則へ進む。 |
-| その他 | data.meta.hash、data.hash、data.uidの順で、文字列値が存在する最初の値。 |
+| block | data.meta.hash |
+| finalizedBlock | data.hash |
+| confirmedAdded、unconfirmedAdded、unconfirmedRemoved、partialAdded、partialRemoved | data.meta.hash |
+| cosignature | data.parentHash、data.signerPublicKey、data.signatureの3値を順序どおりに組み合わせた値 |
+| status | data.hash |
 
-dataを持つ通知はdataを対象にし、持たない通知は通知オブジェクト自体を対象にする。文字列IDがない通知は同一性を判定できないため、受信ごとに渡す。
+上表の識別値が欠落または文字列でない通知は同一性を判定できないため、受信ごとに渡す。現行の9チャネル公開契約にない通知へ、`data.uid`などの汎用IDを推測して適用してはならない。
 
 重複抑制キーは、監視インスタンス、購読チャネル、アドレス指定がある場合のアドレス、および通知IDから構成する。異なるチャネルまたはアドレス購読を監視対象が同じという理由だけで統合してはならない。
 
@@ -335,7 +340,7 @@ dataを持つ通知はdataを対象にし、持たない通知は通知オブジ
 
 下位WebSocketの接続・timeout・parse・networkその他のエラーを、onError等の既存公開契約へ渡してよい。ただし、下位エラーの転送だけではFR-006を満たさない。最終状態は11.1の状態取得契約で確認できなければならない。
 
-Providerのreject、不正候補または候補枯渇は、健全な接続が残る場合に監視を継続する。これらをSymbol通知として扱ってはならない。Providerエラーの詳細なcallback分類は上流根拠がないため、本仕様で固定しない。
+Providerのreject、空配列、不正候補のみの結果または候補枯渇は、候補補充不可として扱う。健全な接続が残る場合はその接続で監視を継続し、監視状態はdegradedとする。健全な接続が残らない場合はstoppedへ遷移する。これらをSymbol通知として扱ってはならず、Provider固有のエラー分類や再試行間隔は本仕様で固定しない。
 
 ## 12. 終了とライフサイクル
 
@@ -354,7 +359,18 @@ Providerのreject、不正候補または候補枯渇は、健全な接続が残
 
 ### 12.2 終了後の操作
 
-終了後に監視対象の追加・解除、接続交換またはProvider候補補充を行っても、監視を再開してはならない。終了状態の取得操作は、終了済みであることと最終状態を返せるものとする。終了操作の冪等性、終了後操作の戻り値または例外は、既存公開契約と互換性を保つ範囲で定義する。
+終了後に監視対象の追加・解除、接続交換またはProvider候補補充を行っても、監視を再開してはならない。終了状態の取得操作は、終了済みであることと最終状態を返せるものとする。
+
+終了後の公開操作は次のとおりとする。
+
+| 操作 | 終了後の動作 |
+| --- | --- |
+| on、onError、onConnect、onDisconnect | 新しい購読・callback・接続を有効化しない。既存の解除関数型を維持し、返す解除関数は何もしない。 |
+| off | 監視を再開せず、何もしない。 |
+| 状態取得 | `closed`を含む最終状態を返す。 |
+| close | 冪等に終了状態を維持する。 |
+
+不正な引数の検証は終了状態とは別に、各公開操作の入力契約に従う。終了後の操作によってProvider、Gateway接続、購読またはcallback処理を再開してはならない。
 
 ## 13. セキュリティと信頼境界
 
@@ -373,7 +389,30 @@ Event Streamは、Providerが指定するGateway通信契約、購読パスお�
 
 NodeWatch情報およびそこから得られたendpointは、Providerが提供する未接続のGateway接続候補として扱う。候補であることは、接続成立、健全性、対象ネットワークまたはGateway適合性を意味しない。初回受入れおよび遅延判定の対象は、候補ではなくGateway接続が成立した成立済み接続とする。
 
-Gatewayプロトコルの対象バージョンおよび通知契約の詳細は、確認済み資料からは確定していない。Event Streamはこれらを独自に固定、選択、推定または自動判定せず、Providerが提供する候補の接続先Gateway契約に従う。
+### 14.1 Provider・NodeWatch契約
+
+`@nemnesia/symbol-nem-node-picker`は、Symbolについて`network: 'mainnet' | 'testnet'`を選択して候補endpointを取得する公開契約を持つ。現在のパッケージ説明に記載されるNodeWatch URLリストは次のとおりである。
+
+| ネットワーク | NodeWatch URL |
+| --- | --- |
+| mainnet | `https://sse.nemnesia.com`、`https://sse2.nemnesia.com` |
+| testnet | `https://testnet.sse.nemnesia.com`、`https://testnet.sse2.nemnesia.com` |
+
+`@nemnesia/nodewatch-openapi-provider`はネットワーク引数を持たず、利用者がネットワーク別のbase URLリストを渡す。パッケージ説明の使用例には`https://nodewatch.symbol.tools`および`https://nodewatch.symbol.tools/testnet`も示されている。これらはProviderへ渡す候補URLの例または現在のパッケージ設定であり、Event Streamが単一のCanonical URLまたは稼働状況を保証するものではない。
+
+ProviderのSymbol snapshotは、同じURL組から得た`heightInfo`と`nodes`を持つ。`heightInfo`は`height`と`finalizedHeight`を、Nodeは少なくとも`endpoint`、`height`、`finalizedHeight`を持ち、Nodeには`isHealthy`、`isSslEnabled`、`version`等の情報が含まれる。snapshotにネットワーク識別子は含まれず、これらの値からEvent Streamがネットワークを推定してはならない。
+
+Providerはbase URLを1件以上受け付け、要求失敗または不適合なsnapshot応答時に次のURLへ切り替える。空endpoint、空白endpointおよび不適合なendpointは候補として扱わない。AbortSignalによるキャンセルはfailoverせず、キャンセル結果を維持する。全URLが失敗した場合のEvent Stream上の結果は、候補補充不可として9章および11章へ写像する。
+
+### 14.2 Symbol WebSocket公開契約
+
+現行依存`@nemnesia/symbol-websocket` v1.0.0の公開契約では、接続先hostを`ssl`に応じて`wss://{host}:3001/ws`または`ws://{host}:3000/ws`へ変換する。接続後に文字列のGateway UIDを受信し、UID付きの購読・解除要求を送信する。受信通知は`topic`と`data`を持つエンベロープとしてcallbackへ渡す。
+
+チャネルはblock、finalizedBlock、confirmedAdded、unconfirmedAdded、unconfirmedRemoved、partialAdded、partialRemoved、cosignatureおよびstatusの9種類である。blockとfinalizedBlockはアドレス指定せず、その他の7種類はアドレス指定を受け付ける。アドレス付き購読のtopicは`channel/{address}`形式として扱う。チャネル別の通知フィールドと同一イベント識別値は10.2、ブロック進行値は8.2で定める。
+
+下位エラーの公開分類は`connection`、`timeout`、`parse`、`network`、`unknown`であり、重大度は`fatal`または`recoverable`である。自動再接続時は既存購読を復元し、下位ライブラリのclose後は新しいインスタンスで再開する。Event Streamはこの公開契約を利用するが、パッケージ版をGatewayサーバー版と同一視してはならない。
+
+Gatewayサーバーの実稼働版、版ごとのwire差異、購読拒否やclose code等の外部動作は、確認済みパッケージ契約だけでは確定しない。Event Streamはこれらを独自に固定、選択、推定または自動判定せず、対象版を明記した外部適合試験で確認する。
 
 TypeScriptの通知型、チャネル名、アドレス付き購読パスおよび下位WebSocketエラー型は、@nemnesia/symbol-websocketの公開契約に依存する。型定義だけで実Gatewayのwire形式、対象ネットワークまたは対象バージョンへの適合性を保証しない。
 
@@ -390,9 +429,12 @@ TypeScriptの通知型、チャネル名、アドレス付き購読パスおよ�
 | 候補補充 | Provider候補を優先し、候補が残る間はブラックリスト接続を再利用しない。 | FR-005、AC-005 |
 | 候補枯渇時再利用 | 条件を満たす遅延接続だけを候補とし、そこからランダムに選ぶ。初回失敗・timeout対象は再利用しない。 | FR-005、AC-011、AC-012 |
 | 継続・停止 | 健全接続が残る間は継続し、全接続不健全時は停止・異常状態を観測できる。 | FR-005、FR-006、AC-013、AC-014 |
+| Provider結果 | reject、空配列、不正候補のみを候補補充不可として扱い、健全接続があればdegradedで継続し、なければstoppedへ遷移する。 | FR-005、FR-006、AC-005、AC-013、AC-014 |
 | 重複抑制 | 接続交換、補充、再利用、再接続、再購読をまたぐ同一イベントを一度だけ通知し、別イベントを統合しない。 | FR-003、AC-003 |
+| 通知フィールド | 9チャネルのエンベロープ、チャネル別IDおよびblock進行フィールドを依存公開契約と一致させる。 | FR-001、FR-003、FR-004、AC-001、AC-003、AC-004 |
 | 最終状態 | 異常対処後の接続状態、健全性、原因、監視状態を取得でき、途中経過を通常通知しない。 | FR-006、AC-006 |
 | 終了 | 接続、購読、再接続、Provider解決後の接続作成等が再開しない。 | FR-007、AC-007 |
+| 終了後操作 | 購読・callback・接続を再開せず、状態取得はclosedを返し、closeは冪等に処理する。 | FR-007、AC-007 |
 | 責任境界 | 署名・暗号化・秘密情報を扱わず、真正性・完全性・完全配信・欠落補償を保証しない。 | SEC-001、SEC-002、DR-001、AC-008〜AC-010 |
 | 候補前提 | ネットワーク選択・自動判定・候補相互適合性検証を行わない。 | AC-015〜AC-017 |
 
@@ -406,17 +448,12 @@ AC-009は秘密情報を要求・保存・処理しないこと、AC-016はProvi
 
 次は本仕様の規範要件ではなく、外部契約または実装移行時に確認する事項である。
 
-- Providerの対象ネットワークを束縛する条件と、具体的な採用ネットワーク
-- NodeWatchのCanonical URL、サービス版、情報項目および情報の意味
-- 接続先Gatewayのプロトコル対象バージョン、通知wire形式および通知スキーマ版
-- ブロック進行値の実wireフィールドと対象Gateway版での型
-- 公開パッケージの利用契約を維持したままMonitoringStatusと原因付き接続状態を追加する型互換性
-- 通知ID抽出方式が対象Providerの全通知チャネルで妥当であること
-- NodeProviderの失敗をどの公開状態または下位エラー通知へ反映するか
-- close後にon、off、callback登録操作を呼んだ場合の戻り値・例外
-- 実Gatewayおよび公式fixtureを用いたチャネル別wire適合性
+- NodeWatchの実稼働上のCanonical URL、各URLの現在のネットワーク対応、サービス版および可用性。パッケージに記載されたURLリストとProvider使用例は14.1で確認済みだが、単一の正規URLや稼働保証は確定していない。
+- 実際に接続するGatewayサーバーのプロトコル・通知スキーマ版、版ごとのwire差異、購読拒否、エラー応答およびclose code。14.2の依存公開契約とは区別する。
+- `MonitoringStatus`、原因付き`NodeConnectionStatus`および`getMonitoringStatus()`を既存公開APIへ追加する際の、公開型・型検査・将来依存版との互換性。
+- 実Gatewayおよび公式fixtureを用いた、対象ネットワーク、Gateway版、9チャネル、アドレス付き購読および複数接続重複抑制のwire適合性。
 
-上記を埋めるために、要件にないネットワーク自動判定、通知履歴、再送、リトライ間隔、レート制限、監査または将来拡張を追加してはならない。
+上記を埋めるために、要件にないネットワーク自動判定、通知履歴、再送、リトライ間隔、レート制限、監査または将来拡張を追加してはならない。Providerのネットワーク選択、NodeWatch snapshotの公開項目、Provider failover、Gateway接続・購読・通知エンベロープ、チャネル別IDおよびブロック進行値は、本仕様の14章で確認済みの公開契約として扱う。
 
 ## 17. 参照資料
 
