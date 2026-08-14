@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: 仕様書を複数の観点でレビューし、実装へ安全に進める品質かを判定する。仕様書レビュー、実装前確認、設計の矛盾・欠落・安全性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象パッケージの docs/reviews/specifications 配下に、仕様書のベース名へ -review.md を付加したファイルとして生成する。
+description: 仕様書を複数の観点でレビューし、実装へ安全に進める品質かを判定する。仕様書レビュー、実装前確認、設計の矛盾・欠落・安全性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象パッケージの docs/reviews/specifications 配下に、仕様書のベース名へ -review-001.md 形式の連番を付加したファイルとして生成する。
 ---
 
 # Specification Review Board
@@ -14,9 +14,10 @@ description: 仕様書を複数の観点でレビューし、実装へ安全に�
 - 仕様書が明示されない場合は、対象パッケージの `docs/specifications/` で `specification.md`、`spec.md`、ファイル名に `spec` または `specification` を含む Markdown ファイルの順で候補を探す。レビュー結果、要件定義書、コンセプトシート、設計資料、実装コードは除外する。
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
 - 仕様書を選択した後、対象パッケージの `docs/consept/` と `docs/requirements/` でコンセプトシートと要件定義書の候補を探索する。コンセプトシートは `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown の順、要件定義書は `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown の順とする。`reviews/` ディレクトリ、`*-review-*.md`、仕様書、実装コードは候補から除外する。
-- 上流候補が複数ある場合は自動選択せず、候補のパスを示して対象を確認して終了する。候補が1件の場合は本文と、コンセプトレビューは対象パッケージの `docs/reviews/concept/` にある対象ベース名のレビュー番号最大のファイル1件、要件レビューは `docs/reviews/requirements/<ベース名>-review.md` を確認する。候補がない場合は Evidence Used に「未確認」と記録し、レビューを続行する。
+- 上流候補が複数ある場合は自動選択せず、候補のパスを示して対象を確認して終了する。候補が1件の場合は本文と、コンセプトレビューは対象パッケージの `docs/reviews/concept/` にある対象ベース名のレビュー番号最大のファイル1件、要件レビューは対象パッケージの `docs/reviews/requirements/` にある対象ベース名のレビュー番号最大のファイル1件を確認する。連番要件レビューがない場合に限り、旧形式の固定名レビューを確認する。候補がない場合は Evidence Used に「未確認」と記録し、レビューを続行する。
 - 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/docs/reviews/implementation/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `docs/` を含み、`package.json` と `src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
-- 選択した仕様書の拡張子を除いたベース名に `-review.md` を付加し、対象パッケージの `docs/reviews/specifications/` に成果物を作成する。たとえば対象パッケージの `docs/specifications/specification.md` の成果物は `docs/reviews/specifications/specification-review.md` とする。`docs/reviews/specifications/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
+- 選択した仕様書の拡張子を除いたベース名に `-review-001.md` 形式の3桁連番を付加し、対象パッケージの `docs/reviews/specifications/` に新規成果物を作成する。たとえば対象パッケージの `docs/specifications/specification.md` の初回成果物は `docs/reviews/specifications/specification-review-001.md` とする。対象仕様書に対応する連番ファイルが既にある場合は最大番号の次を使用し、候補ファイルが存在する場合は空き番号まで進める。既存の固定名 `-review.md`、`-review-findings.md` および既存の連番成果物は移動・削除・上書きしない。`docs/reviews/specifications/` が存在しない場合は作成する。
+- 連番は対象仕様書のベース名ごとに管理する。対象仕様書の過去レビュー成果物（固定名の旧形式を含む）から正式な `SR-<番号>` を抽出し、新規指摘には最大番号の次を割り当てる。同一問題であることを確認できる既存指摘は同じIDを引き継ぎ、新規指摘へ過去IDを再利用しない。各正式指摘には `New`、`Open`、`Resolved`、`Deferred`、`Reopened` のいずれかの状態を付ける。`Required Changes` と `Optional Improvements` には現在対応が必要な指摘を、`Resolved Findings` には対応済み指摘と確認根拠を、必要に応じて `Deferred Findings` には後工程へ引き継いだ指摘を整理する。
 
 ## 実行主体と実行順序
 

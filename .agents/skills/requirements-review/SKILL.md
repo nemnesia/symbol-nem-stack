@@ -1,6 +1,6 @@
 ---
 name: requirements-review
-description: 要件定義書を複数の観点でレビューし、仕様設計へ安全に進める品質かを判定する。要件定義レビュー、仕様化前確認、要件の矛盾・欠落・検証可能性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象パッケージの docs/reviews/requirements 配下に、要件定義書のベース名へ -review.md を付加したファイルとして生成する。
+description: 要件定義書を複数の観点でレビューし、仕様設計へ安全に進める品質かを判定する。要件定義レビュー、仕様化前確認、要件の矛盾・欠落・検証可能性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象パッケージの docs/reviews/requirements 配下に、要件定義書のベース名へ -review-001.md 形式の連番を付加したファイルとして生成する。
 ---
 
 # Requirements Review Board
@@ -11,10 +11,11 @@ description: 要件定義書を複数の観点でレビューし、仕様設計�
 
 - レビュー対象は、ユーザーが明示した要件定義書1件とする。
 - 対象パッケージは、ユーザーが指定したパッケージ、または対象要件定義書が属するパッケージのルートとする。対象パッケージを特定できない場合は、推測で選ばず対象を確認して終了する。
-- 要件定義書が明示されない場合は、対象パッケージの `docs/requirements/` で `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown ファイルの順で候補を探す。`reviews/` ディレクトリ、`*-review.md`、`*-review-findings.md`、コンセプトシート、仕様書、設計資料、実装コードは除外する。
+- 要件定義書が明示されない場合は、対象パッケージの `docs/requirements/` で `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown ファイルの順で候補を探す。`reviews/` ディレクトリ、`*-review-*.md`、`*-review-findings.md`、コンセプトシート、仕様書、設計資料、実装コードは除外する。
 - 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
 - 要件定義書を選択した後、対象パッケージの `docs/consept/` で `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown ファイルの順にコンセプトシート候補を探索する。`reviews/` ディレクトリと `*-review-*.md` は候補から除外する。候補が1件ならレビューの根拠として確認し、対応するコンセプトレビュー結果が対象パッケージの `docs/reviews/concept/` にある場合は、対象ベース名のレビュー番号最大のファイル1件だけを確認する。候補が複数なら自動選択せず、候補のパスを示してユーザーに対象の指定を求めて終了する。候補がない場合は、Evidence Used に「コンセプト本文: 未確認」「コンセプトレビュー結果: 未確認」と記録してレビューを続行する。
-- 選択した要件定義書の拡張子を除いたベース名に `-review.md` を付加し、対象パッケージの `docs/reviews/requirements/` に成果物を作成する。たとえば対象パッケージの `docs/requirements/requirements.md` の成果物は `docs/reviews/requirements/requirements-review.md` とする。`docs/reviews/requirements/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
+- 選択した要件定義書の拡張子を除いたベース名に `-review-001.md` 形式の3桁連番を付加し、対象パッケージの `docs/reviews/requirements/` に新規成果物を作成する。たとえば対象パッケージの `docs/requirements/requirements.md` の初回成果物は `docs/reviews/requirements/requirements-review-001.md` とする。対象要件定義書に対応する連番ファイルが既にある場合は最大番号の次を使用し、候補ファイルが存在する場合は空き番号まで進める。既存の固定名 `-review.md`、`-review-findings.md` および既存の連番成果物は移動・削除・上書きしない。`docs/reviews/requirements/` が存在しない場合は作成する。
+- 連番は対象要件定義書のベース名ごとに管理する。対象要件定義書の過去レビュー成果物（固定名の旧形式を含む）から正式な `RR-<番号>` を抽出し、新規指摘には最大番号の次を割り当てる。同一問題であることを確認できる既存指摘は同じIDを引き継ぎ、新規指摘へ過去IDを再利用しない。各正式指摘には `New`、`Open`、`Resolved`、`Deferred`、`Reopened` のいずれかの状態を付ける。`Required Changes` と `Optional Improvements` には現在対応が必要な指摘を、`Resolved Findings` には対応済み指摘と確認根拠を、必要に応じて `Deferred Findings` には後工程へ引き継いだ指摘を整理する。
 
 ## 実行主体と実行順序
 
