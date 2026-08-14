@@ -162,7 +162,7 @@ interface SymbolEventStreamOptions {
 }
 ```
 
-nodewatchUrlsは1件以上の候補endpoint、connectionsは1以上の安全な整数とする。候補数がconnections未満でも、Event Streamは不足分を不健全な接続で補ってはならない。候補数、接続数およびProvider候補の適合性は利用者の責任境界に属する。
+`nodewatchUrls`は既存の公開プロパティ名を維持するが、その値はNodeWatchサービスのURLではなく、NodeWatch等のProviderが返したGateway接続候補endpointの配列として扱う。1件以上の候補endpointを指定し、`connections`は1以上の安全な整数とする。候補数がconnections未満でも、Event Streamは不足分を不健全な接続で補ってはならない。候補数、接続数およびProvider候補の適合性は利用者の責任境界に属する。
 
 既存実装にあるmaxCacheSize、cacheTtl、maxReconnectBeforeSwitching、blacklistTtl等のオプションは、要件から定まる規範入力ではない。これらを採用する場合も、10.3の重複抑制範囲、8章の遅延判定および9章の原因別再利用条件を弱めてはならない。
 
@@ -175,6 +175,8 @@ type NodeProvider = () => Promise<string[]>;
 ```
 
 NodeProviderはProvider実装そのものではなく、利用者が候補取得条件を束縛したcallbackである。NodeWatch情報、対象ネットワーク、候補の信頼性およびGateway適合性をEvent Streamが検証する契約ではない。
+
+Providerの対象ネットワークは、Providerの生成時または利用者側の束縛条件で決定する。Node Picker等を利用する場合のSymbolの`mainnet`または`testnet`の選択は利用者側で明示する。Event Streamはネットワークを選択、切替、推定または自動判定しない。
 
 ### 6.5 候補endpoint
 
@@ -367,7 +369,11 @@ Providerのreject、不正候補または候補枯渇は、健全な接続が残
 
 Event Streamは、Providerが指定するGateway通信契約、購読パスおよび通知エンベロープを利用する。通知のwire形式、Symbolプロトコル、Gatewayおよび通知スキーマのバージョンを独自に固定または自動判定しない。
 
-候補の相互適合性、対象ネットワーク、ノードのプロトコル・バージョンおよびGateway通知契約の確認は、利用者とProviderの責任境界に属する。
+対象ネットワークの選択・切替・自動判定はEvent Streamの責任範囲外とする。利用者はProviderまたは候補供給者の提供条件に基づいて候補を準備・管理し、同一監視へ渡す候補が同じSymbolネットワーク、互換性のあるGateway通信・通知契約および同じ監視対象を共有することを確認する。Event Streamは候補からネットワークを推定せず、不一致を自動検出または保証しない。
+
+NodeWatch情報およびそこから得られたendpointは、Providerが提供する未接続のGateway接続候補として扱う。候補であることは、接続成立、健全性、対象ネットワークまたはGateway適合性を意味しない。初回受入れおよび遅延判定の対象は、候補ではなくGateway接続が成立した成立済み接続とする。
+
+Gatewayプロトコルの対象バージョンおよび通知契約の詳細は、確認済み資料からは確定していない。Event Streamはこれらを独自に固定、選択、推定または自動判定せず、Providerが提供する候補の接続先Gateway契約に従う。
 
 TypeScriptの通知型、チャネル名、アドレス付き購読パスおよび下位WebSocketエラー型は、@nemnesia/symbol-websocketの公開契約に依存する。型定義だけで実Gatewayのwire形式、対象ネットワークまたは対象バージョンへの適合性を保証しない。
 
@@ -400,7 +406,9 @@ AC-009は秘密情報を要求・保存・処理しないこと、AC-016はProvi
 
 次は本仕様の規範要件ではなく、外部契約または実装移行時に確認する事項である。
 
-- Providerが提供する対象ネットワーク、NodeWatch情報、Gateway版および通知契約
+- Providerの対象ネットワークを束縛する条件と、具体的な採用ネットワーク
+- NodeWatchのCanonical URL、サービス版、情報項目および情報の意味
+- 接続先Gatewayのプロトコル対象バージョン、通知wire形式および通知スキーマ版
 - ブロック進行値の実wireフィールドと対象Gateway版での型
 - 公開パッケージの利用契約を維持したままMonitoringStatusと原因付き接続状態を追加する型互換性
 - 通知ID抽出方式が対象Providerの全通知チャネルで妥当であること
@@ -424,12 +432,9 @@ AC-009は秘密情報を要求・保存・処理しないこと、AC-016はProvi
 
 - packages/symbol-event-stream/README.md
 - packages/symbol-event-stream/package.json
-- packages/symbol-event-stream/src/SymbolEventStream.ts
-- packages/symbol-event-stream/src/SymbolEventStreamTypes.ts
-- packages/symbol-event-stream/src/EventDeduplicator.ts
-- packages/symbol-event-stream/src/SubscriptionRegistry.ts
-- packages/symbol-event-stream/test/SymbolEventStream.test.ts
-- packages/symbol-event-stream/test/SymbolEventStream.types.test.ts
-- packages/symbol-event-stream/docs/reviews/implementation/implement-spec-feedback.md
-- packages/symbol-websocket/src/symbolChannelPaths.ts
-- packages/symbol-websocket/src/symbolNotifications.types.ts
+- packages/symbol-nem-node-picker/README.md
+- packages/symbol-nem-node-picker/package.json
+- packages/nodewatch-openapi-provider/README.md
+- packages/nodewatch-openapi-provider/package.json
+- packages/symbol-websocket/README.md
+- packages/symbol-websocket/package.json
