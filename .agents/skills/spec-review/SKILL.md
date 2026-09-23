@@ -1,53 +1,86 @@
 ---
 name: spec-review
-description: 仕様書を複数の観点でレビューし、実装へ安全に進める品質かを判定する。仕様書レビュー、実装前確認、設計の矛盾・欠落・安全性の確認を依頼された場合に使用し、採用した指摘と品質ゲートの結果を対象パッケージの docs/reviews/specifications 配下に、仕様書のベース名へ -review.md を付加したファイルとして生成する。
+description: symbol-nem-wallet-core の仕様書を、要求適合、API・データ契約、validation、error、状態、security、相互運用性、検証可能性の観点でレビューし、実装へ進める品質を判定する。
 ---
 
 # Specification Review Board
 
-仕様書を設計・実装・書き直すのではなく、実装を開始できる品質かを判定する。完璧さや Minor の解消を目的にレビューを継続してはならない。
+仕様書を設計・実装・書き直すのではなく、実装者が推測せずに安全に実装・検証できる品質かを判定する。作業開始時に次の順で全文を読む。
 
-## 対象と成果物
+1. `AGENTS.md`
+2. `../review-common/review-playbook.md`
+3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
+4. reviewers.md
+5. security-checklist.md
+6. review-gates.md
+7. output-format.md
 
-- レビュー対象は、ユーザーが明示した仕様書1件とする。
-- 対象パッケージは、ユーザーが指定したパッケージ、または対象仕様書が属するパッケージのルートとする。対象パッケージを特定できない場合は、推測で選ばず対象を確認して終了する。
-- 仕様書が明示されない場合は、対象パッケージの `docs/specifications/` で `specification.md`、`spec.md`、ファイル名に `spec` または `specification` を含む Markdown ファイルの順で候補を探す。レビュー結果、要件定義書、コンセプトシート、設計資料、実装コードは除外する。
-- 候補が0件または複数件なら、推測で選ばず対象を確認して終了する。
-- 仕様書を選択した後、対象パッケージの `docs/consept/` と `docs/requirements/` でコンセプトシートと要件定義書の候補を探索する。コンセプトシートは `concept-sheet.md`、`concept.md`、ファイル名に `concept` を含む Markdown の順、要件定義書は `requirements.md`、`requirement.md`、ファイル名に `requirements` または `requirement` を含む Markdown の順とする。`reviews/` ディレクトリ、`*-review-*.md`、仕様書、実装コードは候補から除外する。
-- 上流候補が複数ある場合は自動選択せず、候補のパスを示して対象を確認して終了する。候補が1件の場合は本文と、コンセプトレビューは対象パッケージの `docs/reviews/concept/` にある対象ベース名のレビュー番号最大のファイル1件、要件レビューは `docs/reviews/requirements/<ベース名>-review.md` を確認する。候補がない場合は Evidence Used に「未確認」と記録し、レビューを続行する。
-- 実装者からの仕様フィードバックはレビュー対象ではなく補助資料として扱う。ユーザーまたは呼び出し元がパスを指定した場合はそのパスを優先し、指定がない場合は対象仕様に対応する実装ソースのプロジェクトルートを `<source-root>` と特定し、`<source-root>/docs/reviews/implementation/implement-spec-feedback.md` が存在するか確認する。通常、`<source-root>` は仕様書の `docs/` を含み、`package.json` と `src/` または実装対象を含む階層とする。対象が複数のソースルートにまたがる場合はパスを推測せず、Evidence Used に「未確認」と記録してレビューを続行する。
-- 選択した仕様書の拡張子を除いたベース名に `-review.md` を付加し、対象パッケージの `docs/reviews/specifications/` に成果物を作成する。たとえば対象パッケージの `docs/specifications/specification.md` の成果物は `docs/reviews/specifications/specification-review.md` とする。`docs/reviews/specifications/` が存在しない場合は作成し、レビューごとに対応する成果物を上書きする。レビュイーへ公開するレビュー成果物はこのファイルだけとする。
+## 対象と上流資料
 
-## 実行主体と実行順序
+- ユーザーが明示した仕様書1件を優先する。
+- 未指定なら `docs/specifications/` の候補から `specification.md`、`spec.md`、ファイル名に `spec` または `specification` を含む Markdown の順で探す。
+- reviews、コンセプト、要件、設計資料、実装コードは候補から除外する。
+- 候補が0件または複数件なら推測で選ばず、対象確認で終了する。
+- 対応するコンセプト、要件定義、`docs/design/` の設計が一意にある場合は本文を確認し、対応する最新レビューがあれば公開された判定と状態だけを確認する。適用可能な既存 Specification がある場合は対象との整合確認に限って確認する。候補が複数なら自動選択しない。
+- 実装者からの仕様フィードバックが対象ルートの docs/reviews/implementation/implement-spec-feedback.md にある場合、またはユーザーが明示した場合だけ補助資料として確認する。
 
-1. `reviewers.md` を読む。
-2. `review-process.md` を読む。
-3. `review-gates.md` を読む。
-4. `output-format.md` を読む。
-5. トップレベルのメインエージェントが Review Board Chair として、Reviewer A、B、C をそれぞれ独立したサブエージェントとして起動する。
-6. 起動監査に合格した場合だけ、定められた Phase 1 から Phase 3 を実施し、Chair が成果物を生成する。
+成果物は `docs/reviews/specifications/<ベース名>-review-NNN.md` に新規作成する。既存ファイルを移動、削除、上書きしない。
 
-## 監査可能な起動要件
+## 根拠の範囲
 
-- Reviewer A、B、C は、トップレベルのメインエージェントが `multi_agent_v1__spawn_agent` を3回の別々の呼び出しで実行して起動する。各呼び出しは `fork_context: false` とし、役割ごとに独立した初期コンテキストを渡す。
-- このスキルを実行するトップレベルのメインエージェント自身が起動オーケストレーターであり、サブエージェントにスキル全体の再委譲をさせない。サブエージェントは担当レビューのメモだけを返し、ファイルを編集しない。
-- 各呼び出しから返された `agent_id` を役割に対応付け、Phase 1 の開始前に3件すべてが存在し、相互に異なることを確認する。1件でも欠落、重複、起動未確認があれば直ちに中止し、レビュー成果物を生成しない。
-- Phase 1 は各 `agent_id` に対して `multi_agent_v1__wait_agent` で完了を個別に確認する。失敗、タイムアウト、未完了、またはメモ未返却が1件でもあれば Phase 2 以降へ進まず、成果物を生成しない。
-- Phase 2 は Phase 1 の全メモを、起動時と同じ3つの `agent_id` へ `multi_agent_v1__send_input` で個別に送信する。返された `submission_id` を保存し、各送信に対応する `multi_agent_v1__wait_agent` の完了を確認する。別エージェントへの差し替えや単一エージェントへの代替をしない。
-- `multi_agent_v1__spawn_agent`、`multi_agent_v1__send_input`、`multi_agent_v1__wait_agent` が利用できない場合に、メインエージェントの自己レビューへフォールバックしない。起動・完了を監査できないため、中止してその理由だけを報告する。
-- Chair は、3つの `agent_id`、Phase 1 と Phase 2 の完了確認、Chair による統合完了を `Execution Audit` に記録できる場合だけ、指定された findings ファイルを生成する。プロンプト、討議内容、思考過程は記録しない。
+仕様本文、承認済み要件、コンセプト、`docs/design/` の設計、前段レビュー、ユーザー提供の正式資料、適用可能な既存 Specification、および必要な公式 protocol / schema を根拠とする。既存実装やテストは仕様適合の補助的な事実として扱い、実装がそうなっていることだけで仕様を正当化しない。
 
-討議、投票、Reviewer 個人の意見、却下理由、思考過程は内部情報であり、成果物へ含めない。
+## レビュー観点
 
-## 共通原則
+- 要求、プロジェクト範囲、設計、上流文書との追跡と矛盾
+- 用語、対象、対象外、依存、前提、責任境界
+- 入力、出力、API、データ形式、validation、error、状態、順序、determinism
+- 実装者が推測せずに実装・検証できる十分な外部契約
+- 秘密情報の公開範囲、認証・認可、signing authority、完全性、改ざん、replay、署名対象、canonical bytes、暗号文境界
+- Symbol / NEM、Mainnet / Testnet、SDK とプロトコル、Core と binding、opaque byte 列の区別
+- 受け入れ条件、境界条件、失敗条件、未決定事項
 
-- 仕様が「何を満たすべきか」を一意に定めているかを確認し、具体的な実装方法は決めない。
-- レビューの目的は既存のコンセプト、要件、仕様に対する欠陥の検出であり、新しい要求、機能、制約、設計原則を追加することではない。
-- 指摘は対象箇所、根拠、影響、必要な修正を示せる場合だけ採用候補とする。
-- 指摘には、仕様本文または確認済み上流資料にある既存の要求・制約・判断原則のどれに違反するかを示す。対応する既存根拠を示せない場合は、原則として採用しない。
-- 「一般に望ましい」「より安全」「より堅牢」「将来拡張しやすい」「ベストプラクティスである」だけを理由に新しい仕組みを要求しない。
-- 将来利用するかもしれない機能、拡張ポイント、互換層、抽象化、設定項目、フォールバック、運用機構を予防的に追加するよう求めない。
-- 問題を解消するために複数の修正方法がある場合、レビューは満たすべき条件だけを示し、特定の方式、構造、アルゴリズム、ライブラリ、データ形式を選定しない。
-- 既存仕様で実装開始と検証が可能なら、より完全・汎用・高機能にできる余地を欠陥として扱わない。
-- 仕様本文、コンセプト本文、コンセプトレビュー結果、要件本文、要件レビュー結果、実装者からの仕様フィードバック、ユーザー提供資料、承認済みの要件またはプロジェクト資料を根拠の種別として区別する。レビュー結果と実装者からの仕様フィードバックは公開された内容だけを参照し、内部討議や思考過程を推測しない。未確認の事実、推測、好みを事実として扱わない。
-- 技術的または安全性上の前提は、必要な場合だけ関連する承認済み資料を選んで参照して評価する。資料を確認できないことだけを不合格理由にしない。
+既存要求にない機能、API、field、fallback、互換性、抽象化、将来拡張を追加するよう求めない。方式未決定と仕様欠落を区別する。
+
+## Security / Interoperability Review
+
+Reviewer C は `security-checklist.md` を参照し、Design で確立された security invariant、責任境界、secret flow、authorization、failure model が、実装者・binding・別実装から推測不要な外部契約へ落ちているかを確認する。対象は、適用される範囲に応じた次の契約である。
+
+- protected asset の受渡し・返却・永続化・外部公開
+- authentication / authorization、Account / signing authority、signing target / canonical bytes
+- chain / network binding、cryptographic contract、nonce / salt / randomness、AAD / domain separation
+- Wallet Store / persistence、serialization、malformed / tampered input、fail-closed、atomic visible result
+- error、Native C ABI、WASM / JavaScript、unknown / version、interoperability、security testability
+
+ここで確認するのは `what exact behavior / contract must be observed` である。Rust の function / module、clone / copy、stack / heap temporary、zeroization の実装、`unsafe`、pointer arithmetic、実際の library call、side-channel の具体実装、parser / fuzz harness の実装、具体的な memory lifetime は Implementation Review へ委譲する。UI 方式や内部 token 方式を指定しない。
+
+暗号方式や protocol の具体値が Requirements、Design、対象または既存 Specification、公式 protocol / schema から Specification で定めるべき事項として追跡できる場合は、algorithm、parameter、KDF、AEAD、nonce、salt、AAD、tag、signature encoding、wire representation 等の曖昧さを指摘してよい。ただし reviewer の好みで方式を変更したり、上流に根拠のない cryptographic policy を追加したりしない。Design が不足していて Specification が security architecture を新しく決める必要がある場合は、`upstream Design gap` として分離する。
+
+`security-checklist.md` は探索補助であり、新しい Requirement / Design Decision / Specification policy の根拠ではない。正式 finding は Requirements、Design、対象 Specification、適用可能な既存 Specification、Concept、ユーザー提供の正式資料、または必要な公式 protocol / schema へ追跡できるものだけを採用する。
+
+## Security finding の採用条件
+
+Security checklist の項目があるだけでは finding にしない。正式 finding は、少なくとも次のすべてを満たす候補に限る。
+
+1. Requirements、Design、対象 Specification、適用可能な既存 Specification、Concept、ユーザー要求または必要な公式 protocol / schema へ追跡できる。
+2. Specification フェーズで一意な外部契約として定義すべき事項である。
+3. Implementation だけでは互換性・安全性を一意に修正できない。
+4. 現状の仕様のままだと、複数の合理的実装が異なる security behavior または wire behavior を持ち得る。
+5. 具体的な input / output / state / error / cryptographic result / interoperability への影響を説明できる。
+6. 必要な修正を内部実装方式、library、Rust type、memory layout、具体的 parser / fuzz framework に固定せず表現できる。
+
+条件を満たさないものは、実装への委譲、未決定事項、未確認範囲、または改善提案として整理する。Design の owner、responsibility、trust boundary、lifecycle、allowed secret flow、authorization responsibility、failure responsibility、security invariant が不足している場合は、Specification で補完せず upstream Design gap として扱う。
+
+## 実行と判定
+
+`../review-common/review-playbook.md` の Phase 0〜3 を適用する。Reviewer A、B、C を独立した観点で確認し、Reviewer C は Security / Interoperability primary reviewer として `security-checklist.md` の適用可能な観点を使う。Reviewer A / B は契約の明確性・完全性、利用価値・運用適合性の各担当領域に現れる security implication だけを cross-check し、全件の checklist を再適用しない。候補を反証し、contract / operation / security / interoperability の重複候補は Chair が統合してからゲートを適用する。Design の不足・曖昧さ・矛盾は `Specification Review → Design`、問題の発生源が Requirements の場合だけ `Specification Review → Requirements` の `Upstream Feedback` に記録し、Specification で上流を再定義しない。
+
+判定は READY または REVISE SPECIFICATION とする。品質 Gate を不合格にする finding は Critical とし、Critical が1件以上存在する場合だけ後者とする。Critical がなく Major / Minor のみの場合は READY とし、実装前の確認事項または後工程へ整理する。signing target、chain / network binding、secret exposure、cryptographic contract、tampered data、fail-closed、Wallet Store の security-sensitive encoding、Native / WASM ownership など、根拠があり安全かつ相互運用可能な実装を一意に進められない根本欠陥は、既存 Gate の impact / ambiguity / downstream blocking に照らして Critical になり得る。Checklist の項目だけで Critical にせず、Major を自動的に Gate failure にしない。
+
+Phase Context が存在する場合も、Context 単独で Critical、Major、Gate failure または Security finding を確定しない。正式 finding は本文または確認済みの正式な上流・同一フェーズ・適用可能な公式資料へ追跡する。
+
+レビュー中に仕様、要件、コード、テスト、fixture、READMEを変更しない。未確認範囲と未決定事項を成功扱いにしない。
+
+## 作業完了後の Git 運用
+
+`../review-common/review-playbook.md` の「成果物と Git」を適用する。
