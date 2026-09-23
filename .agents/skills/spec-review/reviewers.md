@@ -1,35 +1,21 @@
 # Reviewers
 
-本レビューは、トップレベルのメインエージェントが務める Review Board Chair と、`multi_agent_v1__spawn_agent` で起動する独立した Reviewer A、Reviewer B、Reviewer C の3つのサブエージェントで構成する。各 Reviewer は Phase 1 では独立し、Phase 2 でだけ他の指摘を評価する。Reviewer は担当観点のメモだけを返し、レビュー対象や成果物を編集しない。
+メインエージェントは Review Board Chair として、上流追跡、候補統合、重大度・状態、ゲート、成果物を担当する。Phase 1 では次の3観点を独立して確認する。Reviewer C が Security / Interoperability primary reviewer であり、他の Reviewer は自分の担当領域に現れる security implication だけを cross-check する。
 
-Chair は Reviewer A、B、C をそれぞれ別の `multi_agent_v1__spawn_agent` 呼び出しで起動し、各呼び出しに `fork_context: false` を指定する。返却された3つの `agent_id` が存在し、相互に異なることを確認できるまで Phase 1 を開始してはならない。Phase 1 後は、その同じ `agent_id` へ `multi_agent_v1__send_input` で全メモを個別に送り、各 `submission_id` の完了を `multi_agent_v1__wait_agent` で確認する。起動、送信、完了のいずれかを確認できない場合は、自己レビューへフォールバックせず、findings を生成しない。
+## Reviewer A: 契約の明確性と完全性
 
-すべての Reviewer は「不足していると望ましいもの」ではなく、「既存のコンセプト・要件・仕様を満たすために不足しているもの」だけを指摘する。レビューを新規設計の入口にしてはならない。
-
-## Reviewer A: 仕様の明確性と完全性
-
-目的、対象範囲、用語、機能、データ、制約、処理手順、例外処理を確認する。対応する要件定義書がある場合は、仕様書が要件、制約、受け入れ条件、未決定事項を適切に引き継いでいるかを照合する。対応する要件レビュー結果がある場合は、公開された判定と指摘を確認し、未解決の前段ブロッカーが仕様書に残っていないかを確認する。
-
-「完全性」は対象スコープ内の既存要件を実装・検証できるための完全性を意味する。想定可能な全ユースケース、将来機能、追加設定、追加エラー、追加データを網羅することではない。特定の技術、アーキテクチャ、実装方法の採用は指摘しない。
+対象範囲、用語、前提、入力、出力、API、データ形式、validation、error、状態、順序、determinism、受け入れ条件を確認する。security-sensitive input / output / error / state / validation が一意か、Security Reviewer が確認する contract の曖昧さがないかを、契約の明確性と完全性の範囲で独立に cross-check する。
 
 ## Reviewer B: 利用価値と運用適合性
 
-対象利用者、利用場面、期待される結果、運用上の責務、失敗時の利用者・運用者への影響を確認する。対応するコンセプトシートがある場合は、目的、対象ユーザー、提供価値、スコープ、判断原則、成功条件、前提条件、未決定事項との整合性を確認する。対応するコンセプトレビュー結果と要件レビュー結果がある場合は、公開された判定、Required Changes、Review Gates を確認し、前段レビューのブロック判定や未解決 Critical が仕様書に未解決のまま残っていないかを確認する。
+要件との追跡、利用者から見える結果、外部責任、失敗時の結果、対象外、利用シナリオ、既存の責務境界との整合を確認する。failure result、external responsibility、authorization / protected operation の外部結果に security implication があれば、利用価値と運用適合性の範囲で独立に cross-check する。
 
-運用上より便利、柔軟、親切になるという理由だけで、新しい管理機能、設定、通知、復旧手段、互換機能を要求しない。既存のコンセプトまたは要件に必要性が示されている場合だけ不足として扱う。UI、API、実装方法、技術選定は指摘しない。
+## Reviewer C: Security / Interoperability Reviewer（Security primary reviewer）
 
-## Reviewer C: 実現性と安全性
+`security-checklist.md` を参照し、対象に適用される protected asset exposure、authentication / authorization、Account / signing authority、signing target / canonical bytes、chain / network binding、cryptographic contract、nonce / salt / randomness、AAD / domain separation、Wallet Store / persistence、serialization、malformed / tampered input、replay、fail-closed、atomic visible result、error、Native C ABI、WASM / JavaScript、unknown / version、interoperability、security testability を確認する。Design の security invariant、責任境界、secret flow、authorization、failure model が、別実装でも一致する外部契約へ落ちているかを判定する。
 
-既存の仕様を実装するうえで不可欠な技術的前提、外部連携、データ保護、認可、可用性、保守性、法務・ライセンス上の前提を確認する。コーディング方法や詳細設計は指摘しない。
+確認対象は仕様上の input / output / state / error / encoding / cryptographic result であり、実装内部の memory lifetime、clone / copy、zeroization、`unsafe`、pointer arithmetic、具体的 library call、side-channel、parser、fuzz harness は Implementation Review へ委譲する。UI 方式や内部 token 方式、上流に根拠のない暗号方式の変更は要求しない。具体方式が未決定なだけの場合も、既存の Requirements / Design / Specification / 公式 protocol 等から Specification で定めるべき事項と追跡できない限り finding としない。
 
-安全性レビューは、仕様が扱う資産・権限・信頼境界と、確認済みのコンセプト・要件・プロジェクト資料から要求される保護を満たせるかに限定する。一般的なセキュリティベストプラクティスを網羅的に適用して新しい防御機構を追加することを目的としない。
+## Chair の採用基準
 
-暗号方式、鍵管理方式、認証方式、冗長化、監査、レート制限、リトライ、フォールバック、ローテーション、バックアップ等について、既存要件または仕様上の具体的な必要性がない限り「追加すべき」と指摘しない。実装開始に必要な条件が満たされていれば、より強固な代替案の存在は欠陥ではない。
-
-技術的または安全性上の前提を評価する必要がある場合だけ、承認済みのコンセプト・要件、コンセプトレビュー結果、要件レビュー結果またはプロジェクト資料の関連箇所を参照する。レビュー結果を参照する場合は、公開された指摘と判定だけを根拠とし、内部討議や思考過程を推測しない。仕様本文、上流本文、レビュー結果、ユーザー提供資料、確認済み資料を区別し、未確認事項を断定しない。資料を確認できないこと自体を問題にせず、実装開始に不可欠な未確認前提だけを指摘候補とする。
-
-## Review Board Chair
-
-採用指摘の確定、重複統合、重大度の確定、品質ゲートの適用、最終判定、レビュー結果の作成を行う。3つのサブエージェントの `agent_id` と Phase 1・Phase 2 の完了を監査できた場合だけ、Chair が対象パッケージの `docs/reviews/specifications/<仕様書のベース名>-review.md` を生成する。議長は新しい指摘を追加しない。
-
-各指摘について、レビュー範囲、根拠、影響、重大度、重複に加え、その指摘が既存要求の欠陥修正か、新規設計の提案かを確認する。新規設計、新規要求、予防的な将来拡張に該当する指摘は採用しない。討議で示された根拠と影響に基づいてのみ重大度を変更し、根拠不足の指摘は採用しない。
+既存要求または承認資料へ追跡でき、現在の仕様を一意に実装・検証できない具体的問題だけを採用する。Security finding は、Specification で定義すべき外部契約であり、Implementation だけでは安全性・互換性を一意にできず、合理的な実装間の security / wire behavior の分岐と具体的影響を説明でき、修正を内部実装方式へ固定しない場合に限る。Design の不足を Specification で補完せず、upstream Design gap として分離する。Reviewer A / B の cross-check はそれぞれの担当領域に限定し、`security-checklist.md` 全件を再適用しない。contract / operation / security / interoperability の重複候補は Chair が統合する。より高機能・汎用的にする提案、一般的 hardening、reviewer の暗号方式の好みは却下する。
