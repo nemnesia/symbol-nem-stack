@@ -107,7 +107,7 @@ The tuple and timestamp parameters are based on Symbol's official [secure node g
 
 **SPEC-NET-004 — Read-only境界**
 
-Symbol Node MongoDBはServer adapterからread-onlyでのみ参照し、Browserへcredentialまたはraw BSONを渡さない。Node DBを書き換える要求は存在しない。Node schema / coverage不整合は`unsupported-schema`または`history-incomplete`。
+Symbol Node MongoDBはServer adapterからread-onlyでのみ参照し、Browserへcredentialまたはraw BSONを渡さない。Node DBを書き換える要求は存在しない。Node schema / coverage不整合は`unsupported-schema`または`history-incomplete`。Node MongoDBとSymTax Data Storeのinstance分離および運用境界は`SPEC-STORE-001`に従う。
 
 ### 3.3 期間入力
 
@@ -544,7 +544,17 @@ Initial runtime does not persist user search condition, normalized Transaction /
 
 Application / operational logs MUST NOT include MongoDB credentials, connection strings, complete raw Transaction / Receipt, Export contents, persistent search history, or addresses except where a restricted incident diagnostic explicitly requires one and is not retained as general activity history. Do not log Harvest quantity / JPY value tied to an address. Concrete log retention and access policy remain operational decisions; numeric retention is not invented.
 
-### 12.2 Resource contract
+### 12.2 MongoDB instance isolation
+
+**SPEC-STORE-001 — Independent MongoDB instances**
+
+Symbol Node MongoDB and SymTax Data Store MUST run as separate MongoDB instances in separate `mongod` server processes. Using separate database names within the same `mongod` process is not supported. They MAY run on the same physical or virtual host, including a VM, WSL environment, or Docker host; a separate machine or Docker deployment is not required.
+
+Even when co-located, the instances MUST have separate connection strings, MongoDB credentials/users, storage volume or `dbpath`, lifecycle operations (start, stop, update, recreate), and independently configured major resource boundaries, including resource limits and WiredTiger cache settings. The Symbol Node MongoDB credential available to SymTax MUST be read-only; SymTax write credentials, if any, apply only to the independent SymTax Data Store. SymTax application access paths MUST NOT provide a write-capable Node credential.
+
+Failure, restart, schema migration, backup, or restore of the SymTax Data Store MUST NOT modify or require restarting/recreating the Symbol Node MongoDB. Symbol Node resynchronization, rebuild, or upgrade MUST NOT delete or replace the SymTax Data Store or its persisted observations. Deployments MUST be inspectable to establish these boundaries. This contract does not prescribe MongoDB version, port, process/container names, host separation, or container technology.
+
+### 12.3 Resource contract
 
 **SPEC-RES-001 — Bounded request output**
 
@@ -645,6 +655,7 @@ Cases below are externally observable contract checks, not an implementation uni
 | CT-082 | Export fails before completion then user retries | first attempt has no file; retry starts fresh and does not alter observations/source history |
 | CT-083 | Full requested data includes unmappable or incomplete records | rejected/incomplete with reason counts; never output a partial success file |
 | CT-084 | Recorded bitbank live sample for `xym_jpy`, 2026-09-23: 1,440 candles and 545 date-query transactions | all 194 candles with volume > 0 match every OHLCV field under `[T,T+60,000)`; only 1 matches under `[T-60,000,T)`; summed transaction amount equals summed candle volume |
+| CT-085 | Deployment evidence for Symbol Node MongoDB and SymTax Data Store, including same-host deployment | distinct `mongod` processes/instance identities, connection strings, users/credentials, storage locations, lifecycle and major resource settings are verifiable; same-host separate instances are accepted; same-process separate databases are rejected; Node credential cannot write; Store restart/migration/backup/restore leaves Node unchanged, and Node resync/rebuild/upgrade preserves SymTax data |
 
 ## 14. OPEN-001〜010 / Specification blockers
 
@@ -686,7 +697,7 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 |---|---|---|---|---|
 | CON-001 | Symbol History Adapter / DD-002 | SPEC-NET-004, SPEC-TX-001, SPEC-RCPT-001 | CT-033 | SR-001 |
 | CON-002 | Server-only read-only Node boundary | SPEC-NET-004, SPEC-PRIV-002 | CT-039 | — |
-| CON-003 | Independent SymTax Data Store / DD-004 | SPEC-PRICE-004, SPEC-PRIV-001 | CT-019, CT-039 | — |
+| CON-003 | Independent mongod process / MongoDB instance, same-host co-location allowed, DD-004 | SPEC-STORE-001 | CT-085 | — |
 | CON-004 | Runtime network binding / DD-007 | SPEC-NET-001〜003 | CT-001〜003, CT-032 | SR-002 |
 | CON-005 | Shared persistent Price Store / DD-003/010 | SPEC-PRICE-001〜004 | CT-019〜024 | — |
 | CON-006 | JST calendar vs lookup instant | SPEC-TIME-001〜004 | CT-007〜008 | — |
@@ -721,10 +732,10 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 | PERF-004 | Incremental detail / bounded processing | SPEC-PAGE-001〜005, SPEC-RES-001/002 | CT-028〜031, CT-040 | SR-007 |
 | QUAL-001 | incomplete-state propagation | SPEC-ERR-001〜003, SPEC-EXPORT-006 | CT-017, CT-021〜022, CT-033, CT-036 | — |
 | SEC-001 | No secrets/signing capability | SPEC-GEN-003, SPEC-PRIV-001 | CT-001〜005, CT-039 | — |
-| SEC-002 | Server-only / read-only Node adapter | SPEC-NET-004, SPEC-PRIV-002 | CT-039 | — |
+| SEC-002 | Server-only / read-only Node adapter | SPEC-NET-004, SPEC-STORE-001, SPEC-PRIV-002 | CT-039, CT-085 | — |
 | SEC-003 | Runtime expected/observed network guard | SPEC-NET-001〜003 | CT-001〜003, CT-032 | SR-002 |
 | PRIV-001 | Request-local user data / minimal logs | SPEC-PRIV-001/002 | CT-039 | — |
-| SEC-004 | Independent SymTax Store | SPEC-PRICE-004, SPEC-PRIV-001 | CT-019, CT-039 | — |
+| SEC-004 | Independent lifecycle/storage/resource boundary and Node read-only credential, DD-004 | SPEC-STORE-001 | CT-085 | — |
 | EXT-001 | Price Store read-through | SPEC-PRICE-001〜006 | CT-019〜024, CT-084 | SR-003 |
 | EXT-002 | Cryptact Adapter / validation | SPEC-EXPORT-001〜007 | CT-034〜036 | SR-005 |
 | EXT-003 | Symbol adapter compatibility boundary | SPEC-TX-001〜004, SPEC-RCPT-001〜004, SPEC-ERR-001 | CT-011, CT-015, CT-033 | SR-001 |
@@ -803,9 +814,10 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 - [x] Cryptact file schemaとHarvest tax/action mappingの確認事実を区別した。
 - [x] MongoDB raw document / collection / queryをBrowser contractに出していない。
 - [x] Search condition / user history / evaluation / exportのuser-linked persistenceを禁止し、shared market observationを区別した。
+- [x] Symbol Node MongoDBとSymTax Data Storeは別mongod process / instanceとし、同一host共置時の分離条件と運用適合caseを定義した。
 - [x] Harvest OHLC arithmetic mean, structural opt-in eligibility, arbitrary JST split points, `STAKING` product mapping, current-date periods, bounded resource rejection are specified.
 - [x] bitbank `xym_jpy` 1min timestamp anchor was verified by a full-day real API OHLCV / Transactions comparison; exact-boundary trade absence is recorded separately from the half-open interval contract.
-- [x] CT-001〜084 cover prior cases plus network evidence, normalized types, price, aggregation, export, period boundaries, and the recorded live anchor verification.
+- [x] CT-001〜085 cover prior cases plus network evidence, normalized types, price, aggregation, export, period boundaries, the recorded live anchor verification, and MongoDB instance isolation.
 - [x] Traceability covers all 44 Requirement IDs and SR-001〜007.
 - [x] Official Cryptact format support is separated from actual upload acceptance and economic equivalence.
 - [x] Formal Spec Reviewは実施していない。

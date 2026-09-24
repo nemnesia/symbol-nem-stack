@@ -61,7 +61,7 @@ SymTaxは税額計算、税務上の分類・判断、確定申告を行わな�
 |---|---|
 | CON-001 | SymTaxはSymbolノードのMongoDBを参照できるサーバー環境を前提とする。参照可能性、履歴保持範囲、スキーマ互換性は運用環境に依存する。 |
 | CON-002 | SymbolノードMongoDBへのアクセスはサーバー側に限り、原則read-onlyとする。ブラウザからDBへ直接接続しない。 |
-| CON-003 | SymTax独自の価格・評価その他の永続データを保持する場合、SymbolノードDBとは分離する。 |
+| CON-003 | SymTax独自の価格・評価その他の永続データを保持する場合、Symbol Node MongoDBとは別のMongoDBインスタンス（別mongod process）へ保存しなければならない。同一mongod process内でdatabase名だけを分ける構成はサポートしない。同一の物理・仮想ホスト上での稼働は許容するが、その場合もinstance/process、接続文字列、credential/user、storage volume/dbpath、lifecycle、およびWiredTiger cache等の主要resource設定を分離する。 |
 | CON-004 | 開発・検証対象はSymbol Testnet、公開版の対象はSymbol Mainnetとする。MainnetとTestnetの接続先およびデータを混在させない。 |
 | CON-005 | 初期の市場価格ソースはbitbank Public APIのXYM/JPY 1分足とする。取得済み価格はSymTax側で保存・再利用し、アドレス単位ではなく市場共通データとして扱う。保存済み価格は経過期間だけを理由に削除しない。 |
 | CON-006 | 要件上の日次・月次集計およびCryptact向けHarvest日次集約はJST（Asia/Tokyo）を基準とする。日境界はJSTの00:00以上、翌日00:00未満とする。価格対応は実時刻を基準とし、bitbank側の日付境界と集約日境界を同一視しない。 |
@@ -141,7 +141,7 @@ SymTaxは税額計算、税務上の分類・判断、確定申告を行わな�
 | SEC-002 | Symbol MongoDBはブラウザから直接アクセスできず、DB接続情報をブラウザへ送信してはならない。SymbolノードのMongoDBを外部へ直接公開しない。アクセスは原則read-onlyとする。 |
 | SEC-003 | TestnetとMainnetの接続先・データは明示的に分離し、異なるネットワークの履歴を一つの結果として混在させてはならない。開発・検証はTestnet、公開版はMainnetを対象とする。 |
 | PRIV-001 | Symbolアドレスは公開情報であるが、SymTaxはアドレスと利用者の活動履歴の関連を慎重に扱い、利用者に履歴参照・価格保存・ログ等のデータ取扱いを説明できなければならない。保持範囲とログ方針の詳細はOPEN-010で決定する。 |
-| SEC-004 | SymTax独自データを永続化する場合、SymbolノードDBの変更・書込みと分離しなければならない。 |
+| SEC-004 | SymTax Data Storeへの障害、再起動、schema migration、backup/restoreがSymbol Node MongoDBへ影響せず、Symbol Node MongoDBのresync、再構築、upgradeによってSymTax独自データが失われない境界を設けなければならない。SymTaxの不具合または誤操作によるSymbol Node MongoDBへのwriteを、接続権限と運用境界で構造的に防止しなければならない。 |
 
 ## 11. 外部サービス・相互運用性
 
@@ -168,7 +168,7 @@ SymTaxは税額計算、税務上の分類・判断、確定申告を行わな�
 | AC-009 | PERF-002〜004 | 代表負荷例である月700件程度のHarvest関連Receiptを含む大量履歴を対象に、全履歴をブラウザへ一括転送・一括保持・一括DOM展開することを必須とせず、期間を分けて閲覧できる。定量的な性能合否値はOPEN-008の判断後に設定する。 |
 | AC-010 | CON-004、SEC-003 | Testnet環境での開発・検証とMainnet公開版のネットワーク対象を識別でき、あるネットワークの履歴が別ネットワークの履歴と混在しない。 |
 | AC-011 | SEC-001 | 利用者が秘密鍵・ニーモニックを入力することなく履歴参照と出力を完了でき、署名・送信操作を提供しない。 |
-| AC-012 | CON-002、CON-003、SEC-002、SEC-004 | 利用者のブラウザからSymbol MongoDBへ直接接続できず、DB接続情報がブラウザに現れない。SymTax独自の永続データはSymbolノードDBから分離され、ノードDBはread-onlyで参照される。 |
+| AC-012 | CON-002、CON-003、SEC-002、SEC-004 | BrowserからSymbol Node MongoDBへ直接接続できず、接続情報がBrowserへ現れない。SymTax Data StoreとSymbol Node MongoDBが別mongod process / MongoDB instanceであることを運用構成から確認でき、同一instance内の別databaseだけの構成ではない。両instanceを同一ホストへ配置する場合も、接続文字列、credential/user、storage volume/dbpath、lifecycle、および主要resource設定が分離されている。Node側credentialはread-onlyであり、SymTax Data Storeの停止・再起動・migration・backup/restoreがNode DBに影響せず、Nodeのresync・再構築・upgrade後もSymTaxデータが保持されることを確認できる。 |
 | AC-013 | DATA-003、PRIV-001 | 利用者がアドレスとその履歴・価格・ログに関するデータ取扱いの説明を確認できる。 |
 | AC-014 | FUNC-009 | TransactionとReceiptの関連情報を提示する場合も、両者は独立したカテゴリ・一覧・集計で確認できる。関連表示の有無自体は初期リリース要件としない。 |
 

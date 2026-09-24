@@ -70,11 +70,11 @@ flowchart LR
     SymbolAdapter[Symbol history adapter\nread-only・正規化]
     PriceService[Market Price Service\nlookup・取得調整]
     PriceProvider[bitbank provider adapter]
-    PriceStore[SymTax market data store\n共通XYM/JPY価格]
     ExportAdapter[Cryptact export adapter\n形式検証]
   end
 
-  Node[(Symbol Node MongoDB\n選択networkのraw data)]
+  Node[(Symbol Node MongoDB instance\n独立mongod process・選択networkのraw data)]
+  PriceStore[(SymTax Data Store MongoDB instance\n独立mongod process・共通XYM/JPY価格)]
   Market[bitbank Public API\nXYM/JPY 1分足]
   File[生成ファイル]
   Cryptact[Cryptact\n利用者が任意に取込]
@@ -96,15 +96,15 @@ flowchart LR
   Browser -. 利用者が別途アップロード .-> Cryptact
 ```
 
-Cryptactは生成ファイルを受け取る外部主体であり、SymTaxから直接連携しない。BrowserからSymbol MongoDB、SymTaxの価格Store、bitbankへ直接接続する矢印は存在しない。
+Cryptactは生成ファイルを受け取る外部主体であり、SymTaxから直接連携しない。Symbol Node MongoDB instanceとSymTax Data Store instanceは別mongod processである。同じ物理・仮想ホストへの配置は許容するが、同一mongod内の別databaseだけで分離した構成は採らない。Browserから両MongoDB instance、bitbankへ直接接続する矢印は存在しない。
 
 ### 3.2 Trust boundary
 
 | 境界 | 内外の主体 | 設計上の扱い |
 |---|---|---|
 | TB-1 | Browser ↔ Next.js Server | Browser入力は未信頼として検証する。Serverは必要な表示・ページ単位の正規化結果だけを返す。DB credential、raw BSON、巨大な全履歴をBrowserへ渡さない |
-| TB-2 | Next.js Server ↔ Symbol Node MongoDB | Server側のSymbol adapterだけがアクセスする。read-only権限を前提とし、MongoDBを外部へ公開しない。node identityが期待networkと一致しない、または確認不能なら履歴を返さない |
-| TB-3 | Next.js Server ↔ SymTax Data Store | SymTaxのみが所有する価格観測Store。Symbol Node DBとは独立し、共通市場価格以外のユーザー履歴を初期状態で永続化しない |
+| TB-2 | Next.js Server ↔ Symbol Node MongoDB instance | Server側のSymbol adapterだけが専用の接続先・read-only userでアクセスする。SymTax Data Storeとは別mongod process、別接続文字列、別credential/user、別storage volume/dbpath、別lifecycle・主要resource設定とする。MongoDBを外部へ公開しない。node identityが期待networkと一致しない、または確認不能なら履歴を返さない |
+| TB-3 | Next.js Server ↔ SymTax Data Store MongoDB instance | SymTaxのみが所有する価格観測Store。Symbol Node MongoDBとは別mongod process / instanceとして稼働する。同一hostへの配置は許容するが、database名だけを分けた同一process構成は不可。接続文字列、credential/user、storage、lifecycle、主要resource設定を独立させ、SymTax Storeの運用操作がNode DBへ波及しないようにする。共通市場価格以外のユーザー履歴は初期状態で永続化しない |
 | TB-4 | Next.js Server ↔ bitbank Public API | 公開価格Providerを外部・失敗し得る依存先として扱う。保存済み価格を優先し、Provider応答を検証・記録する。通信不能を0円や正常評価に変換しない |
 | TB-5 | 利用者のExport ↔ Cryptact | SymTaxはファイルを生成するまでを担当する。利用者が内容を確認して別途取り込む。Cryptactの資格情報や口座情報をSymTaxへ渡さない |
 | TB-6 | Mainnet runtime ↔ Testnet runtime | それぞれ別の配備先・Node接続・環境設定を用いる。一つのServer runtimeが利用者要求の値だけで両networkを切替える構成を採らない |
@@ -172,7 +172,7 @@ Blockchain数量は整数のnative unitで扱い、数量変換・集計にbinar
 | Block / timestamp | 対象networkのSymbol chainに対応するNode view / Node運用者 | Node側に保持。SymTaxは書き込まない | Receiptの実timestamp解決に使う。取得不足はprice evaluation不能状態へ伝播 |
 | Normalized Transaction | 原sourceはSymbol Node。正規化結果はSymTax domainのrequest-local値 | 初期は永続化しない | Node履歴から再生成。Node側sourceが不足・変更なら完全性を示す |
 | Normalized Receipt / Harvest Receipt | 原sourceはSymbol Node。正規化結果はSymTax domainのrequest-local値 | 初期は永続化しない | Node履歴から再生成。Price/Harvestに関する根拠状態を保持した一時結果 |
-| Price candle observation | 原観測providerはbitbank。取得済み観測の保存上の正本はSymTax Price Store / SymTax | **永続化する。アドレス非依存のXYM/JPY共通データ。期間経過だけで削除しない** | Provider停止時も既存観測を利用可能。再取得・訂正値は既存観測を上書きせず、新しい観測として追記 |
+| Price candle observation | 原観測providerはbitbank。取得済み観測の保存上の正本はSymbol Node MongoDBとは別mongod processのSymTax Price Store / SymTax | **永続化する。アドレス非依存のXYM/JPY共通データ。期間経過だけで削除しない** | Provider停止時も既存観測を利用可能。再取得・訂正値は既存観測を上書きせず、新しい観測として追記。Node DBのresync/rebuild/upgradeから独立して保持 |
 | Receipt price evaluation | Receipt + block timestamp + Price observation + 評価規則から導くSymTax派生値 | 初期はユーザー別履歴として独立永続化しない。閲覧・Export処理中に根拠付き評価結果を保持 | 保存価格・Symbol sourceから再生成する。元source未取得、規則・価格選択未確定なら未評価/不完全。評価処理中は採用観測の参照を保持 |
 | 月次・日次サマリー | 個別Normalized履歴から導くSymTax派生値 | 永続化しない | 指定範囲を再走査し、JST境界で再生成する |
 | Harvest aggregation result | 個別Harvest Receipt評価から導くSymTax派生値 | 永続化しない | eligibleな個別結果から再生成。結果の各行は処理中に構成Receipt参照を保持 |
@@ -184,7 +184,9 @@ Receipt evaluationを独立永続化しない判断は、Requirementsが初期�
 
 ### 5.3 Symbol MongoDB境界とschema変更
 
-Symbol Node MongoDBは、Network-bound runtime内のSymbol History Adapterからだけ参照する。read-only資格情報・読取責務を境界条件とし、SymTax Data StoreやApplication serviceからNode DBへ直接接続させない。DB書込み・index変更・node管理はSymTaxの責任に含めない。
+Symbol Node MongoDBは、Network-bound runtime内のSymbol History Adapterからだけ参照する。read-only資格情報・読取責務を境界条件とし、SymTax Data StoreやApplication serviceからNode DBへ直接接続させない。Node MongoDB instanceはSymTax Data Storeとは別のmongod processとし、両instanceの接続文字列・credential/userを共有しない。SymTaxはNode instanceへread-only専用credentialで接続し、SymTax Data Store用のwrite credentialをNode adapter/access pathから分離する。DB書込み・index変更・node管理はSymTaxの責任に含めない。SymTaxの誤操作や不具合による書込みが接続権限上できない状態を保つ。
+
+SymTax Data Storeは別mongod process / MongoDB instanceとして所有・運用する。同一host上の稼働は許容するが、database名だけを分けて同一processを共有する構成はサポートしない。接続文字列、credential/user、storage volume/dbpath、起動・停止・更新・再作成のlifecycle、resource limitsおよびWiredTiger cache等の主要resource設定を分離する。Storeの障害・再起動・schema migration・backup/restoreがNode MongoDBへ影響せず、Nodeのresync・再構築・upgradeによってSymTax固有データが失われないことを運用境界の責務とする。物理的な別マシンや特定のcontainer方式は要求しない。
 
 AdapterはNode固有表現、binary/value encoding、Transaction / Statement / Receipt / Block間の対応を解釈する唯一の層とする。内部へ渡すのは正規化した必要項目とsource reference、coverage stateだけである。Node schemaの更新ではAdapterの互換性判定と正規化写像を点検し、Summary・UI・Cryptact Adapterまで影響を広げない。
 
@@ -250,7 +252,7 @@ Symbol時刻の解釈とblock timestamp取得はSymbol adapter、集計calendar�
 - **Transaction / Receipt:** 独立した取得service、Normalized model、summary、表示カテゴリを保つ。技術関連参照が必要ならreceipt sideの関連情報として表現し、共通eventへflattenしない。関連表示を初期要件へ追加しない。
 - **Mainnet / Testnet:** 開発・検証と公開用途のruntimeを分け、一つのruntimeに一つのnetwork identityを割当てる。期待値と観測identityを比較して不一致・不明を拒否する。市場価格Storeだけはnetwork非依存の市場データとして共有可能である。
 - **Browser / Server:** Browserはquery・paging等のUI操作と表示のみ。MongoDB、DB credential、Provider API key等（初期価格APIはPublic）、価格正本、全件処理を持たない。全履歴を一括転送せず、明細ページや集計結果をServerから段階的に受ける。
-- **Symbol node / SymTax:** Node DBは外部chain sourceでread-only。SymTaxのmarket dataをNode DBへ書かず、ユーザー履歴をNode DBへ保存しない。別StoreはSymTax所有でNode DBと分離。
+- **Symbol node / SymTax:** Node DBは外部chain sourceでread-only。SymTaxのmarket dataをNode DBへ書かず、ユーザー履歴をNode DBへ保存しない。SymTax Data StoreはNode MongoDBとは別mongod process / instanceとし、同一process内でdatabase名だけを分ける構成を禁止する。同一hostは許容するが接続情報、credential、storage、lifecycle、主要resource設定を分離し、StoreとNodeそれぞれの障害・再構築・backup/restoreが相互に波及しないようにする。
 - **Protocol / Catapult implementation:** SymbolのREST/OpenAPIやprotocol用語と、当該Catapult実装のMongoDB document構造を同一視しない。MongoDB mapperへの依存はSymbol adapterに閉じる。
 
 ## 8. 運用前提、性能、検証方針
@@ -259,7 +261,7 @@ Symbol時刻の解釈とblock timestamp取得はSymbol adapter、集計calendar�
 
 - 各環境は稼働する対象networkのSymbol Node MongoDBへサーバー側からのみ到達可能で、read-only接続を与える。
 - Node運用者は接続可能性だけでなく、要求期間の履歴保持・schema version・Block timestamp参照可能性を公開前に確認する。SymTaxはNode DB管理を担わない。
-- SymTax Data StoreはSymbol Node DBと別のアクセス境界・保管先を持ち、market price observationの継続保存を可能にする。価格データは市場全体で増加し得るため、容量監視・バックアップ・Store可用性の運用責任を別途定める。価格を期間経過のみで削除する運用はしない。
+- SymTax Data StoreはSymbol Node MongoDBとは別のmongod process / MongoDB instanceとして運用する。同一hostへの配置は許容するが、同一processの別database構成は認めない。接続文字列、credential/user、storage volume/dbpath、起動・停止・更新・再作成lifecycle、resource limitsおよびWiredTiger cache等の主要resource設定を分離する。Storeの障害、再起動、schema migration、backup/restoreはNode DBへ影響せず、Nodeのresync・再構築・upgradeでもSymTax dataを失わない。価格データは市場全体で増加し得るため、容量監視・バックアップ・Store可用性の運用責任を別途定める。価格を期間経過のみで削除する運用はしない。別hostやDocker利用は要件としない。
 - bitbankは不安定になり得る外部Providerとして扱い、過去価格取得を利用時の同期成功に依存させない。価格Storeが利用不能な場合の挙動は保存済みデータ有無に応じてfail-safeとする。
 - 初期アプリは単一Next.js Server構成。Node読取・価格取得・評価・exportは同一アプリケーション内の責務として構成し、独立workerやqueueを初期要件化しない。
 - Logsは操作の内部診断に必要な範囲に限り、DB credential、connection string、raw全文、不要なaddress、Harvest数量、円評価を記録しない。正確な保持期間、利用者説明、運用担当範囲はOPEN-010。
@@ -281,7 +283,7 @@ OPEN-008の評価では、数年分のTransactions、月数百〜数千件規模
 ### 8.3 検証方針
 
 - **Source compatibility:** Testnet nodeで現行対応対象のraw履歴、Statement→Block時刻解決、schema識別と要求期間の完全性を確認する。実node version・履歴保持範囲を記録する。
-- **Boundary:** BrowserがDBへ到達できないこと、ServerのNodeアクセスがread-onlyであること、expected/observed network mismatch・identity unknownがfail-closedとなることを外部境界で確認する。
+- **Boundary:** BrowserがDBへ到達できないこと、ServerのNodeアクセスがread-onlyであること、NodeとSymTax Storeが別mongod processで同一host共置時も接続・credential・storage・lifecycle・主要resource設定を分離していること、expected/observed network mismatch・identity unknownがfail-closedとなることを運用構成と外部境界で確認する。Storeの保守操作とNodeの再同期・再構築を相互に独立して実施できることも検証する。
 - **Domain consistency:** TransactionとReceiptの一覧・summaryの独立性、JST月日境界、サマリーから個別recordへの追跡、派生処理後に原sourceが変更されないことを検証する。
 - **Price reproducibility:** 保存済み価格をProvider停止時に再利用できること、価格観測のprovenanceとReceipt valuationとの対応、欠損を0値へ変えないことを検証する。OHLC・欠損fallbackはSpecification承認後の規則に照らす。
 - **Export / aggregation:** 個別行とHarvest日次集約を分離し、aggregation rowから構成Receipt・各valuationへたどれること、non-Harvest/unknown/incompleteを黙って集約しないことを確認する。Cryptact側の計算同等性を税務正解として扱わない。
@@ -298,7 +300,7 @@ OPEN-008の評価では、数年分のTransactions、月数百〜数千件規模
 | DD-001 Browser中心処理 vs Server中心処理 | Server中心。Browserは入力・表示・download | MongoDBをサーバー側だけで参照し、期間filter、正規化、summary、valuation、exportを一箇所のtrust boundary内で行える | Browser全件取得・解析はPERFとDB credential境界に反する | CON-002、FUNC-001、PERF-001〜004、SEC-002 | 長期履歴でServer負荷が不適合と計測され、承認済み別processが必要になった場合 |
 | DD-002 Raw documentを上位へ渡す vs normalization boundary | Symbol adapterにRaw→Normalized境界を置く | 当該Catapult mapperとnode schema変更を外側へ閉じ、UI・Summary・ExportのSymbol DB依存を防ぐ | Raw document共有はschema変更が全componentへ伝播し、必要以上のdata露出・転送を招く | FUNC-001〜008、DATA-001〜002、EXT-003 | Raw mapping維持コストや対象Node versionが変わったとき。境界自体は維持する |
 | DD-003 価格を毎回bitbankから取得 vs SymTax共通Price Store | 有効な過去価格observationsをSymTax側へ永続保存し再利用 | Providerの保持期間・可用性に依存せず、同一市場価格を複数addressで再利用できる | 毎回取得はAPI障害、歴史保持の変化、繰返し通信に依存する | CON-005、PRICE-001、PRICE-003、EXT-001 | Providerが長期保存機能を公式に保証し、保持・再現性の前提が変わる場合 |
-| DD-004 Node DBに価格を置く vs SymTax Data Store | 価格をSymbol Node DBと分離したSymTax所有Storeへ保存 | Node DBは外部source/read-onlyの責務を維持。市場価格はaddress/node/networkに依存しない | Node DBへの書込みはSEC-002/004と運用責任境界に反する | CON-003、CON-005、SEC-004、PRICE-003 | Node所有・運用境界に承認済み変更がある場合。ただしSymTax固有データ分離要件に従う |
+| DD-004 Node MongoDB instanceを共有 vs 独立したSymTax Data Store | 価格をSymbol Node MongoDBとは別mongod process / MongoDB instanceのSymTax所有Storeへ保存する。同一hostは許容するが、同一processの別database構成は採用しない | Node DBは外部source/read-onlyの責務を維持する。process、接続文字列、credential/user、storage、lifecycle、主要resource設定を分けることで、Node upgrade/resyncとSymTax Store障害・保守を独立させ、Nodeへの誤書込みを構造的に防ぐ。価格はaddress/node/network非依存 | 同一mongod内の別databaseだけではprocess、storage/resource、lifecycleの境界を分けられず、SymTaxからNode DBへの誤書込み防止や相互の運用影響を十分に隔離できない。別hostは必要性がなく、要求しない | CON-003、CON-005、SEC-002、SEC-004、PRICE-003 | MongoDB instanceの独立性を保ったまま運用要件・resource計測結果に変化が生じた場合。別processとNode DB read-onlyの制約は維持する |
 | DD-005 Transaction / Receipt統合モデル vs 独立モデル | 別reader・domain・summary経路。関連付けはoptionally receipt側参照 | 利用者が独立参照・集計する要件を保ち、Statementの技術関係もadapter内部で解決できる | 単一履歴flattenは、取得・表示・集計・出力の意味を混在させる | FUNC-002〜009、EXPORT-003 | Requirements変更なしでは見直さない。関連表示要否のみOPEN-006で仕様化 |
 | DD-006 Cryptact形式をdomainへ持込 vs Export Adapter分離 | Cryptact Export Adapterと出力検証境界で外部形式へ変換 | 外部形式改訂やHarvest分類未確定の影響を、Symbol domainやNode adapterへ波及させない | DomainにCSV列・取引種別を置くとOPEN-005を先取りし、Provider/chain責務が結合する | EXPORT-001〜007、EXT-002 | Cryptactが安定した公式schema/APIを提供し、別の承認済み設計が採用された場合 |
 | DD-007 Runtime network parameter切替 vs 強い環境分離 | 1つのserver runtime・配備を1 networkへ束縛し、identityをfail-closed照合 | Testnet/MainnetのDB・data・派生値誤混合と、request-controlled network injectionを避ける | 同一runtimeの自由切替は環境・cache・resultの分離確認を複雑にし、誤設定影響を拡げる | CON-004、FUNC-001、SEC-003 | 運用要件が複数network同時提供を承認した場合に、別設計を実施 |
@@ -364,6 +366,7 @@ Specificationは、設計済みの責務境界を保った上で、以下を外�
 - Browserから指定できる入力・検索期間のvalidation、page操作と結果状態のUI契約
 - incomplete/unsupported/network mismatch/price unavailableの表示語・操作可能性
 - expected / observed Network identityを証明するsource contractと不一致応答
+- Symbol Node MongoDBとSymTax Data Storeの別mongod process境界、同一host共置時の運用分離条件（CON-003、SEC-004）
 - logからの除外対象、公開情報の取扱いに関する利用者向け説明
 - export downloadの完了・再試行契約
 
@@ -377,7 +380,7 @@ Specificationは、設計済みの責務境界を保った上で、以下を外�
 |---|---|---|
 | CON-001 | Symbol History Adapter、Node運用者責任、DD-002 | Node version / history coverage / compatible schema (OPEN-007) |
 | CON-002 | Runtime Network Binding、Symbol adapter read-only trust boundary | 接続identityとアクセス責任の外部確認 (OPEN-007、009) |
-| CON-003 | SymTax Data StoreをNode DBから分離、DD-004 | Data ownership境界 (Symbol側schemaは設計対象外) |
+| CON-003 | Symbol Node MongoDBとSymTax Data Storeを別mongod process / instanceに分離、host共置は許容、DD-004 | 別instance要件と同一process内のdatabase分離のみを禁止する運用契約。Symbol側schemaは設計対象外 |
 | CON-004 | 1 runtime / deployment = 1 network、Network guard、DD-007 | identity proofとruntime identity表現 (OPEN-009) |
 | CON-005 | 共通Price Store、bitbank Adapter、append-only観測、DD-003/004/010 | API足範囲、保存観測のprovenance/重複判定、訂正規則 (OPEN-004) |
 | CON-006 | JST Calendar Boundaryと実instant Price Lookupを分離 | Timestamp解釈・日境界・足対応契約 (OPEN-002) |
@@ -415,7 +418,7 @@ Specificationは、設計済みの責務境界を保った上で、以下を外�
 | SEC-002 | Server-only Node adapter / read-only trust boundary | Exposure and access responsibility confirmation |
 | SEC-003 | Network guard + isolated runtime, DD-007 | Independent Network identity evidence (OPEN-009) |
 | PRIV-001 | Request-local user data, minimal logs, DD-009 | Retention period, disclosure and operations (OPEN-010) |
-| SEC-004 | Independent SymTax Data Store, DD-004 | Store ownership / no write path to Node |
+| SEC-004 | 独立lifecycle・storage・resource境界とNode read-only資格情報、DD-004 | Store保守がNodeに影響しないこと、Node再構築時のSymTax data保持、Node write不可の運用適合契約 |
 | EXT-001 | Price Store read-through Provider boundary, DD-003/010 | Provider errors, cache miss and correction policy |
 | EXT-002 | Cryptact Adapter / Export validator | Current file acceptance and economic compatibility (OPEN-005) |
 | EXT-003 | Symbol History Adapter schema/coverage boundary, DD-002 | Real node schema/version/history compatibility (OPEN-007) |
@@ -447,7 +450,7 @@ Specificationは、設計済みの責務境界を保った上で、以下を外�
 - [x] Raw sourceとNormalized / Summary / Valuation / Aggregation / Export派生結果を区別した。
 - [x] MongoDB raw schema解釈はSymbol History Adapterに隔離し、Browser・Summary・Exportへ漏らさない。
 - [x] BrowserはMongoDBへ接続せず、DB credentialを保持しない。
-- [x] Symbol Node DBはread-onlyとし、SymTaxデータをNode DBへ書かない。
+- [x] Symbol Node DBはread-onlyとし、SymTaxデータを別mongod process / MongoDB instanceに保持する。同一host共置は許容するが、接続・credential・storage・lifecycle・主要resourceを分離し、Node DBへ書かない。
 - [x] 共通保存Price observationとReceipt別Price evaluationを分け、観測の無断上書きをしない。
 - [x] Harvest集約行から構成Receipt・各価格評価へ処理中に戻れる。初期圧縮はHarvestのみ。
 - [x] 欠損・unknown・不完全を空、0、正常価格へ変換しない。
