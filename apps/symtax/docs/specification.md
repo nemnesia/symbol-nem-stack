@@ -36,7 +36,7 @@ SymTax初期対象はSymbol（XYM）の履歴ビューアと履歴出力であ�
 | Statement source | Receiptが属するStatementのsource識別情報。ReceiptとBlock heightの対応を解決するために使う |
 | Price observation | bitbank XYM/JPY 1分足の個別取得観測。市場共通データ |
 | Price evaluation | Harvest Fee Receipt、対応Block timestamp、選択されたPrice observation、評価規則から得る派生値 |
-| complete / incomplete | 指定範囲を満たす履歴・根拠が揃っている / 取得・解釈・評価の欠損がある状態 |
+| complete / partial / incomplete | completeは必要条件が揃う、partialは識別できた型固有情報が一部欠ける、incompleteは範囲・参照関係・評価根拠が閉じていない状態 |
 | unsupported | 当該仕様で意味・処理を定義していないTypeや外部表現 |
 | unknown | 入力・データはあるが、分類・network・eligibility等を一意に判定できない状態 |
 | unavailable | 必要な外部依存または保存データを現在取得できない状態 |
@@ -86,11 +86,20 @@ addressのnetwork byteはruntime expected networkと一致しなければなら�
 
 各runtimeは一つの`expectedNetwork ∈ {mainnet,testnet}`を持つ。開発・検証環境はTestnet、公開版はMainnet。利用者requestはnetworkを選択・切替できない。
 
-**SPEC-NET-002 — Observed identity**
+**SPEC-NET-002 — Pinned public-network identity evidence**
 
-Serverはnodeから取得したNetworkTypeと、deploymentで承認されたnetwork fingerprintを期待値と照合する。Symbol REST `GET /network`はnetwork name / descriptionを返し、`GET /network/properties`はNodeの`config-network.properties`由来情報を返す。両情報に加え、確認可能なchain identity情報がexpected networkと一致したときだけnodeを利用可能とする。環境変数の文字列だけをobserved identityとしてはならない。
+Runtimeのexpected identityは配備ごとにMainnetまたは公開Testnetのどちらかへ固定し、利用者入力では切り替えない。初期対応するpublic networkの期待値は次のとおり。
 
-Expected fingerprint値と、どのNode identity evidenceを独立証拠として必須化するかは、公開Mainnet・対象Testnetの配置前に環境構成でpinする。identityが取得不能、未知のnetwork name、fingerprint不一致、証拠同士の不一致の場合は`network-identity-unavailable`または`wrong-network`でfail-closedとする。
+| runtime | NetworkType / identifier | generationHashSeed | epochAdjustment |
+|---|---:|---|---:|
+| Mainnet | `0x68` / 104 | `57F7DA205008026C776CB6AED843393F04CD458E0AA2D9F1D5F31A402072B2D6` | `1615853185s` |
+| Testnet | `0x98` / 152 | `3B5E1FA6445653C971A50687E75E6D09FB30481055E3990C84B25E9222DC1155` | `1616694977s` |
+
+Server MUST independently obtain observed NetworkType from Symbol `GET /network` and `generationHashSeed`, `epochAdjustment` from `GET /network/properties`. Acceptance requires the exact expected tuple `(NetworkType, generationHashSeed)`; `epochAdjustment` must also match the pinned public-network value because it controls block-time conversion. `/network/properties.identifier` is an additional consistency check, not a substitute for the tuple. Values must parse in their documented representations; seed is exactly 32 bytes / 64 hexadecimal digits, NetworkType is the known one-byte enum, and epoch adjustment is an integer number of seconds with optional documented `s` suffix.
+
+Every returned block must also carry the same network identifier when the source representation provides it. Missing required evidence, malformed evidence, unknown expected values, an unsupported/private network, or any mismatch yields respectively `network-identity-unavailable` or `wrong-network`. The server MUST fail closed before returning chain-derived data. If mismatch is discovered during a paginated browse or export, all pages / staged output from that request are discarded and no partial success is returned. Deployment text such as `NETWORK=mainnet` alone is not evidence.
+
+The tuple and timestamp parameters are based on Symbol's official [secure node guide](https://docs.symbol.dev/guides/network/running-a-secure-symbol-node.html) and [network API schema](../../../docs/knowledge/symbol-openapi3.yml). The `NetworkType` values are protocol identifiers; the pinned seed and epoch are public-network configuration values, not universal constants for private networks.
 
 **SPEC-NET-003 — 結果・Continuation分離**
 
@@ -104,11 +113,11 @@ Symbol Node MongoDBはServer adapterからread-onlyでのみ参照し、Browser�
 
 **SPEC-IN-005 — Period契約**
 
-検索期間は`fromDate`と`toDateExclusive`からなるISO 8601暦日`YYYY-MM-DD`。両方ともJST暦日として解釈する。対象instant区間は、`fromDate` JST 00:00:00 inclusive以上、`toDateExclusive` JST 00:00:00 exclusive未満とする。`fromDate < toDateExclusive`が必須。日付のみの入力にUTC暗黙変換を適用しない。
+検索期間はISO 8601暦日`fromDate` inclusiveと`toDateExclusive` exclusive (`YYYY-MM-DD`)。両方をJST calendar boundaryとして解釈し、対象期間は`[fromDate 00:00 JST, toDateExclusive 00:00 JST)`とする。`fromDate < toDateExclusive`が必須。日付のみの入力にUTC暗黙変換を適用しない。
 
-空期間・不正暦日・`fromDate >= toDateExclusive`は`invalid-input`。終了日が現在のJST日より未来なら拒否する。開始日がNodeの保持開始より古くても自動で切り詰めず、requested period全体に対してcoverageを`incomplete`とする。Date rangeに、根拠のない最長日数・最古日を設定しない。最大期間が必要となる全件Export等は`OPEN-SPEC-008`に従う。
+要求calendar boundaryが現在日・当月の後端（翌日または翌月初日）を指すことは許可する。Request受理時の現在instantをUTCで一度固定し、実効上限を`min(toDateExclusive 00:00 JST, requestNow)`とする。したがって今日・今月を含む照会は現在までの履歴を返す。実効上限が`fromDate 00:00 JST`以下なら`future-period`で拒否する。今日以降のみの未来期間、明日だけ、完全な未来期間は拒否する。`toDateExclusive`が今日より先という理由だけでは拒否しない。
 
-月navigationは月初JST日をstart、次月月初をexclusive endとする。日navigationは当日JSTをstart、翌日JSTをexclusive endとする。月・年・うるう日・JST 00:00境界は暦演算で判定する。
+空期間・不正暦日・`fromDate >= toDateExclusive`は`invalid-input`。Requested period全体がNode保持開始より古い等、coverageを立証できない場合に自動で切り詰めず`history-incomplete`とする。最大期間を根拠なく設定しない。Month navigationは月初から翌月月初、Day navigationは当日から翌日をcalendar boundaryとして渡す。
 
 ## 4. Pagination / Continuation
 
@@ -151,93 +160,109 @@ Summaryはcategory別。月Summaryの列はrequest期間内の月を昇順に返
 
 **SPEC-TX-001 / SPEC-RCPT-001 — Raw境界**
 
-Browser向けrecordはSymbol MongoDB BSONを公開せず、Symbol adapterが検証・正規化した値に限る。全recordは`network`, `identity`, `typeCode`, `typeName`, `blockHeight`, `blockTimestamp`, `addressRoles`, `sourceReference`, `completeness`の意味を持つ。Block timestampを解決できないrecordはtimestampを偽造せずnull + incomplete reasonとする。
+Browser向けrecordはSymbol MongoDB BSONを公開せず、Symbol adapterが検証・正規化した値に限る。全recordは`network`, `identity`, `typeCode`, `typeName`, `blockReference`, `blockTimestamp`, `addressRoles`, `sourceReference`, `completeness`の意味を持つ。`completeness`は`complete`, `partial`, `incomplete`, `unsupported`のいずれか。Block timestampを解決できないrecordはtimestampを偽造せずunavailable理由とする。
 
 `identity`は同じnetwork / category内で一意かつ継続読取でも安定するsource-derived identity。`sourceReference`は利用者が元recordの照合に使えるSymbol上のidentifier / Block / Statement sourceを含む。MongoDB collection名・内部document IDを公開仕様にしない。
 
 ### 5.2 Transaction
 
-**SPEC-TX-002 — Transaction fields**
+**SPEC-TX-002 — Common Transaction fields**
 
-| Field意味 | 必須性・規則 |
+Confirmed outer transactionのcomplete recordには、expected network、32-byte transaction hash、block height/hash、Block由来UTC instant、type code/name、signer address、fee absolute units、request addressとのsource-derived role、必要なtype detail、source referenceが必要。Type detailで定義しないフィールドは`not-applicable`、required sourceが欠落すれば`partial`、identity / block / signer / feeなど共通必須値が欠落・矛盾すれば`incomplete`。recognizedであることだけではcompleteを意味しない。
+
+Aggregate embedded transactionは外側transaction hashとblock referenceに結び、identityを`outer hash + embedded index`とする。Embedded feeは`not-applicable`（外側feeへ重複計上しない）。Embedded signer/address rolesと各type detailはembedded sourceから正規化する。Source referenceはnetwork、block height/hash、outer hash、embedded index（該当時）を含み、MongoDB ObjectIdを含めない。
+
+| Normalized semantic | 意味・必須性 |
 |---|---|
-| transaction identity | 必須。outer transactionはconfirmed transaction hash。Aggregate embedded transactionはouter hash + embedded indexで識別 |
-| block reference | confirmed recordではblock height必須。未解決時はincomplete |
-| timestamp | Symbol Block timestampから変換したUTC instant。Transaction固有の受付時刻で代替しない |
-| type | `typeCode`はuint16相当の範囲を10進codeまたは4桁hexとして一意に表現。known type名との対応を保持 |
-| signer | public key / networkから解決可能なSymbol account address。未解決ならunknown |
-| address roles | request addressがsigner、sender、recipient、cosigner、embedded participant等のどの役割で関係するか。複数可 |
-| mosaics / amounts | Amountはmosaic IDと符号なしnative absolute unitsの組。異なるmosaicを合算しない |
-| fee | outer Transactionのnative absolute amount。embedded transaction自身のfeeとして重複計上しない |
-| type details | 既知typeが持つ利用者確認に必要な、型を保持した意味フィールド。raw BSONを含めない |
-| completeness | `complete`, `partial`, `unsupported`。欠損fieldを0・空文字で埋めない |
+| `identity` / `sourceReference` | 上記の安定したprotocol/source identity。重複または参照矛盾はincomplete |
+| `blockReference` / `timestamp` | Block height/hashと`SPEC-TIME-001`のUTC instant。Transaction自身の時刻で代替しない |
+| `type` | uint16 codeと公式schema名。unknownは既知typeへ代入しない |
+| `signer` / `addressRoles` | signer address必須。対象addressがsigner、recipient、target、explicit source、aggregate participant等どの役割か、型別sourceから列挙 |
+| `fee` | outer confirmed transactionのnative absolute fee文字列。Embeddedは`not-applicable` |
+| `mosaics` / `amounts` | type detailで意味が定義される場合だけmosaic IDとunsigned absolute integerを表す。operation deltaとtransfer amountを区別 |
+| `completeness` | `complete`, `partial`, `incomplete`, `unsupported`。欠損をzero/emptyで補完しない |
 
-**SPEC-TX-003 — Address relation**
+**SPEC-TX-003 — Recognized Transaction type details**
 
-指定addressがTransactionに関係する場合、少なくとも署名者、Transfer sender / recipient、Aggregate内参加者、Cosignature participantとしての関係を、そのtypeのsource fieldから判定する。Account用履歴に関係しないChain-wide recordは混入させない。特定roleを解決できず期間網羅性へ影響するときはcoverage incomplete。
+以下のtypeごとに記載した意味fieldを正規化する。共通 signer、outer fee、identity、Block、sourceReferenceは各行へ適用する。Transaction表のsource member名は固定したSymbol OpenAPI DTOのproperty表記であり、Catbuffer protocol semanticsへ対応する。これらはMongoDB raw keyを意味しない。`amount/mosaic = N/A`はprotocol typeに数量移動を意味するfieldがないことを表し、0ではない。
 
-**SPEC-TX-004 — 初期認識Transaction types**
+| Code / type | 必須 type-specific semantic fields | Address roles | Amount / mosaic / fee | Type detailが欠ける場合 | Symbol source members |
+|---|---|---|---|---|---|
+| `0x414C AccountKeyLink` | linked public key, link action | signer account | amount/mosaic N/A; outer fee | partial | `linkedPublicKey, linkAction` |
+| `0x424C NodeKeyLink` | linked public key, link action | signer account | N/A; outer fee | partial | `linkedPublicKey, linkAction` |
+| `0x4243 VrfKeyLink` | linked public key, link action | signer account | N/A; outer fee | partial | `linkedPublicKey, linkAction` |
+| `0x4143 VotingKeyLink` | linked public key, start/end epoch, link action | signer account | N/A; outer fee | partial | `linkedPublicKey, startEpoch, endEpoch, linkAction` |
+| `0x4141 AggregateComplete` | transactions hash commitment, ordered embedded transactions, cosignature public keys; cosignature list may be empty only when source confirms none | outer signer, embedded participant signers, cosigners | no aggregate synthetic amount; child amounts remain child detail; outer fee once | partial if required child/cosignature source absent | `transactionsHash, transactions[], cosignatures[]` |
+| `0x4241 AggregateBonded` | same as AggregateComplete | same | same | same | `transactionsHash, transactions[], cosignatures[]` |
+| `0x414D MosaicDefinition` | nonce, mosaic flags, divisibility, duration | signer/creator | created mosaic identifier when resolved; no transfer amount; outer fee | partial | `nonce, flags, divisibility, duration` |
+| `0x424D MosaicSupplyChange` | mosaic ID, unsigned amount delta, supply action (increase/decrease) | signer/issuer | supply delta is not a transfer; mosaic ID required; outer fee | partial | `mosaicId, delta, action` |
+| `0x434D MosaicSupplyRevocation` | source address, mosaic ID, amount | signer and explicit source address | revoked amount, mosaic ID; outer fee | partial | `sourceAddress, mosaicId, amount` |
+| `0x414E NamespaceRegistration` | registration type, namespace ID, name, parent ID when subnamespace, duration when supplied | signer/registrant | no transferred mosaic; outer fee | partial | `registrationType, id, name, parentId, duration` |
+| `0x424E AddressAlias` | namespace ID, target address, alias action | signer, target address | N/A; outer fee | partial | `namespaceId, address, aliasAction` |
+| `0x434E MosaicAlias` | namespace ID, target mosaic ID, alias action | signer | N/A; outer fee | partial | `namespaceId, mosaicId, aliasAction` |
+| `0x4144 AccountMetadata` | target address, scoped metadata key, value size delta, value bytes | signer, target address | no transfer amount; outer fee | partial | `targetAddress, scopedMetadataKey, valueSizeDelta, valueSize, value` |
+| `0x4244 MosaicMetadata` | target address, target mosaic ID, scoped key, size delta, value bytes | signer, target address | no transfer amount; outer fee | partial | `targetAddress, targetMosaicId, scopedMetadataKey, valueSizeDelta, valueSize, value` |
+| `0x4344 NamespaceMetadata` | target address, target namespace ID, scoped key, size delta, value bytes | signer, target address | no transfer amount; outer fee | partial | `targetAddress, targetNamespaceId, scopedMetadataKey, valueSizeDelta, valueSize, value` |
+| `0x4155 MultisigAccountModification` | min approval/removal deltas, ordered address additions/deletions | signer and each explicit modified address | N/A; outer fee | partial | `minRemovalDelta, minApprovalDelta, addressAdditions[], addressDeletions[]` |
+| `0x4148 HashLock` | locked mosaic ID/amount, duration, aggregate hash | signer | lock amount is locked balance, not a transfer; outer fee | partial | `mosaicId, amount, duration, hash` |
+| `0x4152 SecretLock` | recipient address, secret, hash algorithm, mosaic ID/amount, duration | signer, recipient | locked amount; outer fee | partial | `recipientAddress, secret, hashAlgorithm, mosaicId, amount, duration` |
+| `0x4252 SecretProof` | recipient address, secret, hash algorithm, proof | signer, recipient | N/A; outer fee | partial | `recipientAddress, secret, hashAlgorithm, proof` |
+| `0x4150 AccountAddressRestriction` | restriction flags, ordered address additions/deletions | signer, listed addresses | N/A; outer fee | partial | `restrictionFlags, restrictionAdditions[], restrictionDeletions[]` |
+| `0x4250 AccountMosaicRestriction` | restriction flags, ordered mosaic additions/deletions | signer | N/A; outer fee | partial | `restrictionFlags, restrictionAdditions[], restrictionDeletions[]` |
+| `0x4350 AccountOperationRestriction` | restriction flags, ordered transaction type additions/deletions | signer | N/A; outer fee | partial | `restrictionFlags, restrictionAdditions[], restrictionDeletions[]` |
+| `0x4151 MosaicGlobalRestriction` | target/reference mosaic IDs, restriction key, previous/new values and restriction types | signer/creator | N/A; outer fee | partial | `mosaicId, referenceMosaicId, restrictionKey, previousRestrictionValue, newRestrictionValue, previousRestrictionType, newRestrictionType` |
+| `0x4251 MosaicAddressRestriction` | mosaic ID, restriction key, previous/new values, target address | signer, target address | N/A; outer fee | partial | `mosaicId, restrictionKey, previousRestrictionValue, newRestrictionValue, targetAddress` |
+| `0x4154 Transfer` | recipient address, ordered mosaics (mosaic ID + absolute amount), message bytes/type | signer/sender, recipient | transferred mosaics only; outer fee | partial | `recipientAddress, mosaics[], message` |
 
-Symbol REST OpenAPIに列挙される次の25 type codeをrecognized setとする。Transaction typeの名称は同schemaの名称を用いる。recognized typeのうち型別detail mappingが未実装なら`partial`であり、取引の完全明細またはExport成功に見せない。
+Optional fields are `not-applicable` only where the type schema makes them optional (for example, root namespace duration, parent ID, or absent message); they are not silently zero-filled. A known type with required detail missing is `partial` and cannot satisfy complete-detail acceptance or Export. Type code outside this recognized set is `unknown` and behavior is `unsupported-transaction-type`: only independently validated common identity/type code may be displayed, no inferred details, no complete Summary/Export.
 
-| Hex | Name | Hex | Name |
-|---|---|---|---|
-| `0x414C` | AccountKeyLink | `0x4243` | VrfKeyLink |
-| `0x4143` | VotingKeyLink | `0x424C` | NodeKeyLink |
-| `0x4141` | AggregateComplete | `0x4241` | AggregateBonded |
-| `0x414D` | MosaicDefinition | `0x424D` | MosaicSupplyChange |
-| `0x434D` | MosaicSupplyRevocation | `0x414E` | NamespaceRegistration |
-| `0x424E` | AddressAlias | `0x434E` | MosaicAlias |
-| `0x4144` | AccountMetadata | `0x4244` | MosaicMetadata |
-| `0x4344` | NamespaceMetadata | `0x4155` | MultisigAccountModification |
-| `0x4148` | HashLock | `0x4152` | SecretLock |
-| `0x4252` | SecretProof | `0x4150` | AccountAddressRestriction |
-| `0x4250` | AccountMosaicRestriction | `0x4350` | AccountOperationRestriction |
-| `0x4151` | MosaicGlobalRestriction | `0x4251` | MosaicAddressRestriction |
-| `0x4154` | Transfer | | |
+**SPEC-TX-004 — Initial recognized code set and source profile**
+
+Recognized code set is exactly the 25 codes in `SPEC-TX-003`, corresponding to the repository's Symbol Catbuffer `transaction_type.cats` and the pinned Symbol OpenAPI snapshot. Symbol Catbuffer defines protocol payload semantics; the `_symbol/client/catapult` checkout at `14a0cc16e` is only a concrete mapper profile. For that profile, Mongo mapper exposes transaction body plus metadata for inclusion/source linkage; this is not a universal MongoDB contract. An implementation MUST qualify its node/schema profile against these semantic records before marking it supported. Unknown schema version or unresolvable source-to-semantic mapping is `unsupported-schema`, not an alternate field guess.
 
 ### 5.3 Receipt
 
-**SPEC-RCPT-002 — Receipt fields**
+**SPEC-RCPT-002 — Common Receipt fields and source identity**
 
-| Field意味 | 必須性・規則 |
+Receipt identityは`network + blockHeight + statementKind + sourcePrimaryId + sourceSecondaryId + receiptOrdinal`で構成する。Statement sourceのprimary/secondaryはCatbuffer `ReceiptSource`のprotocol意味（block内transaction index、aggregate inner indexの例）に対応する。Receipt自身のtimestampは存在しないものとして扱い、timestampはStatement heightとBlockから解決する。`sourceReference`はこの値に加えてBlock hashを持つ。Receipt type固有のmosaic / amount / target / sender / recipientは次の表に従う。
+
+| Normalized semantic | 意味・必須性 |
 |---|---|
-| receipt identity | network + block height + statement kind / source + receipt ordinalの組。MongoDB IDに依存しない |
-| receipt type | `typeCode`とschema名。unknown値をknownへ変換しない |
-| mosaic / amount | Receipt typeが持つ場合はmosaic ID + absolute amount。該当しないtypeでは`not-applicable` |
-| target / source | schemaが持つtarget、sender、recipient等の意味役割を別々に保持。ないroleはnullではなく`not-applicable` |
-| statement source | source primary / secondary identifiersとStatement kind |
-| block reference | height必須。Receipt timestamp fieldは定義しない |
-| block timestamp | Statement heightに対応するBlockから解決したtimestamp。欠損時はunavailable |
-| Harvest classification | `harvest`, `not-harvest`, `unknown`。分類根拠となったReceipt Type codeを付ける |
-| completeness | 全必須関係・fieldが検証されたときだけcomplete |
+| identity / type | network付きstatement sourceとreceipt ordinal、およびuint16 type code/name。Receipt BSON IDは使用しない |
+| statement source | statement kind、height、primary/secondary source IDs、receipt ordinal |
+| block reference / time | statement heightからBlock height/hashと`SPEC-TIME-001` UTC instantを解決。欠落時は`block-timestamp-unavailable` |
+| amount / mosaic | type表に定義した場合のみmosaic IDとunsigned absolute integer string。valueはSymbol native unitで、方向をschemaにない限り推測しない |
+| address roles | sender, recipient, targetは別semantic role。存在しないfieldは`not-applicable` |
+| Harvest state | `harvest`, `not-harvest`, `unknown`と理由。Receipt type 0x2143単独の型名以外に、Harvest分類要件を満たす必要あり |
+| completeness | `complete`, `partial`, `incomplete`, `unsupported`。identity / statement source / height / block resolution欠損はincomplete |
 
-**SPEC-RCPT-003 — 初期認識Receipt types**
+**SPEC-RCPT-003 — Recognized Receipt type semantic mapping**
 
-Symbol REST OpenAPI / Catbufferで定義される次の16 typeを認識する。
+| Code / type | Source semantic / amount & mosaic | Address roles | Harvest state / statement-block relation | Completeness condition | Catbuffer source members |
+|---|---|---|---|---|---|
+| `0x124D MOSAIC_RENTAL_FEE` | BalanceTransferReceipt: transferred mosaic ID + absolute amount | sender, recipient | not-harvest; Statement source and Block height required | mosaic, amount, sender, recipient and statement source present | `mosaic.id, mosaic.amount, sender_address, recipient_address` |
+| `0x134E NAMESPACE_RENTAL_FEE` | BalanceTransferReceipt: transferred mosaic ID + absolute amount | sender, recipient | not-harvest | same as above | `mosaic.id, mosaic.amount, sender_address, recipient_address` |
+| `0x2143 HARVEST_FEE` | BalanceChangeReceipt: credited mosaic ID + amount | target (harvester) | harvest only when `SPEC-RCPT-005` all match; Block time from statement | mosaic, amount, target, source, height, Block timestamp present | `mosaic.id, mosaic.amount, target_address` |
+| `0x2248 LOCK_HASH_COMPLETED` | BalanceChangeReceipt: recorded mosaic + amount | target | not-harvest | mosaic, amount, target and source present | `mosaic.id, mosaic.amount, target_address` |
+| `0x2348 LOCK_HASH_EXPIRED` | BalanceChangeReceipt: recorded mosaic + amount | target | not-harvest | same | `mosaic.id, mosaic.amount, target_address` |
+| `0x3148 LOCK_HASH_CREATED` | BalanceChangeReceipt: recorded mosaic + amount | target | not-harvest | same | `mosaic.id, mosaic.amount, target_address` |
+| `0x2252 LOCK_SECRET_COMPLETED` | BalanceChangeReceipt: recorded mosaic + amount | target | not-harvest | same | `mosaic.id, mosaic.amount, target_address` |
+| `0x2352 LOCK_SECRET_EXPIRED` | BalanceChangeReceipt: recorded mosaic + amount | target | not-harvest | same | `mosaic.id, mosaic.amount, target_address` |
+| `0x3152 LOCK_SECRET_CREATED` | BalanceChangeReceipt: recorded mosaic + amount | target | not-harvest | same | `mosaic.id, mosaic.amount, target_address` |
+| `0x414D MOSAIC_EXPIRED` | artifact mosaic ID; amount not-applicable | no address role in Receipt | not-harvest | artifact ID and source/height present | `artifact_id` |
+| `0x414E NAMESPACE_EXPIRED` | artifact namespace ID; amount not-applicable | none | not-harvest | artifact ID and source/height present | `artifact_id` |
+| `0x424E NAMESPACE_DELETED` | artifact namespace ID; amount not-applicable | none | not-harvest | artifact ID and source/height present | `artifact_id` |
+| `0x5143 INFLATION` | created mosaic ID; Receipt schema has no amount field | no target; not a harvester credit | not-harvest | mosaic and source/height present; quantity is not-applicable | `mosaic.id` |
+| `0xE143 TRANSACTION_GROUP` | grouping marker only; no mosaic/amount | none | not-harvest | type and source/height present | `Receipt type/version only` |
+| `0xF143 ADDRESS_ALIAS_RESOLUTION` | address resolution entry: unresolved/resolved address values in statement; no amount | no transfer role | not-harvest | resolution values and source/height present | `address resolution entry: unresolved, resolved, source` |
+| `0xF243 MOSAIC_ALIAS_RESOLUTION` | mosaic resolution entry: unresolved/resolved mosaic IDs; no amount | none | not-harvest | resolution values and source/height present | `mosaic resolution entry: unresolved, resolved, source` |
 
-| Code | Name | Contract handling |
-|---|---|---|
-| `0x124D` | Mosaic_Rental_Fee | recognized Receipt。必要なtarget / transfer / amountを出す |
-| `0x134E` | Namespace_Rental_Fee | recognized Receipt。必要なtarget / transfer / amountを出す |
-| `0x2143` | Harvest_Fee | Harvest candidate。下記Harvest分類条件に従う |
-| `0x2248` | LockHash_Completed | recognized Receipt |
-| `0x2348` | LockHash_Expired | recognized Receipt |
-| `0x2252` | LockSecret_Completed | recognized Receipt |
-| `0x2352` | LockSecret_Expired | recognized Receipt |
-| `0x3148` | LockHash_Created | recognized Receipt |
-| `0x3152` | LockSecret_Created | recognized Receipt |
-| `0x414D` | Mosaic_Expired | recognized Receipt |
-| `0x414E` | Namespace_Expired | recognized Receipt |
-| `0x424E` | Namespace_Deleted | recognized Receipt |
-| `0x5143` | Inflation | recognized Receipt; Harvest candidateではない |
-| `0xE143` | Transaction_Group | recognized Receipt / grouping record。XYM取得量へ集計しない |
-| `0xF143` | Address_Alias_Resolution | recognized resolution receipt。XYM quantityはnot-applicable |
-| `0xF243` | Mosaic_Alias_Resolution | recognized resolution receipt。XYM quantityはnot-applicable |
+Catbuffer member names above describe protocol semantics; actual Node Mongo projection names remain adapter-specific and are qualified under `SPEC-TX-004` / OPEN-007. Statement identity members are `height`, `source.primaryId`, `source.secondaryId`, and the receipt array ordinal; a Receipt has no timestamp field. The meanings above follow Symbol Catbuffer receipt inheritance: rental receipts are balance transfers; Harvest Fee, lock created/completed/expired receipts are balance changes; expiry/deletion receipts carry artifact IDs; Inflation carries a created mosaic; resolution receipts are statement resolution records. An amount is not assigned where the protocol shape has no amount. Where the supported Node source does not provide a required protocol semantic, completeness is `partial` or `incomplete`; it is never inferred from the initiating transaction.
 
 **SPEC-RCPT-004 — Unknown / unsupported type**
 
-構造的に識別可能な未知Receiptはtype code、source reference、block refを表示し、`unsupported-receipt-type`かつscope incompleteとする。type固有のamount、target、Harvest分類を推測しない。Receipt Typeが不正値・欠落し、identityやStatement構造も解釈できない場合は`unsupported-schema`。未知型が期間内に存在すれば完全Summary・Exportを拒否する。
+An unrecognized numeric type code is `unknown` and `unsupported-receipt-type`; when identity and Statement/Block references remain valid, common identity, code, source and timestamp may be displayed, but type details, amount, target, Harvest classification are unavailable and complete Summary/Export is prohibited. A recognized code with missing required type-specific source is `partial`; missing identity/statement/block linkage is `incomplete`. A source schema that cannot be interpreted as the supported adapter profile is `unsupported-schema`. These states are distinct and never fallback to a known type.
+
 
 ### 5.4 Harvest Receipt識別
 
@@ -316,9 +341,9 @@ XYM表示値はabsolute integerを厳密に1,000,000で除したdecimal文字列
 
 bitbankのOHLCV価格とvolumeはJSON string decimalとして受け取り、指数表記・NaN・Infinity・負数・不正scaleを拒否する。原decimal valueをbinary floatへ変換しない。API応答上のdecimal文字列を正規化して保存する。
 
-**SPEC-NUM-004 — Valuation arithmetic**
+**SPEC-NUM-004 — Exact price and valuation arithmetic**
 
-価格選択が承認された後、`evaluatedJPY = absoluteXYMAmount × selectedJPYPerXYM ÷ 1,000,000`をdecimal/rational exact arithmeticで計算する。評価中間値で丸めない。Harvest aggregate JPYは個別evaluatedJPYのexact sum。JPY表示currency roundingとCSV serialization roundingは未決`OPEN-SPEC-003`であり、値を0円へ丸めることは禁止。
+All arithmetic uses exact decimal/rational values; binary floating point is forbidden. For a verified Harvest Fee Receipt, `individualEvaluationPrice = (open + high + low + close) / 4`, with the four Provider decimal values summed exactly and divided by 4 before multiplication; OHLC inputs are not pre-rounded. `individualEvaluatedJPY = (amountAbsolute / 1,000,000) × individualEvaluationPrice`. No intermediate rounding is performed. Display and internal values preserve the exact result. Cryptact CSV serialization emits exact decimal text only when every numeric value has fewer than 15 fractional digits (Cryptact's current custom-file guide directs values with 15+ fractional digits to its Excel sample). If exact representation is not possible within that CSV rule, reject the export as `cryptact-format-unavailable`; do not round to a different value. Rounding mode for accepted CSV values is therefore none. XYM quantity display has at most six exact decimal places.
 
 **SPEC-NUM-005 — Overflow / malformed number**
 
@@ -334,103 +359,70 @@ Price sourceはXYM/JPYのみ。他mosaicはXYMとして評価しない。円金�
 
 **SPEC-PRICE-001 — Market**
 
-初期sourceはbitbank Public API、pair `xym_jpy`、candle type `1min`。Public docsはcandle request path `/{pair}/candlestick/{candle-type}/{YYYY}`、1minではdate pathを`YYYYMMDD`、ohlcv entryを`[open,high,low,close,volume,unixTimestampMilliseconds]`と定義する。Docsは`timestamp`のmillisecond値を規定するが、分足timestampの区間anchor/timezoneの説明は見つからなかった。
-
-### 8.2 Observation record
+Initial source is bitbank Public API pair `xym_jpy`, candle `1min`. Official docs define minute request date as `YYYYMMDD` and candle tuple `[open, high, low, close, volume, unix timestamp milliseconds]`; they do not state whether entry timestamp anchors the minute start or end, nor its calendar timezone. The API timestamp semantic remains unverified (see `OPEN-002`). Until verified, the implementation MUST NOT treat a provider entry as an approved minute observation for evaluation; affected receipts return `price-unavailable(provider-timestamp-anchor-unverified)`. This is a deliberate fail-closed behavior, not a claim about actual bitbank responses.
 
 **SPEC-PRICE-002 — Required observation data**
 
-Price observationの公開意味は以下を持つ。
-
-| Field | 意味 |
-|---|---|
-| provider | 固定値`bitbank-public` |
-| pair | 固定値`XYM/JPY` |
-| interval | 固定値`1min` |
-| candleTimestamp | ProviderのUnix timestamp millisecondsを整数で保持 |
-| open/high/low/close/volume | Provider decimal stringをexact decimalとして保持 |
-| fetchedAt | Serverが取得成功を認識したUTC instant |
-| sourceReference | Provider pair / interval / request date / returned row位置 |
-| observationIdentity | pair + interval + candleTimestamp + canonical OHLCV decimal tuple |
-| observationState | `observed`, `correction-candidate`, `ambiguous`。重複取得は新規観測を増やさず、採用観測はReceipt Price Evaluationから参照する |
-
-response内にないProvider version / request IDは推測で生成せず、取得API版とresponse schemaの識別情報をprovenanceに含める。過去のPublic API payload全体を保存するか、保存量のretentionは運用決定として残す。
-
-### 8.3 Append-only / re-fetch
+Each accepted observation carries provider `bitbank-public`, pair `XYM/JPY`, interval `1min`, provider timestamp in integer Unix milliseconds, OHLCV exact decimal strings, server `fetchedAt` UTC instant, request date, response schema/profile provenance, and an identity from market + interval + timestamp + canonical OHLCV tuple. Observation is shared market data, not address or network keyed.
 
 **SPEC-PRICE-003 — Duplicate and changed observation**
 
-同一pair・interval・candleTimestampと全く同じcanonical OHLCVは同一観測としてidempotentに扱う。時刻keyは同一だがいずれかのOHLCVが異なる応答は新しい`correction-candidate`観測であり、既存observationを書き換えない。二つ以上異なる候補があるtimestampはambiguousとする。
-
-`selected`の価格観測は、対応する既存Receipt evaluationから暗黙に差し替えない。再取得自体は既存評価を自動再計算・Export更新しない。明示的な再評価機能は要件にないため初期仕様では提供しない。Conflictに選択観測がすでに固定されていない場合は`price-observation-conflict`。
+Same market, interval, timestamp and canonical OHLCV is an idempotent duplicate. Changed OHLCV at the same market-minute key is an append-only `correction-candidate`; it never overwrites an existing observation or silently changes any evaluation. More than one value candidate makes that minute `ambiguous` (`price-observation-conflict`) until an explicit selection policy is approved. No automatic re-evaluation feature is introduced.
 
 **SPEC-PRICE-004 — Retention / reuse**
 
-ObservationはSymbol Node DBから独立したSymTax市場データとして永続保存し、address/network単位に複製しない。保存済み価格はProvider停止中にも読める。経過期間のみを理由に削除しない。価格Store利用不能時は保存価格hit/missを確定できず、該当評価をcompleteにしない。
+Observations persist in the independent SymTax Price Store, are reusable during Provider outage, are market-shared, and are not deleted solely due to age. Existing chosen observation and evaluation provenance are immutable.
 
-### 8.4 Price selection blocker
+### 8.2 Block-to-minute and evaluation rule
 
-**SPEC-PRICE-005 — Timestamp to candle**
+**SPEC-PRICE-005 — Timestamp matching and price rule**
 
-候補minuteはblock Unix instantに対応する60,000ms区間でなければならない。JST日付を使って選択しない。bitbank公式資料からentry timestampがminuteの開始・終了どちらを示すか、exact boundaryでの足包含規則、過去APIのdate pathと時刻basisが確定できなかった。
+Lookup input is the exact UTC Block instant from `SPEC-TIME-001`; JST date is never the lookup key. The intended minute interval is `[floor(unixMilliseconds/60000)×60000, floor(unixMilliseconds/60000)×60000 + 60000)`. An exact minute-boundary Block instant belongs to the minute starting at that exact instant; an instant one millisecond before belongs to the preceding minute; one millisecond after belongs to the new minute. The provider timestamp anchor itself has not been documented or confirmed by a live response, so this interval rule does not authorize assuming timestamp equality means minute start. Until bitbank timestamp anchor is verified from official provider evidence or repeatable API evidence, valuation remains unavailable for all observations. Release of price evaluation requires closing this evidence gate.
 
-**OHLC採用値は未決定でBLOCKING。** Official docsは4値の存在を示すだけで税務上の唯一正しい値・市場評価値を定めない。Close等を暫定採用しない。bucket anchor、exact-boundary、OHLC値が承認されるまで`Price evaluation`、JPY Summary、Harvest Exportをcompleteとして実装しない。
-
-### 8.5 Missing price cases
+After that gate is closed, only the Provider row confirmed to represent this exact interval is selectable; no adjacent-minute search is allowed. SymTax evaluation rule identifier is `symtax-harvest-ohlc-arithmetic-mean-1`: `price=(O+H+L+C)/4`. This is a SymTax product valuation rule for reproducibility. It is not the price supplied directly by bitbank, tax advice, a legally unique correct market price, or a Cryptact recommendation. Exact arithmetic and no intermediate rounding follow `SPEC-NUM-004`.
 
 **SPEC-PRICE-006 — Missing / provider failure**
 
-| Condition | Result | retry | Evaluation / aggregation / export |
-|---|---|---|---|
-| candle rowなし | `price-unavailable` | 後続要求で再取得可能 | 評価・集約不可、価格必須Export拒否 |
-| responseに該当minuteなし | `price-unavailable` | 後続要求可 | 上記と同じ |
-| volume = 0 | 価格値を保持するがeligible priceと確定しない。価格根拠状態は未決OPEN | 自動近傍探索なし | BLOCKING until policy; 0 volumeを0 JPYとして扱わない |
-| timeout / provider error | `price-provider-unavailable` | 再試行可能 | 保存済みで確定選択済み観測のみ利用可 |
-| malformed response / invalid decimal | `price-provider-invalid-response` | responseの修正後 | 当該取得を受理・評価しない |
-| Storeなし / Store unavailable | `price-unavailable` / `price-store-unavailable` | Store復旧後 | complete評価にしない |
-| block timestamp不明 | `block-timestamp-unavailable` | Node参照復旧後 | price lookupを実行しない |
+| Condition | Result | Evaluation / aggregation / export |
+|---|---|---|
+| Verified target candle absent, response omits minute, or timestamp anchor unverified | `price-unavailable` with reason; no interpolation or neighboring candle | no evaluation, no JPY total, no aggregation, price-dependent Export rejected |
+| `volume = 0` | `price-unavailable(zero-volume-candle)` even if OHLC fields are present | no evaluation; no fallback |
+| Provider timeout/non-success | `price-provider-unavailable` | reuse only an already uniquely selected immutable observation; otherwise unavailable |
+| malformed response / invalid decimal / wrong pair or interval | `price-provider-invalid-response`; do not accept observation | no evaluation for affected record |
+| Price Store absent/unavailable | `price-store-unavailable` | no complete evaluation |
+| Block timestamp unresolved | `block-timestamp-unavailable`; do not query price | no evaluation |
 
-自動補間、前後candle検索、Volume 0 fallbackは初期仕様では定義しない。具体挙動の最終決定は`OPEN-SPEC-004`。
+No zero-yen fallback, carry-forward, interpolation, or nearest-candle search is allowed. Price missing is not numeric zero.
 
-### 8.6 Receipt evaluation
+**SPEC-PRICE-007 — Receipt evaluation evidence**
 
-**SPEC-PRICE-007 — Evaluation evidence**
-
-各評価結果は`receiptReference`, `amountAbsolute`, `blockTimestamp`, `priceObservationIdentity`, `provider`, `pair`, `interval`, `selectedJPYPerXYM`, `evaluatedJPY`, `ruleVersion`, `completeness`, `unavailableReason`を追跡できる。入力は同一Receipt、同一block instant、同一選択observation、同一rule versionなら決定的に同一結果とする。
-
-Evaluation結果自体は利用者別履歴として永続保存しない。ただし、同じ結果の再現に必要なselected observationとrule versionを閲覧・Export結果と結び付ける。selected observation selection rule versionの正式値はprice rule blocker解消時に定義する。根拠を再現できない価格値を表示しない。
+Evaluation exposes receipt reference, absolute XYM amount, exact block instant, selected observation identity (when available), provider/pair/interval, individual evaluation price, exact evaluated JPY, rule identifier, completeness, and unavailable reason. Same inputs and versions produce identical results. Until timestamp-anchor verification, no complete evaluation is possible. Evaluation itself is request-local, while its shared observation provenance is persistent.
 
 ## 9. Harvest Eligibility / Daily Aggregation
 
-### 9.1 Eligibility
+**SPEC-AGG-001 — Explicit opt-in and warning**
 
-**SPEC-AGG-001 — State contract**
+Individual Harvest Receipt output is the default. Harvest daily aggregation runs only when the user explicitly selects `mode=daily-harvest`; it is an optional row-count reduction feature. Before confirmation, the application MUST show: “Harvestの日次集約は登録件数を減らす任意機能です。SymTaxは取引所等で行われたXYMの売買や保有状況を把握しません。総平均法・移動平均法その他の計算方法や売買時刻によって、個別明細で登録した場合と計算結果が異なる可能性があります。必要に応じて個別明細を利用するか、売買時刻等を基準に集約区間を分割してください。SymTaxは税務判断や計算結果を保証しません。” This is a limitation notice, not tax advice.
 
-Eligibilityは`eligible`, `ineligible`, `unknown`のいずれか。`unknown`を`eligible`へfallbackしない。分類はprotocol-level Harvest Fee Receiptの識別であり、税務上の取得・所得区分を表さない。
+**SPEC-AGG-002 — Structural eligibility only**
 
-**SPEC-AGG-002 — Candidate set**
+States are `eligible`, `ineligible`, `unknown`. Eligibility MUST NOT infer same-day sales, exchange trades, holdings, tax method, cost basis or tax safety. No condition requiring “no sale that day” is allowed. A record is `eligible` only when all are true: protocol classification is verified `HARVEST_FEE (0x2143)`; mosaic is that runtime's confirmed native XYM ID; absolute quantity is valid; Statement/Block identity and timestamp resolve; exact price evaluation is complete and unambiguous; JST date and split interval resolve; source reference is unique; network and requested history coverage are complete. A known non-Harvest, non-XYM record is `ineligible`. Missing/conflicting evidence is `unknown`. User opt-in does not convert ineligible/unknown to eligible.
 
-候補は`SPEC-RCPT-005`を満たした個別`HARVEST_FEE (0x2143)`のみ。`INFLATION (0x5143)`、他Receipt、Transactionはineligibleで、Daily aggregateに混ぜない。
+If any selected member in an interval is `ineligible` or `unknown`, that interval has no aggregate row and the daily export is rejected/incomplete; do not silently exclude it. User may instead choose individual Harvest output, which remains separate. This fallback does not represent tax equivalence.
 
-### 9.2 Eligibility rules and blocker
+**SPEC-AGG-003 — Daily partition and split points**
 
-次の条件をすべて満たすrecordは構造上`eligible-candidate`とする: Harvest classification `harvest`; native XYM mosaic ID確認; amount valid; block timestamp/price evaluation complete; JST date known; source reference unique; same type/asset grouping. `ineligible`: known non-Harvest, no amount movement, invalid structural amount, or non-XYM asset under XYM daily mode. `unknown`: type/relationship/price classification incomplete, duplicate/conflicting source, or unresolved rule.
+The user MAY pass zero or more local JST split datetimes in the selected period. Input form is `YYYY-MM-DDTHH:mm:ss[.SSS]`, interpreted in `Asia/Tokyo`; offset suffixes are not accepted. Precision is one millisecond; more than three fractional digits or malformed civil time is `invalid-input`. Split points MUST lie within the requested period; an out-of-period split is `invalid-input`. Points are normalized by their JST calendar date, sorted ascending, and deduplicated by exact instant. A split at a day boundary is a redundant boundary and creates no empty interval. For each JST day, construct `[JST 00:00, split1)`, `[split1, split2)`, …, `[lastSplit, following JST 00:00)`. If no point occurs on that day, use the single full-day interval. Points spanning multiple dates apply to the corresponding date; they are not repeated on other dates. Period clipping preserves half-open semantics. A Receipt whose Block instant equals a split point belongs to the later interval. Duplicate points are one boundary. Each interval is an independent aggregation group.
 
-しかし本仕様では、Cryptact上の取引分類、総平均法 / 移動平均法、同日売却をまたぐ集約、時系列順序による損益差について、税務上安全なeligibleを決定する根拠がない。よって実装用最終状態は **Harvest daily aggregation eligibility = BLOCKING**。上の候補条件だけでCryptact用`eligible`と確定してはならない。
+**SPEC-AGG-004 — Aggregate result and exact sums**
 
-### 9.3 Aggregation result
+Each row/result identifies JST date, interval start/end, receipt count, exact total XYM absolute units, exact sum of each member's evaluated JPY, component Receipt references, component evaluation references, completeness, and rule identifier `symtax-harvest-daily-split-exact-sum-1`. No source Receipt or individual evaluation is replaced or deleted. The aggregate JPY total MUST equal the exact sum of component evaluation JPY values.
 
-**SPEC-AGG-003 — Required result contract**
+When Cryptact requires a unit price, derive `weightedAveragePrice = totalEvaluatedJPY / totalXYM`; never average individual OHLC-average prices directly. The derived price is not a new evaluation source. It is exportable only if its decimal representation is finite and exactly representable under the Cryptact CSV precision rule; otherwise daily CSV export is rejected as `cryptact-format-unavailable`, with no rounding that changes the total. Zero total XYM makes the group ineligible for export.
 
-Eligibility blockers解消後の集約行は、`aggregationDate`(JST), `asset=XYM`, `totalQuantityAbsolute`, `totalEvaluatedJPY`, `componentCount`, `componentReceiptReferences[]`, `componentEvaluationReferences[]`, `completeness`, `aggregationRuleVersion`を含む。total quantityはabsolute unit integer exact sum。totalJPYは個別evaluationのexact sumでありaggregate quantityから価格を逆算してsource of truthにしない。
+**SPEC-AGG-005 — Ordering and provenance**
 
-**SPEC-AGG-004 — Group partition**
-
-日が同じことだけでまとめない。初期候補group keyはJST date + asset + Receipt type + evaluation / eligibility rule version。税務方式・取引順序上の境界が検証されるまではgroupの最終partitionを承認しない。異種asset、Receipt type、rule versionを同じ行へ混ぜない。
-
-**SPEC-AGG-005 — Reversibility**
-
-Aggregateは派生recordであり元Receiptを削除・置換しない。各集約行から全構成Receiptと個別Price Evaluationへ戻れなければならない。unknown / incomplete memberを落として集約件数を減らす部分成功は不可。`weightedAveragePrice`を出す場合もdisplay-only派生値で、totalJPYおよび個別評価の代わりにしない。
+Components retain their original exact Block instants and stable Receipt identity ordering. Aggregate result references every member and its selected observation/rule. Transaction and non-Harvest Receipt compression is forbidden in initial release.
 
 ## 10. Cryptact Export Contract
 
@@ -461,29 +453,23 @@ CSV row values containing `'`, `"`, or `\` are prohibited by current official gu
 
 ### 10.2 Transaction and Receipt mapping
 
-**SPEC-EXPORT-002 — Individual mode**
+**SPEC-EXPORT-002 — Initial Individual Export allowlist**
 
-`mode=individual` is distinct from daily aggregate and preserves one output candidate per selected on-chain Transaction / Receipt according to the approved mapping. Cryptact action type, fee handling, recognized asset, address transfer treatment, and selection scope MUST be validated against a current official mapping. SymTax MUST NOT invent BUY/SELL/LOSS/BONUS/STAKING from protocol role or transaction direction alone.
+The only initially mapped Symbol item is individual `HARVEST_FEE (0x2143)` Receipt, mapping as specified in `SPEC-EXPORT-003`. No initial Transaction type or Harvest-external Receipt type is assigned a Cryptact action; such a selected record returns `cryptact-mapping-unavailable`. A requested complete file that includes any unmappable selected record is rejected and reports type/count; it never silently omits that record. Individual Harvest mode emits one line for each complete selected Receipt.
 
-The generic CSV contract is established, but Symbol transaction type → Cryptact action mappings are unresolved. Any selected type without approved mapping is `cryptact-mapping-unavailable`; a complete Individual file may not silently omit it.
+**SPEC-EXPORT-003 — SymTax Harvest product mapping**
 
-### 10.3 Harvest mapping
+SymTax maps Symbol `HARVEST_FEE (0x2143)` to Cryptact action `STAKING`. This is an explicit SymTax product mapping decision. Cryptact documentation defines a generic `STAKING` action for staking rewards but does not officially classify Symbol harvesting as `STAKING`; the mapping is not the unique tax-correct treatment and does not promise a tax outcome.
 
-**SPEC-EXPORT-003 — Harvest action**
+For an individual Harvest CSV row: `日時` is the Receipt's derived Block instant rendered in JST to whole seconds by truncating fractional seconds; `種類=STAKING`; `ソース=SymTax Symbol Mainnet` or `SymTax Symbol Testnet`; `主軸通貨=XYM`; `取引量=Receipt XYM relative quantity`; `価格=that Receipt's OHLC arithmetic-mean evaluation price`; `決済通貨=JPY`; `手数料=0`; `手数料通貨=JPY`; `コメント` is a stable human-readable Symbol source reference. The source reference is not delegated to Cryptact's comment as machine provenance.
 
-Cryptact official material describes `STAKING` as a staking reward and describes staking rewards as profit recognized at transaction time. It does not state that Symbol `HARVEST_FEE (0x2143)` is a staking transaction or prescribe a tax action for Symbol harvesting. Therefore `HARVEST_FEE → STAKING` is not assumed. Harvest individual and daily exports are BLOCKING until Cryptact / project tax-advice confirms the accepted action mapping and processing semantics. `BONUS`, `MINING`, or other actions must not be substituted by inference.
+**SPEC-EXPORT-004 — Harvest Daily Export**
 
-### 10.4 Daily output and economic semantics
+Daily mode is explicitly selected, contains only eligible Harvest Fee Receipts and emits one line per JST split interval with nonempty members. `種類=STAKING`, `主軸通貨=XYM`, `取引量=exact interval total`, `価格=total individual evaluated JPY / total XYM`, `決済通貨=JPY`, fee `0` and fee currency `JPY`; other fields follow `SPEC-EXPORT-003`/`007`. Row `日時` is the earliest component's exact Block instant, truncated to seconds for CSV. The UI result, separate from CSV, exposes JST date/interval and all source/evaluation references. Cryptact generic volume/price semantics make this product mapping structurally representable, but actual upload acceptance and equivalence of Cryptact calculation results are not verified. SymTax makes no equivalence or tax correctness claim.
 
-**SPEC-EXPORT-004 — Daily output**
+**SPEC-EXPORT-005 — Numeric serialization**
 
-Daily mode includes only approved eligible Harvest Fee Receipt groups, with one output row per approved group; date is JST. Transaction and non-Harvest Receipt compression is prohibited. Each row needs component Receipt / price references in SymTax's user-visible result, even though Cryptact comment is memo-only and cannot be relied on as machine provenance.
-
-Official generic file docs define volume as position change and price as counter per base unit, which allows a numeric weighted price field structurally. They do not establish Symbol Harvest mapping, daily aggregation acceptance, or equivalent P/L behavior under Cryptact's average-cost methods. Actual upload / calculation comparison is not performed because a Cryptact account/service upload is unavailable in this task. Therefore file-level and economic-equivalence status are separate; daily output remains BLOCKING.
-
-**SPEC-EXPORT-005 — Price and volume**
-
-After Harvest mapping and OHLC selection are approved, daily `volume` is total XYM relative quantity and price would have to express `totalEvaluatedJPY / totalXYM` in JPY per XYM for the official CSV field semantics. This quotient may be repeating or affected by Cryptact decimal parsing. Exact scale, rounding, fee/counter values, and upload acceptance are unresolved. No rounded value is specified pending confirmation; do not output a row as complete.
+CSV numeric values are base-10 decimal strings with `.` decimal separator, no grouping separators, no exponent notation, and no leading `+`. Serialize exact integer/decimal values with insignificant trailing zeros removed. No arithmetic rounding occurs. If a required value needs 15 or more fractional digits or cannot be represented exactly as finite decimal text, CSV mode returns `cryptact-format-unavailable`; it MUST NOT approximate, truncate, or substitute a rounded value. This honors the current official Cryptact guide, which directs values with at least 15 decimal places to its Excel sample. XLSX is not an initial output mode.
 
 ### 10.5 Export completion
 
@@ -493,13 +479,13 @@ After Harvest mapping and OHLC selection are approved, daily `volume` is total X
 |---|---|---|
 | `complete` | Every selected source record has full coverage, supported mapping, required price/eligibility, and full format validation | Deliver only after all blockers for that mode are resolved |
 | `incomplete` | Source scope has unknown, unsupported, missing, or unvalued items; no complete file may be presented | No file in initial release; provide reason and counts |
-| `rejected` | Request invalid, wrong network, mapping mode not approved, or unsupported file contract | No file |
+| `rejected` | Request invalid, wrong network, mapping unavailable, unsupported format, or a configured resource limit reached (`export-resource-limit`) | No file |
 
-Initial contract rejects full export on any missing source, unsupported type, unavailable required price, unknown eligibility, or missing mapping. No partial export mode is specified because it is not an upstream requirement. A rejected / incomplete result reports category, period, total affected count, and reason counts without silently dropping items.
+Initial contract rejects full export on any missing source, unsupported type, unavailable required price, unknown eligibility, or missing mapping. No partial export mode is specified because it is not an upstream requirement. A rejected / incomplete result reports category, period, total affected count, and reason counts without silently dropping items. A configured runtime resource limit reached before completion returns `rejected/export-resource-limit`; staged chunks are discarded and no partial file or download token is delivered.
 
 **SPEC-EXPORT-007 — CSV determinism**
 
-When mode blockers are cleared, rows are sorted by underlying UTC instant ascending, then stable transaction / receipt identity. `日時` is rendered in JST seconds; two distinct events in one second remain separate rows for individual mode. Japanese headers match the official template and output uses UTF-8 with BOM, as shown by the official CSV sample. CRLF/LF choice, decimal maximum scale, empty / zero encoding, CSV quoting, and sub-second collisions are `OPEN-SPEC-007`; they must be locked using a current official template and acceptance test before enabling downloads.
+Rows are sorted by underlying UTC instant ascending then stable source identity; daily groups sort by interval start. `日時` is rendered in JST seconds with fractional seconds truncated, not rounded. Distinct individual events within one second remain separate rows. Header is the exact 10-column Japanese official header; encoding is UTF-8 with BOM; record separator is CRLF; CSV quoting follows RFC 4180 for delimiter/newline/quote and is rejected if any field contains apostrophe, double quote, or backslash per current Cryptact guide. Empty optional comment is empty; fee is numeric `0`; other required fields cannot be empty. Numeric precision follows `SPEC-EXPORT-005`. File timezone for import is JST.
 
 ## 11. Error / Incomplete State
 
@@ -509,7 +495,10 @@ When mode blockers are cleared, rows are sorted by underlying UTC instant ascend
 
 | Code | Meaning | Retry | Records displayable | Export |
 |---|---|---|---|---|
-| `invalid-input` | malformed address/date/page size | after correcting input | no search result | rejected |
+| `invalid-input` | malformed address/date/page size/split datetime | after correcting input | no search result | rejected |
+| `future-period` | effective requested interval starts at or after requestNow, including tomorrow-only | no; choose a current/past interval | no search result | rejected |
+| `export-resource-limit` | configured bounded export budget reached before complete output | retry with smaller scope or after approved capacity change | no complete file; progress is not a deliverable | rejected |
+| `cryptact-format-unavailable` | exact value cannot be serialized within initial Cryptact CSV decimal rules | no rounding retry; choose other supported output or revise range/mode | source details remain displayable | rejected |
 | `unsupported-input` | hex / namespace / NEM input outside contract | no, change input format | no | rejected |
 | `wrong-network` | address or node evidence conflicts with expected network | only after selecting correct environment/address | no | rejected |
 | `network-identity-unavailable` | required node evidence unavailable or contradictory | after node/config recovery | no result accepted | rejected |
@@ -522,9 +511,10 @@ When mode blockers are cleared, rows are sorted by underlying UTC instant ascend
 | `block-timestamp-unavailable` | Receipt Statement → Block timestamp unresolved | retry after source recovery | Receipt details may display incomplete | reject price dependent output |
 | `price-unavailable` | no approved stored / returned candle for lookup | retry only if provider data may appear | Receipt unvalued | reject valuation-dependent output |
 | `price-provider-unavailable` | bitbank timeout / non-success response | retry with backoff outside contract | cached selected prices may remain usable | otherwise reject |
+| `price-store-unavailable` | SymTax Price Store unavailable, observation cannot be confirmed | after Store recovery | source record remains displayable, valuation unavailable | reject price-dependent output |
 | `price-provider-invalid-response` | malformed JSON, decimal, pair, interval, or timestamp | retry after provider recovery | no new observation accepted | reject affected rows |
 | `price-observation-conflict` | multiple differing observations without approved selected one | no automatic retry resolution | historical record visible, valuation ambiguous | reject |
-| `aggregation-ineligible` | known condition prohibits grouping | no | Receipt detail display | daily row excluded only if mode is rejected/incomplete; no partial file |
+| `aggregation-ineligible` | known condition prohibits grouping | no | Receipt detail display | selected daily export rejected/incomplete; no partial file |
 | `aggregation-unknown` | eligibility cannot be established | after rule/source evidence change | Receipt detail display | reject |
 | `cryptact-mapping-unavailable` | no approved action / coin / fee mapping | after official mapping decision | source and valuation display | reject |
 | `export-incomplete` | not all selected data / rows pass contract | after fixing source/rules | reasons and counts display | no file |
@@ -558,21 +548,12 @@ Application / operational logs MUST NOT include MongoDB credentials, connection 
 
 **SPEC-RES-001 — Bounded request output**
 
-One detail response contains at most 100 records. Summary response contains at most 100 buckets. Continuation is required for further records / buckets. Browser must not request an unbounded all-record payload; all-record requests are invalid. This does not define an overall maximum period or Export size.
+Browse and export MUST execute server-side with bounded memory and incremental/chunked processing. Browser does not receive all raw records and does not construct the export from full history. Export generation keeps only bounded working data per chunk; when the configured runtime limit for elapsed work, record count, bytes, or another resource budget is reached, return `rejected/export-resource-limit`, discard staged partial output, and deliver no file. The limit set must be finite and configured for every deployment; missing/unbounded configuration fails closed. The Specification does not invent numeric budgets. Completion is atomic from the user's view: only after all pages, mappings, valuations, and final serialization succeed is a file made available. Retry is safe and does not mutate raw history or prior price observation provenance.
 
-**SPEC-RES-002 — Long history workload**
+**SPEC-RES-002 — Release gate and representative workload**
 
-Conformance workload includes multi-year Transactions, monthly hundreds to thousands of Receipts, and 700 Harvest Fee Receipts in one month as an example. Evaluation records response pagination, completeness, repeatable summary/detail membership, and absence of required browser full-history retention. Numeric response-time, memory, and full-range Export limits await representative measurements (`OPEN-SPEC-008`). Public launch of unbounded all-period Export is BLOCKING until cap / streaming completion semantics are measured and specified.
+Measure with multi-year records, hundreds to thousands of Receipts per month, and the user-reported example of about 700 Harvest-related Receipts in one month. Record server memory, elapsed time, completion status, price-store behavior and output size; do not claim a numeric threshold before measurement. Before public release, a finite period/record/file/time budget and acceptance threshold must be approved from these measurements. Full-range Export cannot be released before this gate. This requirement does not limit period browsing by an invented date cap.
 
-### 12.3 Compatibility versions
-
-**SPEC-VER-001 — Contract versions**
-
-Response and continuation payload meanings carry `contractVersion=1`; incompatible field semantics, type set, order keys, or continuation meaning require a new contract version and old continuation tokens are rejected. This is an external envelope version, not a database schema claim.
-
-**SPEC-VER-002 — Rule versions**
-
-Price evaluation and Harvest aggregation results MUST identify the exact price / aggregation rule version that produced them. Cryptact mapping MUST identify its approved mapping revision. These version values are intentionally undefined until blockers close; missing rule revision means result is unknown/incomplete, never implicit `v1`.
 
 ## 13. Conformance Cases
 
@@ -585,12 +566,12 @@ Cases below are externally observable contract checks, not an implementation uni
 | CT-003 | Valid address for other runtime | `wrong-network`, no records |
 | CT-004 | checksum-invalid / malformed / empty address | `invalid-input` |
 | CT-005 | hex address, Namespace ID, NEM address | `unsupported-input` |
-| CT-006 | `fromDate == toDateExclusive`, malformed date, future date | `invalid-input` |
+| CT-006 | `fromDate == toDateExclusive` or malformed date | `invalid-input`; future-only periods are checked by CT-077〜080 |
 | CT-007 | Period starts/ends at JST 00:00 inclusive/exclusive | exact expected boundary record set |
 | CT-008 | JST month-end / year-end / leap day | month/day buckets follow JST calendar |
 | CT-009 | Transaction-only account period | Transaction category only; no Receipt leakage |
 | CT-010 | Receipt-only period | Receipt category only; no Transaction leakage |
-| CT-011 | All 25 recognized transaction type codes | correct code/name; common fields and type detail completeness declared |
+| CT-011 | All 25 recognized transaction type codes | exact row-specific normalized semantic fields in SPEC-TX-003; missing required type detail is `partial` |
 | CT-012 | Known Harvest Fee `0x2143` with target address match | `harvest` classification with Block time and source reference |
 | CT-013 | Inflation `0x5143` | recognized `not-harvest`; not in Harvest amount / aggregation |
 | CT-014 | Known non-Harvest Receipt | `not-harvest` |
@@ -599,27 +580,70 @@ Cases below are externally observable contract checks, not an implementation uni
 | CT-017 | Statement or Block timestamp unresolved | `block-timestamp-unavailable`, no valuation |
 | CT-018 | Multiple Harvest receipts in one Block minute | retain individual identities and order; no timestamp-only deduplication |
 | CT-019 | Price Store exact observation hit | same observation reference reused without Provider call requirement |
-| CT-020 | Price cache miss and bitbank successful candle | observation provenance stored; evaluation only when selection blocker is closed |
+| CT-020 | Price cache miss and provider row with timestamp anchor not independently verified | store observation provenance; return `price-unavailable(provider-timestamp-anchor-unverified)`; no evaluation |
 | CT-021 | bitbank timeout / malformed OHLCV | `price-provider-unavailable` / `price-provider-invalid-response`; never zero JPY |
-| CT-022 | No target candle / no minute in response / zero-volume candle | explicit unavailable or unresolved price state, no interpolation |
+| CT-022 | No target candle / response omits minute / volume zero | `price-unavailable` with reason; no interpolation or evaluation |
 | CT-023 | Changed candle same timestamp | append correction candidate; old observation and dependent evaluation unchanged |
 | CT-024 | Same candle data retrieved repeatedly | duplicate is idempotent |
-| CT-025 | Harvest candidate passes structural eligibility | remains candidate; Cryptact daily export blocked until eligibility rule accepted |
+| CT-025 | User opts into daily mode for a Harvest Receipt passing every structural condition | `eligible`; warning shown; no tax-method or external-sale inference |
 | CT-026 | Harvest group is ineligible | `aggregation-ineligible`; no grouped row |
-| CT-027 | Harvest group eligibility unknown | `aggregation-unknown`; no grouped row and no silent omission |
+| CT-027 | Harvest group contains unknown/incomplete member | `aggregation-unknown`; daily file rejected; individual mode remains available |
 | CT-028 | Multiple pages, same timestamp / block | stable keyset order with no duplicate / missing item |
 | CT-029 | Continuation replay under same parameters | continues after prior composite key |
 | CT-030 | Continuation used for another period / address / category / network | `invalid-continuation` |
 | CT-031 | Snapshot anchor removed/reorged | `continuation-stale`; all joined pages incomplete |
-| CT-032 | Testnet and Mainnet identity evidence mismatch/unknown | fail-closed; no chain-derived result |
+| CT-032 | Testnet and Mainnet identity evidence mismatch/unknown | fail-closed; no chain-derived result; see exact vectors CT-041〜046 |
 | CT-033 | Node source coverage incomplete | partial records visibly incomplete; Summary/Export not complete |
-| CT-034 | Cryptact individual file for a type lacking approved mapping | rejected `cryptact-mapping-unavailable` |
-| CT-035 | Cryptact Harvest individual / daily mode | not enabled until mapping / price/eligibility/format blockers close |
+| CT-034 | Individual export selects Transaction or non-Harvest Receipt | rejected `cryptact-mapping-unavailable`; no rows silently omitted |
+| CT-035 | Individual / daily Harvest mapping and export request | both map to product action `STAKING`; complete file remains unavailable until price timestamp evidence and required validations pass |
 | CT-036 | Any partial source, missing price, unknown grouping, or unsupported type in full Export | `export-incomplete` / rejected; no file |
 | CT-037 | Summary value has no meaning for a record type | `not-applicable`, distinct from numeric zero |
 | CT-038 | Over-range native Amount or decimal `NaN` / Infinity | rejected/incomplete; no floating point coercion or clamp |
 | CT-039 | Logs and persistence observation | no search/history/evaluation/export archive; shared price data remains address-independent |
-| CT-040 | Multi-year / 700 monthly Harvest sample | bounded pages, repeatable coverage, recorded measurements; no claimed numeric pass threshold until OPEN-008 is closed |
+| CT-040 | Multi-year / 700 monthly Harvest sample | bounded pages/chunked export; measurements inform finite deployment limit; no numeric performance claim before release gate |
+| CT-041 | Mainnet Node reports (`0x68`, Mainnet generation hash, `1615853185s`) | accepted only in Mainnet runtime |
+| CT-042 | Testnet Node reports (`0x98`, Testnet generation hash, `1616694977s`) | accepted only in Testnet runtime |
+| CT-043 | Mainnet runtime connected to Testnet Node | `wrong-network`; no chain result or staged file |
+| CT-044 | Testnet runtime connected to Mainnet Node | `wrong-network`; no chain result or staged file |
+| CT-045 | missing or malformed `/network` or `/network/properties` evidence | `network-identity-unavailable`; fail closed |
+| CT-046 | valid network type but mismatched seed or epoch adjustment | `wrong-network`; discard all request pages |
+| CT-047 | Each recognized Transaction source fixture from SPEC-TX-003 | identical typed semantic fields, `not-applicable` markers, roles, fee and completeness |
+| CT-048 | Unknown Transaction type code | `unsupported-transaction-type`; common identity only, no inferred detail |
+| CT-049 | Recognized Transaction missing required type source field | `partial`; no complete detail/export |
+| CT-050 | Transaction missing identity or Block reference | `incomplete`; never substitute a time or empty identity |
+| CT-051 | Each Receipt family: transfer, balance-change, artifact, inflation, group, resolution | fields/amount applicability match SPEC-RCPT-003 |
+| CT-052 | Harvest Fee `0x2143` with XYM, target address, Statement and Block | `harvest`, exact Block timestamp, complete source identity |
+| CT-053 | Unknown Receipt type code with valid Statement source | `unsupported-receipt-type`, no amount or Harvest inference |
+| CT-054 | Receipt missing type-required source field | partial; `unknown` Harvest if classification evidence affected |
+| CT-055 | Receipt missing Statement source or Block reference | incomplete / `block-timestamp-unavailable`; no evaluation |
+| CT-056 | Partial or unsupported Catapult Mongo source profile | `unsupported-schema` or incomplete; never mark coverage complete |
+| CT-057 | Block instant one millisecond before minute boundary | preceding candidate interval; evaluation unavailable until provider anchor gate closed |
+| CT-058 | Block instant exactly at minute boundary | interval begins at exact boundary; no previous candle candidate |
+| CT-059 | Block instant one millisecond after boundary | interval starting at that boundary |
+| CT-060 | OHLC values all distinct | evaluation rule computes exact arithmetic mean `(O+H+L+C)/4`, with no OHLC pre-rounding |
+| CT-061 | Volume is exactly zero with syntactically valid OHLC | `price-unavailable(zero-volume-candle)` |
+| CT-062 | Expected minute candle missing | no adjacent lookup/interpolation; `price-unavailable` |
+| CT-063 | Exact immutable cached observation selected after provider outage | cached observation reused with original provenance |
+| CT-064 | Changed OHLCV for same market minute | append correction candidate; existing evaluation unchanged |
+| CT-065 | Daily mode with no split points | one `[00:00 JST, next 00:00 JST)` group per date |
+| CT-066 | One split point at 13:30 JST | intervals `[00:00,13:30)` and `[13:30,next 00:00)` |
+| CT-067 | Multiple split points; out-of-order and duplicate inputs | normalized ascending; exact duplicate collapses; independent intervals |
+| CT-068 | Receipt instant equals a split point | included in the later `[start,end)` interval |
+| CT-069 | Split points across two or more JST dates | each point partitions only its own date; points are not repeated |
+| CT-070 | Daily interval includes ineligible or unknown Receipt | no daily aggregate row; complete daily export rejected; individual path remains available |
+| CT-071 | Explicitly eligible Harvest group with all exact evaluations | quantity exact sum, JPY exact sum, all component refs retained |
+| CT-072 | Daily weighted price multiplied by total quantity | exact result equals summed individual JPY or export is rejected; never average OHLC means |
+| CT-073 | Harvest individual export | 10 official columns; `STAKING`, XYM, exact amount/price, JPY, zero fee |
+| CT-074 | Harvest aggregate export | `STAKING`; total XYM and weighted price reproduce total individual evaluation exactly |
+| CT-075 | Transaction or non-Harvest Receipt mapping requested | `cryptact-mapping-unavailable`, with affected type/count |
+| CT-076 | Serialization needs 15+ fractional digits or repeating aggregate price | `cryptact-format-unavailable`; no approximation/file |
+| CT-077 | Today-only `[today,tomorrow)` | accepted through fixed requestNow; includes records only before requestNow |
+| CT-078 | Current-month calendar range ending next month start | accepted through requestNow; no future records returned |
+| CT-079 | Tomorrow-only or complete future period | `future-period`; no records |
+| CT-080 | Today-to-tomorrow boundary and requestNow exactly at start boundary | first accepted if nonempty; empty/future effective interval rejected |
+| CT-081 | Export resource limit reached while staged chunks exist | `export-resource-limit`; staging discarded, no partial artifact |
+| CT-082 | Export fails before completion then user retries | first attempt has no file; retry starts fresh and does not alter observations/source history |
+| CT-083 | Full requested data includes unmappable or incomplete records | rejected/incomplete with reason counts; never output a partial success file |
 
 ## 14. OPEN-001〜010 / Specification blockers
 
@@ -627,82 +651,94 @@ Status names: `RESOLVED-IN-SPEC`, `PARTIALLY-RESOLVED`, `DEFERRED-EXTERNAL-VERIF
 
 | OPEN | Status | Specificationで確定したこと | 未決定・根拠 / 実装開始への影響 | 関連Specification ID |
 |---|---|---|---|---|
-| OPEN-001 税務方式・同日集約境界 | **BLOCKING** | Aggregate責務に税務判断を持ち込まない。Harvest候補、unknown/ineligible、元Receipt保持、個別明細fallbackを定義 | 総平均法 / 移動平均法、同日売却、on-chain順序を跨ぐ集約安全性は税務上の正解をSymTaxが決められない。安全なeligible partitionが確定するまでHarvest Daily Export不可 | SPEC-AGG-001〜005、SPEC-EXPORT-004 |
-| OPEN-002 Block timestamp → 1min / OHLC | **BLOCKING** | Epoch conversion、Block timeを価格lookupに使う、JST日付を使わない | bitbank docsはOHLCVとUnix ms timestampを示すがminute anchor / date basis / exact boundaryとOHLC採用値を定めない。Public endpointはこの環境から取得不可。価格評価・円Summary・Harvest Exportをcomplete実装不可 | SPEC-TIME-001〜004、SPEC-PRICE-001、005、007 |
-| OPEN-003 missing / zero volume | **BLOCKING (valuation)** | missing/no candle/provider failure/timestamp unavailableを区別。初期は補間なし、0円禁止 | volume 0足の扱いとprice-freeze conditionsに外部または運用根拠がない。価格評価機能をcomplete化不可 | SPEC-PRICE-006、SPEC-ERR-001 |
-| OPEN-004 observation correction / reevaluation | **PARTIALLY-RESOLVED** | 保存・再利用、duplicate idempotent、changed valueはappend-only correction候補、自動評価差替え禁止 | correction候補の選択・再評価承認・repair / capacity運用は未確定。決定前はconflictをambiguousにするので価格依存Export不可 | SPEC-PRICE-002〜004、SPEC-PRICE-007 |
-| OPEN-005 Cryptact Harvest | **BLOCKING** | Official Japanese CSV fields/date/timezone behaviorsを確認。Cryptact Adapter boundary維持 | Official docsにHarvest Fee typeの取引分類・daily aggregation acceptance / equivalent P&L guidanceなし。STAKINGが別にstaking rewardsを示すのでそれへ推測mappingしない。実アップロードも未実施。Harvest Export不可 | SPEC-EXPORT-001〜007 |
-| OPEN-006 Transaction / Receipt association | **RESOLVED-IN-SPEC** | カテゴリ/一覧/summary独立、Receipt source/block参照は正規化根拠に使う | 利用者向けcross-linkは初期必須にしない。関連表示機能を追加しない | SPEC-TX-001〜003、SPEC-RCPT-001〜002 |
-| OPEN-007 Mongo schema / history coverage | **DEFERRED-EXTERNAL-VERIFICATION** | raw schema adapter境界、normalized IDs / source references、coverageとunsupportedの扱いを定義 | 実Mainnet/Testnet nodeのversion、statement/storage履歴、address-period coverageは接続検証していない。Mainnet公開・完全履歴claimは実node適合試験までblock。Schema field mapperはImplementation fixtureから推測不可 | SPEC-NET-004、SPEC-TX-001〜004、SPEC-RCPT-001〜004、SPEC-ERR-001 |
-| OPEN-008 performance numbers | **BLOCKING (unbounded full export)** | detail / Summary response max 100、keyset paging、multi-year representative workload | response time / memory / Store / full Export byte/time capは計測根拠なし。Browser browsingはcontract可能だがunbounded full-range Export public releaseは未確定 | SPEC-PAGE-001〜005、SPEC-RES-001〜002 |
-| OPEN-009 Mainnet/Testnet identity | **PARTIALLY-RESOLVED** | expected runtime fixed、observed Node identity + address network check、mismatch/unknown fail-closed、market prices separate | deployed nodeでidentity evidence availability / pin valuesを検証する必要。環境確認まで該当環境の履歴アクセスを開始できない | SPEC-NET-001〜003 |
-| OPEN-010 Privacy/logging | **PARTIALLY-RESOLVED** | user search/history/valuation/Summary/aggregation/exportは利用者別に永続化しない。禁止log fieldを定義 | exact log/staging retention, incident access role, privacy noticeは運用判断。利用者へのnoticeが整備されるまで公開は不可だが基本履歴参照の局所実装は可能 | SPEC-PRIV-001〜002、SPEC-ERR-003 |
+| OPEN-001 税務方式・同日集約境界 | **PARTIALLY-RESOLVED** | 集約は利用者opt-in。SymTaxは外部売買・保有・税務方式を判定せず、JST任意分割、注意表示、individual出力を定義 | 個別登録との税務・損益同等性は保証しない。利用者が区間を選ぶが、区間選択自体が税務上適切とは示さない。計算結果の差異を許容するこの製品境界で仕様化。税務上の解釈は対象外 | SPEC-AGG-001〜005, SPEC-EXPORT-004 |
+| OPEN-002 Block timestamp → bitbank 1min | **BLOCKING / DEFERRED-EXTERNAL-VERIFICATION** | block instantを実時刻lookupへ使う。OHLC単純平均規則と理論minute境界を定義 | bitbank official API docsはOHLCVとUnix ms timestampのみ定義し、minute timestamp anchor/timezoneを定義しない。実API照会もDNS unavailableで再現確認できず。anchor確認まではすべて価格をunavailableとし、Harvest評価/JPY出力をreleaseしない | SPEC-TIME-001/002/004, SPEC-PRICE-001/005/007 |
+| OPEN-003 missing / zero volume | **RESOLVED-IN-SPEC** | 無足・timestamp未検証・volume zero・provider/store失敗をreason別にunavailable。補間、近傍検索、0円を禁止 | 外部資料に税務価格ルールはないため、zero volumeはSymTaxの保守的な製品規則として評価対象外。OPEN-002のanchor未確認は別ゲートとして残る | SPEC-PRICE-006, SPEC-ERR-001 |
+| OPEN-004 observation correction / reevaluation | **PARTIALLY-RESOLVED** | duplicate idempotent、changed value append-only candidate、既存evaluationを自動差替えしない | 候補の採用/修復、再評価承認、容量・運用方針は外部仕様・運用判断。現時点で自動切替しないので既存結果の再現性は保つ | SPEC-PRICE-002〜004, SPEC-PRICE-007 |
+| OPEN-005 Cryptact Harvest mapping | **PARTIALLY-RESOLVED / DEFERRED-EXTERNAL-VERIFICATION** | SymTax製品判断としてHarvest individual/dailyを`STAKING`へmapping。Generic CSV contractとweighted priceを定義 | Symbol HarvestをCryptactが公式分類する根拠なし。実アップロードとCryptact内損益比較は未実施。mappingはSymTax仕様であり税務上の唯一解ではない。公開前にformat acceptanceを確認 | SPEC-EXPORT-001〜007 |
+| OPEN-006 Transaction / Receipt association | **RESOLVED-IN-SPEC** | 独立model/category/list/summary維持。技術的statement/block referenceは使用 | 初期仕様で利用者向けcross-linkは必須でない | SPEC-TX-001〜004, SPEC-RCPT-001〜004 |
+| OPEN-007 Mongo schema / history coverage | **PARTIALLY-RESOLVED / DEFERRED-EXTERNAL-VERIFICATION** | Type semantic contract、adapter normalization boundary、unsupported/partial/incomplete条件を定義 | 実Mainnet/Testnet nodeのversion、実collection source completeness/history retention、Statement→Blockの実接続は未検証。node profile適合前に完全履歴をclaimしない | SPEC-NET-004, SPEC-TX-001〜004, SPEC-RCPT-001〜005, SPEC-ERR-001 |
+| OPEN-008 performance numbers | **PARTIALLY-RESOLVED / DEFERRED-OPERATION** | chunked server export、finite deployment limits必須、上限到達はreject/no file。代表負荷と公開前gateを明記 | 数値上限・release thresholdは計測後の運用合意が必要。全期間Exportはgate前に公開不可 | SPEC-RES-001/002, SPEC-EXPORT-006 |
+| OPEN-009 Mainnet/Testnet identity | **RESOLVED-IN-SPEC** | public networkごとのNetworkType + generationHashSeedをpin、epochAdjustment補助照合、欠損/不一致fail-closed | 配備ノードからevidence取得可能かをMainnet/Testnet実環境で公開前に確認。これは実環境適合のgateで、判定仕様自体は確定 | SPEC-NET-001〜004 |
+| OPEN-010 Privacy/logging | **PARTIALLY-RESOLVED** | user search/history/evaluation/aggregation/export永続保存なし。共有market observationのみ永続化、不要logを禁止 | retention duration、incident access role、privacy noticeは運用判断 | SPEC-PRIV-001/002, SPEC-ERR-003 |
 
-### 14.1 Other blocking decisions
+### 14.1 Other unresolved items and release gates
 
-| ID | Blocker | Why unresolved | Affected contract |
+| ID | Status | Decision / unresolved point | Affected contract |
 |---|---|---|---|
-| OPEN-SPEC-001 | All 25 Transaction type-specific normalized detail mappings | REST enum lists types but live Mongo source/version and current field coverage are unverified. Need pin common typed fields that make each recognized type complete, not merely label | SPEC-TX-002〜004; FUNC-003; AC-001〜004 |
-| OPEN-SPEC-002 | Effective search-period / full export resource limit | no measured max span/output size or execution environment | SPEC-IN-005, SPEC-RES-002, SPEC-EXPORT-006 |
-| OPEN-SPEC-003 | JPY / Cryptact price decimal scale and rounding | Cryptact sample demonstrates 10 decimal sample values and separate higher precision spreadsheet, but not max CSV precision or exact arithmetic acceptance | SPEC-NUM-004, SPEC-EXPORT-005/007 |
-| OPEN-SPEC-004 | zero-volume and missing candle policy | bitbank format shows volume but no valuation rule for volume zero / no row | SPEC-PRICE-006 |
-| OPEN-SPEC-005 | Cryptact protocol/type mapping for Symbol normal Transactions / Receipts | current official generic file schema does not supply Symbol accounting classification | SPEC-EXPORT-002/003 |
-| OPEN-SPEC-006 | Stable source / receipt identity contract validated against node versions | source roles are described by public REST schema, but Node storage concrete fields / Block statements not tested | SPEC-RCPT-001/002; SPEC-PAGE-002 |
-| OPEN-SPEC-007 | Export CSV exact compliance: line ending/seconds/subsecond/precision behavior | Official template provides header and example, not all serialization/upload constraints. UTF-8 BOM is fixed from the official sample; remaining details require an acceptance test | SPEC-EXPORT-001/007 |
-| OPEN-SPEC-008 | bounded performance thresholds and export cap | OPEN-008 | SPEC-RES-001/002 |
+| OPEN-SPEC-001 | **PARTIALLY-RESOLVED** | All 25 Transaction semantic field contracts and completeness rules are specified from Catbuffer types. Actual Mongo source-field profile and source version must pass adapter qualification under OPEN-007 | SPEC-TX-002〜004 |
+| OPEN-SPEC-002 | **PARTIALLY-RESOLVED / DEFERRED-OPERATION** | No arbitrary browse maximum is invented; exports are incrementally processed with finite configured resource budgets. Measured quantitative range/count/bytes/time caps remain a pre-release gate | SPEC-IN-005, SPEC-RES-001/002 |
+| OPEN-SPEC-003 | **RESOLVED-IN-SPEC** | Exact decimal operations; no arithmetic rounding; CSV values requiring ≥15 fractional digits or non-terminating exact value are rejected under current Cryptact guide | SPEC-NUM-004, SPEC-EXPORT-005/007 |
+| OPEN-SPEC-004 | **RESOLVED-IN-SPEC** | Zero-volume and missing minute are unavailable; no interpolation or zero valuation | SPEC-PRICE-006 |
+| OPEN-SPEC-005 | **PARTIALLY-RESOLVED** | Harvest maps to SymTax product action `STAKING`; all Transaction/non-Harvest mappings remain explicitly unavailable rather than inferred. Actual Cryptact acceptance remains external verification | SPEC-EXPORT-002〜004 |
+| OPEN-SPEC-006 | **PARTIALLY-RESOLVED / DEFERRED-EXTERNAL-VERIFICATION** | Protocol/source identity semantic contract is defined; actual Node version and Statement/source/block mapper compatibility are not tested | SPEC-RCPT-001〜004, SPEC-PAGE-002, OPEN-007 |
+| OPEN-SPEC-007 | **RESOLVED-IN-SPEC / DEFERRED-EXTERNAL-VERIFICATION** | CSV header, BOM, JST datetime to seconds, CRLF, field validation and exact decimal rule are defined. Cryptact upload acceptance remains unverified | SPEC-EXPORT-001/005/007 |
+| OPEN-SPEC-008 | **PARTIALLY-RESOLVED / DEFERRED-OPERATION** | bounded/atomic output and explicit rejection are defined; numeric limits require representative measurement and approval before public release | SPEC-RES-001/002, SPEC-EXPORT-006 |
 
-These open items are not silently resolved by design assumptions. Features may be built only if they do not claim compliance with a blocked contract. Because price selection, Harvest eligibility, and Cryptact Harvest mapping are required for the primary output use case, overall status is **NOT READY FOR IMPLEMENTATION**. A non-tax history-viewer prototype would be a separate narrowed implementation scope requiring explicit phase decision; it is not approved by this Specification.
+**Implementation / release status:** The external contracts for network identity, type semantics, Harvest opt-in/partitioning, `STAKING` product mapping, period boundary, and export resource failure are now specified. Overall price evaluation is **BLOCKING** because neither the official bitbank documentation nor a live response available during this task establishes minute timestamp anchor/timezone. Until that evidence is verified and incorporated, implementation cannot produce complete price evaluation, JPY summaries, or Harvest Cryptact output. Public release additionally waits for real node-profile qualification, Cryptact upload confirmation, and measured export limits. No amount of UI or adapter implementation may bypass these gates.
 
 ## 15. Requirements → Design → Specification → Conformance Traceability
 
 Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each row shows its Design owner / decision, this document's contract IDs, and at least one conformance case.
 
-| Requirement ID | Design responsibility / decision | Specification ID | Conformance case |
+| Requirement ID | Design responsibility / decision | Specification ID | Conformance case | Review finding resolved / affected |
+|---|---|---|---|---|
+| CON-001 | Symbol History Adapter / DD-002 | SPEC-NET-004, SPEC-TX-001, SPEC-RCPT-001 | CT-033 | SR-001 |
+| CON-002 | Server-only read-only Node boundary | SPEC-NET-004, SPEC-PRIV-002 | CT-039 | — |
+| CON-003 | Independent SymTax Data Store / DD-004 | SPEC-PRICE-004, SPEC-PRIV-001 | CT-019, CT-039 | — |
+| CON-004 | Runtime network binding / DD-007 | SPEC-NET-001〜003 | CT-001〜003, CT-032 | SR-002 |
+| CON-005 | Shared persistent Price Store / DD-003/010 | SPEC-PRICE-001〜004 | CT-019〜024 | — |
+| CON-006 | JST calendar vs lookup instant | SPEC-TIME-001〜004 | CT-007〜008 | — |
+| CON-007 | Single Next.js Server logical boundary / DD-008 | SPEC-GEN-001, SPEC-NET-004 | CT-039 | — |
+| FUNC-001 | Input validation, guard, Browse Services | SPEC-IN-001〜005, SPEC-NET-001〜003, SPEC-PAGE-001〜005 | CT-001〜008, CT-028〜032 | SR-006 |
+| FUNC-002 | Independent Browse models / DD-005 | SPEC-TX-001, SPEC-RCPT-001, SPEC-SUM-001 | CT-009〜010 | — |
+| FUNC-003 | Transaction normalizer | SPEC-TX-002〜004 | CT-011 | SR-001 |
+| FUNC-004 | Statement / Receipt normalizer and classifier | SPEC-RCPT-001〜005 | CT-012〜017 | SR-001 |
+| FUNC-005 | Summary navigation | SPEC-SUM-001/002, SPEC-PAGE-005 | CT-007〜010 | — |
+| FUNC-006 | JST Calendar Boundary | SPEC-TIME-003 | CT-007〜008 | — |
+| FUNC-007 | Category Summary Service | SPEC-SUM-002〜004 | CT-009〜010, CT-037 | — |
+| FUNC-008 | Normalized source refs | SPEC-TX-001, SPEC-RCPT-001, SPEC-SUM-004 | CT-012, CT-018 | — |
+| FUNC-009 | Optional association; preserve independence | SPEC-TX-003, SPEC-RCPT-002, SPEC-SUM-001 | CT-009〜010 | — |
+| EXPORT-001 | Export mode adapter | SPEC-EXPORT-001〜007 | CT-034〜036 | SR-005 |
+| EXPORT-002 | Individual export path | SPEC-EXPORT-002, SPEC-EXPORT-006 | CT-034 | SR-005 |
+| EXPORT-003 | Harvest scope guard | SPEC-RCPT-005, SPEC-AGG-002 | CT-012〜015 | SR-004 |
+| EXPORT-004 | JST eligibility / partition | SPEC-TIME-003, SPEC-AGG-001/004 | CT-007〜008, CT-025〜027 | SR-004 |
+| EXPORT-005 | Component Receipt references | SPEC-AGG-003/005 | CT-025〜027 | SR-004 |
+| EXPORT-006 | Valuation + aggregation provenance | SPEC-PRICE-007, SPEC-AGG-003/005, SPEC-EXPORT-004/005 | CT-019〜027 | SR-004 |
+| EXPORT-007 | Cryptact format validator | SPEC-EXPORT-001〜007 | CT-034〜036 | SR-005 |
+| PRICE-001 | bitbank Provider adapter | SPEC-PRICE-001〜004 | CT-019〜024 | SR-003 |
+| PRICE-002 | Block-time normalization / lookup | SPEC-TIME-001/002/004, SPEC-PRICE-005 | CT-016〜018, CT-020〜022 | SR-003 |
+| PRICE-003 | Persistent observation store | SPEC-PRICE-002〜004 | CT-019, CT-023〜024, CT-039 | — |
+| PRICE-004 | Receipt evaluation evidence | SPEC-PRICE-007 | CT-016〜020, CT-023 | SR-003 |
+| PRICE-005 | Missing / ambiguous state | SPEC-PRICE-006, SPEC-ERR-001/002 | CT-021〜022 | SR-003 |
+| DATA-001 | Raw source / derived values / DD-009 | SPEC-TX-001, SPEC-RCPT-001, SPEC-SUM-004, SPEC-AGG-005 | CT-018, CT-025 | — |
+| DATA-002 | Coverage propagation / export completion | SPEC-ERR-001/002, SPEC-EXPORT-006 | CT-031〜036 | — |
+| DATA-003 | Request-local user data / DD-009 | SPEC-PRIV-001/002 | CT-039 | — |
+| PERF-001 | Filtered Symbol adapter | SPEC-IN-005, SPEC-PAGE-001〜005 | CT-028〜033 | SR-006 |
+| PERF-002 | Chunked Browse / validation workload | SPEC-RES-001/002 | CT-040 | SR-007 |
+| PERF-003 | Server-side normalizing / minimal payload | SPEC-GEN-002, SPEC-PAGE-001, SPEC-RES-001 | CT-028, CT-040 | SR-007 |
+| PERF-004 | Incremental detail / bounded processing | SPEC-PAGE-001〜005, SPEC-RES-001/002 | CT-028〜031, CT-040 | SR-007 |
+| QUAL-001 | incomplete-state propagation | SPEC-ERR-001〜003, SPEC-EXPORT-006 | CT-017, CT-021〜022, CT-033, CT-036 | — |
+| SEC-001 | No secrets/signing capability | SPEC-GEN-003, SPEC-PRIV-001 | CT-001〜005, CT-039 | — |
+| SEC-002 | Server-only / read-only Node adapter | SPEC-NET-004, SPEC-PRIV-002 | CT-039 | — |
+| SEC-003 | Runtime expected/observed network guard | SPEC-NET-001〜003 | CT-001〜003, CT-032 | SR-002 |
+| PRIV-001 | Request-local user data / minimal logs | SPEC-PRIV-001/002 | CT-039 | — |
+| SEC-004 | Independent SymTax Store | SPEC-PRICE-004, SPEC-PRIV-001 | CT-019, CT-039 | — |
+| EXT-001 | Price Store read-through | SPEC-PRICE-001〜006 | CT-019〜024 | SR-003 |
+| EXT-002 | Cryptact Adapter / validation | SPEC-EXPORT-001〜007 | CT-034〜036 | SR-005 |
+| EXT-003 | Symbol adapter compatibility boundary | SPEC-TX-001〜004, SPEC-RCPT-001〜004, SPEC-ERR-001 | CT-011, CT-015, CT-033 | SR-001 |
+
+### 15.1 Specification Review 001 finding disposition
+
+| Finding | Status in this revision | Resolution / remaining gate | Specification / cases |
 |---|---|---|---|
-| CON-001 | Symbol History Adapter / DD-002 | SPEC-NET-004, SPEC-TX-001, SPEC-RCPT-001 | CT-033 |
-| CON-002 | Server-only read-only Node boundary | SPEC-NET-004, SPEC-PRIV-002 | CT-039 |
-| CON-003 | Independent SymTax Data Store / DD-004 | SPEC-PRICE-004, SPEC-PRIV-001 | CT-019, CT-039 |
-| CON-004 | Runtime network binding / DD-007 | SPEC-NET-001〜003 | CT-001〜003, CT-032 |
-| CON-005 | Shared persistent Price Store / DD-003/010 | SPEC-PRICE-001〜004 | CT-019〜024 |
-| CON-006 | JST calendar vs lookup instant | SPEC-TIME-001〜004 | CT-007〜008 |
-| CON-007 | Single Next.js Server logical boundary / DD-008 | SPEC-GEN-001, SPEC-NET-004 | CT-039 |
-| FUNC-001 | Input validation, guard, Browse Services | SPEC-IN-001〜005, SPEC-NET-001〜003, SPEC-PAGE-001〜005 | CT-001〜008, CT-028〜032 |
-| FUNC-002 | Independent Browse models / DD-005 | SPEC-TX-001, SPEC-RCPT-001, SPEC-SUM-001 | CT-009〜010 |
-| FUNC-003 | Transaction normalizer | SPEC-TX-002〜004 | CT-011 |
-| FUNC-004 | Statement / Receipt normalizer and classifier | SPEC-RCPT-001〜005 | CT-012〜017 |
-| FUNC-005 | Summary navigation | SPEC-SUM-001/002, SPEC-PAGE-005 | CT-007〜010 |
-| FUNC-006 | JST Calendar Boundary | SPEC-TIME-003 | CT-007〜008 |
-| FUNC-007 | Category Summary Service | SPEC-SUM-002〜004 | CT-009〜010, CT-037 |
-| FUNC-008 | Normalized source refs | SPEC-TX-001, SPEC-RCPT-001, SPEC-SUM-004 | CT-012, CT-018 |
-| FUNC-009 | Optional association; preserve independence | SPEC-TX-003, SPEC-RCPT-002, SPEC-SUM-001 | CT-009〜010 |
-| EXPORT-001 | Export mode adapter | SPEC-EXPORT-001〜007 | CT-034〜036 |
-| EXPORT-002 | Individual export path | SPEC-EXPORT-002, SPEC-EXPORT-006 | CT-034 |
-| EXPORT-003 | Harvest scope guard | SPEC-RCPT-005, SPEC-AGG-002 | CT-012〜015 |
-| EXPORT-004 | JST eligibility / partition | SPEC-TIME-003, SPEC-AGG-001/004 | CT-007〜008, CT-025〜027 |
-| EXPORT-005 | Component Receipt references | SPEC-AGG-003/005 | CT-025〜027 |
-| EXPORT-006 | Valuation + aggregation provenance | SPEC-PRICE-007, SPEC-AGG-003/005, SPEC-EXPORT-004/005 | CT-019〜027 |
-| EXPORT-007 | Cryptact format validator | SPEC-EXPORT-001〜007 | CT-034〜036 |
-| PRICE-001 | bitbank Provider adapter | SPEC-PRICE-001〜004 | CT-019〜024 |
-| PRICE-002 | Block-time normalization / lookup | SPEC-TIME-001/002/004, SPEC-PRICE-005 | CT-016〜018, CT-020〜022 |
-| PRICE-003 | Persistent observation store | SPEC-PRICE-002〜004 | CT-019, CT-023〜024, CT-039 |
-| PRICE-004 | Receipt evaluation evidence | SPEC-PRICE-007 | CT-016〜020, CT-023 |
-| PRICE-005 | Missing / ambiguous state | SPEC-PRICE-006, SPEC-ERR-001/002 | CT-021〜022 |
-| DATA-001 | Raw source / derived values / DD-009 | SPEC-TX-001, SPEC-RCPT-001, SPEC-SUM-004, SPEC-AGG-005 | CT-018, CT-025 |
-| DATA-002 | Coverage propagation / export completion | SPEC-ERR-001/002, SPEC-EXPORT-006 | CT-031〜036 |
-| DATA-003 | Request-local user data / DD-009 | SPEC-PRIV-001/002 | CT-039 |
-| PERF-001 | Filtered Symbol adapter | SPEC-IN-005, SPEC-PAGE-001〜005 | CT-028〜033 |
-| PERF-002 | Chunked Browse / validation workload | SPEC-RES-001/002 | CT-040 |
-| PERF-003 | Server-side normalizing / minimal payload | SPEC-GEN-002, SPEC-PAGE-001, SPEC-RES-001 | CT-028, CT-040 |
-| PERF-004 | Incremental detail / bounded processing | SPEC-PAGE-001〜005, SPEC-RES-001/002 | CT-028〜031, CT-040 |
-| QUAL-001 | incomplete-state propagation | SPEC-ERR-001〜003, SPEC-EXPORT-006 | CT-017, CT-021〜022, CT-033, CT-036 |
-| SEC-001 | No secrets/signing capability | SPEC-GEN-003, SPEC-PRIV-001 | CT-001〜005, CT-039 |
-| SEC-002 | Server-only / read-only Node adapter | SPEC-NET-004, SPEC-PRIV-002 | CT-039 |
-| SEC-003 | Runtime expected/observed network guard | SPEC-NET-001〜003 | CT-001〜003, CT-032 |
-| PRIV-001 | Request-local user data / minimal logs | SPEC-PRIV-001/002 | CT-039 |
-| SEC-004 | Independent SymTax Store | SPEC-PRICE-004, SPEC-PRIV-001 | CT-019, CT-039 |
-| EXT-001 | Price Store read-through | SPEC-PRICE-001〜006 | CT-019〜024 |
-| EXT-002 | Cryptact Adapter / validation | SPEC-EXPORT-001〜007 | CT-034〜036 |
-| EXT-003 | Symbol adapter compatibility boundary | SPEC-TX-001〜004, SPEC-RCPT-001〜004, SPEC-ERR-001 | CT-011, CT-015, CT-033 |
+| SR-001 Critical | **RESOLVED-IN-SPEC; node-profile gate remains** | Type-specific Transaction and Receipt semantic maps, identity, roles, quantities, source references and completeness are explicit from Catbuffer. A live Node profile still needs qualification before coverage claims | SPEC-TX-001〜004, SPEC-RCPT-001〜005; CT-047〜056 |
+| SR-002 Critical | **RESOLVED-IN-SPEC** | Mainnet/Testnet network type, generation seed and epoch adjustment are pinned; observed evidence and fail-closed outcomes are exact | SPEC-NET-001〜004; CT-041〜046 |
+| SR-003 Critical | **PARTIALLY RESOLVED; BLOCKING** | OHLC mean, exact decimal arithmetic, minute interval candidate, exact boundary, volume-zero and missing-candle outcomes are defined. bitbank's timestamp anchor/timezone is absent from official docs and live response could not be fetched, so price evaluation remains unavailable pending evidence | SPEC-PRICE-001, 005〜007; CT-057〜064 |
+| SR-004 Critical | **RESOLVED-IN-SPEC** | Eligibility is deterministic and structural only; aggregation is optional, uses user splits and does not infer external trades or tax method | SPEC-AGG-001〜005; CT-065〜072 |
+| SR-005 Critical | **RESOLVED-IN-SPEC; external acceptance deferred** | Harvest individual/daily map to SymTax product action `STAKING` with explicit columns/values; other types are explicitly unmappable. This is not Cryptact's official Symbol classification; actual upload/economic behavior remains external verification | SPEC-EXPORT-001〜007; CT-073〜076 |
+| SR-006 Major | **RESOLVED-IN-SPEC** | Current-day/current-month calendar end is allowed; actual end is clipped to requestNow and future-only intervals reject | SPEC-IN-005; CT-077〜080 |
+| SR-007 Major | **RESOLVED-IN-SPEC; quantitative release gate remains** | Server-side bounded chunk processing, finite runtime limits, atomic no-partial-output rejection are specified. Numerical limit awaits representative measurement | SPEC-RES-001/002, SPEC-EXPORT-006; CT-081〜083 |
 
 ## 16. 適用資料・外部確認記録
 
@@ -722,23 +758,25 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 - [Symbol Receipt](https://docs.symbol.dev/concepts/receipt.html): Statement / Receiptの関係、`HARVEST_FEE 0x2143`はharvest blockのfee recipient/account/amount、`INFLATION 0x5143`はnetwork currency creation。
 - [Symbol serialization](https://docs.symbol.dev/serialization/index.html): Symbol timestampはNemesisからのmilliseconds、network `/network/properties`のepochAdjustmentでUnix timeへ変換。NetworkType Mainnet `0x68`, Testnet `0x98`、Transaction / Receipt Type列挙。
 - [Symbol network properties API schema](../../../docs/knowledge/symbol-openapi3.yml): `/network`, `/network/properties`, DTO・Type enum・Timestamp・Receipt Statement schemaを参照。Repository knowledge snapshotであり、live Node BSON schemaとは扱わない。
-- `_symbol/client/catapult` checkout `14a0cc16e`: Address checksumがSHA3-256 first 3 bytesである実装、Receipt type / HarvestFeeObserver / Mongo mapperを照合。この特定Catapult checkoutの実装確認であり、全Node版のDB契約ではない。
+- `_symbol/catbuffer/schemas/symbol/transaction_type.cats`, `receipt_type.cats`, `receipts.cats`, `statements/receipt_source.cats`, `statements/transaction_statement.cats`をTransaction/Receipt enumとprotocol field semanticsの根拠として参照。これらはprotocol schemaでありMongo collection contractではない。
+- `_symbol/client/catapult` checkout `14a0cc16e`: Address checksumがSHA3-256 first 3 bytesである実装、Receipt type / HarvestFeeObserver / TransactionStatementMapper / BlockMapper / TransactionMapperを照合。この特定Catapult checkoutの実装確認であり、全Node版のDB契約ではない。
 - [Symbol XYM exchange integration](https://docs.symbol.dev/ja/guides/exchanges/exchange-integration.html): XYM divisibility 6、native unitの関係。Mainnet IDをnetwork共通IDとして扱わない。
 
 ### 16.3 bitbank Public API
 
 - Official [Public API candle docs](https://github.com/bitbankinc/bitbank-api-docs/blob/master/public-api.md#candlestick) support pair list, `1min`, `YYYYMMDD` for minute candles, `[open, high, low, close, volume, unix timestamp milliseconds]`.
 - Official [pairs](https://github.com/bitbankinc/bitbank-api-docs/blob/master/pairs.md) includes `xym_jpy`.
-- Official docs do not specify minute timestamp anchor, candle time-zone/date-path basis, OHLC tax selection, zero-volume valuation, missing-candle interpolation.
-- Current task environment `curl -L https://public.bitbank.cc/xym_jpy/candlestick/1min/20260923` failed DNS resolution (`Could not resolve host`). Prior Concept records user-confirmed availability for 2025-01-01 and 2026-01-01; that user verification was not independently reproduced in this task and is not an official retention guarantee.
+- Official docs confirm tuple values and millisecond timestamp only; they do not specify minute timestamp anchor or timezone/date-path boundary. The user-authorized SymTax evaluation rule is OHLC arithmetic mean. Official docs provide no tax price recommendation, zero-volume valuation, or missing-candle interpolation rule.
+- Current task environment `curl -L https://public.bitbank.cc/xym_jpy/candlestick/1min/20260923` failed DNS resolution (`Could not resolve host`); no live candle timestamp sample could be examined. The minute-anchor question remains a blocking external verification. Prior Concept records user-confirmed availability for 2025-01-01 and 2026-01-01; this user verification is distinct from official retention guarantees.
 
 ### 16.4 Cryptact official material
 
-- [カスタムファイルの作成方法](https://support.cryptact.com/hc/ja/articles/360002571312-%E3%82%AB%E3%82%B9%E3%82%BF%E3%83%A0%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB%E3%81%AE%E4%BD%9C%E6%88%90%E6%96%B9%E6%B3%95), updated 2026-08-12: Japanese CSV/XLSX, 10 field order, date format, required / optional, values and custom file notes.
+- [カスタムファイルの作成方法](https://support.cryptact.com/hc/ja/articles/360002571312-%E3%82%AB%E3%82%B9%E3%82%BF%E3%83%A0%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB%E3%81%AE%E4%BD%9C%E6%88%90%E6%96%B9%E6%B3%95), updated 2026-08-12: Japanese CSV/XLSX, 10 field order, date format, required / optional, values and custom file notes. The guide states that 15+ fractional digits should use its Excel sample.
+- [XYM opt-in history upload example](https://support.cryptact.com/hc/ja/articles/4408649916057-XYM-%E3%82%B7%E3%83%B3%E3%83%9C%E3%83%AB-%E3%81%AE%E3%82%AA%E3%83%97%E3%83%88%E3%82%A4%E3%83%B3%E3%81%AE%E5%B1%A5%E6%AD%B4%E3%82%92%E3%82%A2%E3%83%83%E3%83%97%E3%81%99%E3%82%8B%E6%96%B9%E6%B3%95), updated 2026-04-14: shows `XYM` as a base currency and uses `BONUS` for opt-in as an example; it explicitly says the treatment is not a clear rule. That is not a classification of Symbol Harvest and does not override the user-approved SymTax `STAKING` mapping.
 - [Official Japanese CSV sample attachment](https://support.cryptact.com/hc/article_attachments/16258358690713): exact Japanese header and UTF-8 BOM sample visible.
 - [取引種類別の計算方法](https://support.cryptact.com/hc/ja/articles/12814753146777-%E5%8F%96%E5%BC%95%E7%A8%AE%E9%A1%9E%E5%88%A5%E3%81%AE%E8%A8%88%E7%AE%97%E6%96%B9%E6%B3%95), updated 2026-08-14: `STAKING` describes staking reward and its calculation semantics.
 - [カスタムファイル upload / timezone](https://support.cryptact.com/hc/ja/articles/7557126434457-%E3%82%AB%E3%82%B9%E3%82%BF%E3%83%A0%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB%E3%81%AE%E3%82%A2%E3%83%83%E3%83%97%E3%83%AD%E3%83%BC%E3%83%89%E6%96%B9%E6%B3%95): uploaded custom file uses ledger timezone by default; user can select timezone to match file.
-- No official material located that directly classifies a Symbol Harvest Fee Receipt or approves daily Harvest aggregation/economic equivalence. No Cryptact account upload or live P/L comparison was performed.
+- Official material describes `STAKING` for staking reward semantics and the file quantity/price field meaning, but does not classify Symbol Harvest Fee Receipt as `STAKING` or approve daily aggregation/economic equivalence. `HARVEST_FEE → STAKING` is the explicit SymTax product decision, not Cryptact attribution. No Cryptact account upload or live P/L comparison was performed.
 
 ## 17. 自己確認
 
@@ -752,5 +790,9 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 - [x] Cryptact file schemaとHarvest tax/action mappingの確認事実を区別した。
 - [x] MongoDB raw document / collection / queryをBrowser contractに出していない。
 - [x] Search condition / user history / evaluation / exportのuser-linked persistenceを禁止し、shared market observationを区別した。
-- [x] Required OHLC / Harvest eligibility / Harvest mapping / resource capsの未解決項目をBLOCKINGとした。実装開始可能と報告しない。
+- [x] Harvest OHLC arithmetic mean, structural opt-in eligibility, arbitrary JST split points, `STAKING` product mapping, current-date periods, bounded resource rejection are specified.
+- [x] bitbank minute timestamp anchor remains an explicit external verification blocker; no price evaluation is claimed complete until resolved.
+- [x] CT-001〜083 cover prior cases plus network evidence, normalized types, price, aggregation, export and period boundaries.
+- [x] Traceability covers all 44 Requirement IDs and SR-001〜007.
+- [x] Official Cryptact format support is separated from actual upload acceptance and economic equivalence.
 - [x] Formal Spec Reviewは実施していない。
