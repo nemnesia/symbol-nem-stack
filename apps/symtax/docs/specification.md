@@ -359,7 +359,7 @@ Price sourceはXYM/JPYのみ。他mosaicはXYMとして評価しない。円金�
 
 **SPEC-PRICE-001 — Market**
 
-Initial source is bitbank Public API pair `xym_jpy`, candle `1min`. Official docs define minute request date as `YYYYMMDD` and candle tuple `[open, high, low, close, volume, unix timestamp milliseconds]`; they do not state whether entry timestamp anchors the minute start or end, nor its calendar timezone. The API timestamp semantic remains unverified (see `OPEN-002`). Until verified, the implementation MUST NOT treat a provider entry as an approved minute observation for evaluation; affected receipts return `price-unavailable(provider-timestamp-anchor-unverified)`. This is a deliberate fail-closed behavior, not a claim about actual bitbank responses.
+Initial source is bitbank Public API pair `xym_jpy`, candle `1min`. Official docs define minute request date as `YYYYMMDD` and candle tuple `[open, high, low, close, volume, unix timestamp milliseconds]`; they do not state whether entry timestamp anchors the minute start or end. The `xym_jpy` 1min timestamp anchor was verified by the live API comparison in §16.3 and is specified in `SPEC-PRICE-005`. The timestamp is compared as an absolute Unix-millisecond instant; the SymTax JST calendar is not used as a price lookup key.
 
 **SPEC-PRICE-002 — Required observation data**
 
@@ -377,15 +377,15 @@ Observations persist in the independent SymTax Price Store, are reusable during 
 
 **SPEC-PRICE-005 — Timestamp matching and price rule**
 
-Lookup input is the exact UTC Block instant from `SPEC-TIME-001`; JST date is never the lookup key. The intended minute interval is `[floor(unixMilliseconds/60000)×60000, floor(unixMilliseconds/60000)×60000 + 60000)`. An exact minute-boundary Block instant belongs to the minute starting at that exact instant; an instant one millisecond before belongs to the preceding minute; one millisecond after belongs to the new minute. The provider timestamp anchor itself has not been documented or confirmed by a live response, so this interval rule does not authorize assuming timestamp equality means minute start. Until bitbank timestamp anchor is verified from official provider evidence or repeatable API evidence, valuation remains unavailable for all observations. Release of price evaluation requires closing this evidence gate.
+Lookup input is the exact UTC Block instant from `SPEC-TIME-001`; JST date is never the lookup key. For bitbank `xym_jpy` `1min`, the live API comparison recorded in §16.3 confirms that the OHLCV tuple timestamp is the start of its one-minute interval. For Block Unix milliseconds `B`, select only the row whose candle timestamp equals `minuteStart = floor(B / 60000) × 60000`; its interval is `[minuteStart, minuteStart + 60000)`. A Block instant exactly on a minute boundary belongs to the candle starting at that boundary; one millisecond before belongs to the preceding candle and one millisecond after belongs to the new candle. Do not search adjacent minutes or use a JST date as the lookup key. This is an empirical bitbank Public API finding for the observed pair/interval, not a timestamp-anchor statement made by bitbank's documentation.
 
-After that gate is closed, only the Provider row confirmed to represent this exact interval is selectable; no adjacent-minute search is allowed. SymTax evaluation rule identifier is `symtax-harvest-ohlc-arithmetic-mean-1`: `price=(O+H+L+C)/4`. This is a SymTax product valuation rule for reproducibility. It is not the price supplied directly by bitbank, tax advice, a legally unique correct market price, or a Cryptact recommendation. Exact arithmetic and no intermediate rounding follow `SPEC-NUM-004`.
+SymTax evaluation rule identifier is `symtax-harvest-ohlc-arithmetic-mean-1`: `price=(O+H+L+C)/4`. This is a SymTax product valuation rule for reproducibility. It is not the price supplied directly by bitbank, tax advice, a legally unique correct market price, or a Cryptact recommendation. Exact arithmetic and no intermediate rounding follow `SPEC-NUM-004`.
 
 **SPEC-PRICE-006 — Missing / provider failure**
 
 | Condition | Result | Evaluation / aggregation / export |
 |---|---|---|
-| Verified target candle absent, response omits minute, or timestamp anchor unverified | `price-unavailable` with reason; no interpolation or neighboring candle | no evaluation, no JPY total, no aggregation, price-dependent Export rejected |
+| Verified target candle absent or response omits the minute selected by `SPEC-PRICE-005` | `price-unavailable` with reason; no interpolation or neighboring candle | no evaluation, no JPY total, no aggregation, price-dependent Export rejected |
 | `volume = 0` | `price-unavailable(zero-volume-candle)` even if OHLC fields are present | no evaluation; no fallback |
 | Provider timeout/non-success | `price-provider-unavailable` | reuse only an already uniquely selected immutable observation; otherwise unavailable |
 | malformed response / invalid decimal / wrong pair or interval | `price-provider-invalid-response`; do not accept observation | no evaluation for affected record |
@@ -396,7 +396,7 @@ No zero-yen fallback, carry-forward, interpolation, or nearest-candle search is 
 
 **SPEC-PRICE-007 — Receipt evaluation evidence**
 
-Evaluation exposes receipt reference, absolute XYM amount, exact block instant, selected observation identity (when available), provider/pair/interval, individual evaluation price, exact evaluated JPY, rule identifier, completeness, and unavailable reason. Same inputs and versions produce identical results. Until timestamp-anchor verification, no complete evaluation is possible. Evaluation itself is request-local, while its shared observation provenance is persistent.
+Evaluation exposes receipt reference, absolute XYM amount, exact block instant, selected observation identity (when available), provider/pair/interval, individual evaluation price, exact evaluated JPY, rule identifier, completeness, and unavailable reason. Same inputs and versions produce identical results. Evaluation itself is request-local, while its shared observation provenance is persistent.
 
 ## 9. Harvest Eligibility / Daily Aggregation
 
@@ -580,7 +580,7 @@ Cases below are externally observable contract checks, not an implementation uni
 | CT-017 | Statement or Block timestamp unresolved | `block-timestamp-unavailable`, no valuation |
 | CT-018 | Multiple Harvest receipts in one Block minute | retain individual identities and order; no timestamp-only deduplication |
 | CT-019 | Price Store exact observation hit | same observation reference reused without Provider call requirement |
-| CT-020 | Price cache miss and provider row with timestamp anchor not independently verified | store observation provenance; return `price-unavailable(provider-timestamp-anchor-unverified)`; no evaluation |
+| CT-020 | Price cache miss with a valid `xym_jpy` 1min observation | resolve the matching minute by `SPEC-PRICE-005`; preserve observation provenance |
 | CT-021 | bitbank timeout / malformed OHLCV | `price-provider-unavailable` / `price-provider-invalid-response`; never zero JPY |
 | CT-022 | No target candle / response omits minute / volume zero | `price-unavailable` with reason; no interpolation or evaluation |
 | CT-023 | Changed candle same timestamp | append correction candidate; old observation and dependent evaluation unchanged |
@@ -617,9 +617,9 @@ Cases below are externally observable contract checks, not an implementation uni
 | CT-054 | Receipt missing type-required source field | partial; `unknown` Harvest if classification evidence affected |
 | CT-055 | Receipt missing Statement source or Block reference | incomplete / `block-timestamp-unavailable`; no evaluation |
 | CT-056 | Partial or unsupported Catapult Mongo source profile | `unsupported-schema` or incomplete; never mark coverage complete |
-| CT-057 | Block instant one millisecond before minute boundary | preceding candidate interval; evaluation unavailable until provider anchor gate closed |
-| CT-058 | Block instant exactly at minute boundary | interval begins at exact boundary; no previous candle candidate |
-| CT-059 | Block instant one millisecond after boundary | interval starting at that boundary |
+| CT-057 | Block instant one millisecond before minute boundary | select the preceding minute-start candle |
+| CT-058 | Block instant exactly at minute boundary | select the candle starting at that boundary; its interval is half-open |
+| CT-059 | Block instant one millisecond after boundary | select the candle starting at that boundary |
 | CT-060 | OHLC values all distinct | evaluation rule computes exact arithmetic mean `(O+H+L+C)/4`, with no OHLC pre-rounding |
 | CT-061 | Volume is exactly zero with syntactically valid OHLC | `price-unavailable(zero-volume-candle)` |
 | CT-062 | Expected minute candle missing | no adjacent lookup/interpolation; `price-unavailable` |
@@ -644,6 +644,7 @@ Cases below are externally observable contract checks, not an implementation uni
 | CT-081 | Export resource limit reached while staged chunks exist | `export-resource-limit`; staging discarded, no partial artifact |
 | CT-082 | Export fails before completion then user retries | first attempt has no file; retry starts fresh and does not alter observations/source history |
 | CT-083 | Full requested data includes unmappable or incomplete records | rejected/incomplete with reason counts; never output a partial success file |
+| CT-084 | Recorded bitbank live sample for `xym_jpy`, 2026-09-23: 1,440 candles and 545 date-query transactions | all 194 candles with volume > 0 match every OHLCV field under `[T,T+60,000)`; only 1 matches under `[T-60,000,T)`; summed transaction amount equals summed candle volume |
 
 ## 14. OPEN-001〜010 / Specification blockers
 
@@ -652,8 +653,8 @@ Status names: `RESOLVED-IN-SPEC`, `PARTIALLY-RESOLVED`, `DEFERRED-EXTERNAL-VERIF
 | OPEN | Status | Specificationで確定したこと | 未決定・根拠 / 実装開始への影響 | 関連Specification ID |
 |---|---|---|---|---|
 | OPEN-001 税務方式・同日集約境界 | **PARTIALLY-RESOLVED** | 集約は利用者opt-in。SymTaxは外部売買・保有・税務方式を判定せず、JST任意分割、注意表示、individual出力を定義 | 個別登録との税務・損益同等性は保証しない。利用者が区間を選ぶが、区間選択自体が税務上適切とは示さない。計算結果の差異を許容するこの製品境界で仕様化。税務上の解釈は対象外 | SPEC-AGG-001〜005, SPEC-EXPORT-004 |
-| OPEN-002 Block timestamp → bitbank 1min | **BLOCKING / DEFERRED-EXTERNAL-VERIFICATION** | block instantを実時刻lookupへ使う。OHLC単純平均規則と理論minute境界を定義 | bitbank official API docsはOHLCVとUnix ms timestampのみ定義し、minute timestamp anchor/timezoneを定義しない。実API照会もDNS unavailableで再現確認できず。anchor確認まではすべて価格をunavailableとし、Harvest評価/JPY出力をreleaseしない | SPEC-TIME-001/002/004, SPEC-PRICE-001/005/007 |
-| OPEN-003 missing / zero volume | **RESOLVED-IN-SPEC** | 無足・timestamp未検証・volume zero・provider/store失敗をreason別にunavailable。補間、近傍検索、0円を禁止 | 外部資料に税務価格ルールはないため、zero volumeはSymTaxの保守的な製品規則として評価対象外。OPEN-002のanchor未確認は別ゲートとして残る | SPEC-PRICE-006, SPEC-ERR-001 |
+| OPEN-002 Block timestamp → bitbank 1min | **RESOLVED-IN-SPEC** | bitbank `xym_jpy` 1min candle timestampをminute startとして実API比較で確認。`floor(B/60000)×60000`のtimestamp一致と半開区間を規定 | bitbank公式資料はtimestamp anchorを明示しない。2026-09-23の実応答照合に基づくpair/intervalの経験的確認。exact-boundary約定は当日未観測だが、境界所属は確定したminute-start区間の半開契約で決まる | SPEC-TIME-001/002/004, SPEC-PRICE-001/005/007; CT-057〜064, CT-084 |
+| OPEN-003 missing / zero volume | **RESOLVED-IN-SPEC** | 選択minuteの足なし・volume zero・provider/store失敗をreason別にunavailable。補間、近傍検索、0円を禁止 | 外部資料に税務価格ルールはないため、zero volumeはSymTaxの保守的な製品規則として評価対象外。OPEN-002のanchor確認とは独立 | SPEC-PRICE-006, SPEC-ERR-001 |
 | OPEN-004 observation correction / reevaluation | **PARTIALLY-RESOLVED** | duplicate idempotent、changed value append-only candidate、既存evaluationを自動差替えしない | 候補の採用/修復、再評価承認、容量・運用方針は外部仕様・運用判断。現時点で自動切替しないので既存結果の再現性は保つ | SPEC-PRICE-002〜004, SPEC-PRICE-007 |
 | OPEN-005 Cryptact Harvest mapping | **PARTIALLY-RESOLVED / DEFERRED-EXTERNAL-VERIFICATION** | SymTax製品判断としてHarvest individual/dailyを`STAKING`へmapping。Generic CSV contractとweighted priceを定義 | Symbol HarvestをCryptactが公式分類する根拠なし。実アップロードとCryptact内損益比較は未実施。mappingはSymTax仕様であり税務上の唯一解ではない。公開前にformat acceptanceを確認 | SPEC-EXPORT-001〜007 |
 | OPEN-006 Transaction / Receipt association | **RESOLVED-IN-SPEC** | 独立model/category/list/summary維持。技術的statement/block referenceは使用 | 初期仕様で利用者向けcross-linkは必須でない | SPEC-TX-001〜004, SPEC-RCPT-001〜004 |
@@ -675,7 +676,7 @@ Status names: `RESOLVED-IN-SPEC`, `PARTIALLY-RESOLVED`, `DEFERRED-EXTERNAL-VERIF
 | OPEN-SPEC-007 | **RESOLVED-IN-SPEC / DEFERRED-EXTERNAL-VERIFICATION** | CSV header, BOM, JST datetime to seconds, CRLF, field validation and exact decimal rule are defined. Cryptact upload acceptance remains unverified | SPEC-EXPORT-001/005/007 |
 | OPEN-SPEC-008 | **PARTIALLY-RESOLVED / DEFERRED-OPERATION** | bounded/atomic output and explicit rejection are defined; numeric limits require representative measurement and approval before public release | SPEC-RES-001/002, SPEC-EXPORT-006 |
 
-**Implementation / release status:** The external contracts for network identity, type semantics, Harvest opt-in/partitioning, `STAKING` product mapping, period boundary, and export resource failure are now specified. Overall price evaluation is **BLOCKING** because neither the official bitbank documentation nor a live response available during this task establishes minute timestamp anchor/timezone. Until that evidence is verified and incorporated, implementation cannot produce complete price evaluation, JPY summaries, or Harvest Cryptact output. Public release additionally waits for real node-profile qualification, Cryptact upload confirmation, and measured export limits. No amount of UI or adapter implementation may bypass these gates.
+**Implementation / release status:** The external contracts for network identity, type semantics, Harvest opt-in/partitioning, `STAKING` product mapping, period boundary, export resource failure, and the bitbank `xym_jpy` 1min timestamp anchor are specified. The anchor is an empirical API finding, not an official documentation guarantee. Public release additionally waits for real node-profile qualification, Cryptact upload confirmation, and measured export limits. No UI or adapter implementation may bypass those remaining gates.
 
 ## 15. Requirements → Design → Specification → Conformance Traceability
 
@@ -706,8 +707,8 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 | EXPORT-005 | Component Receipt references | SPEC-AGG-003/005 | CT-025〜027 | SR-004 |
 | EXPORT-006 | Valuation + aggregation provenance | SPEC-PRICE-007, SPEC-AGG-003/005, SPEC-EXPORT-004/005 | CT-019〜027 | SR-004 |
 | EXPORT-007 | Cryptact format validator | SPEC-EXPORT-001〜007 | CT-034〜036 | SR-005 |
-| PRICE-001 | bitbank Provider adapter | SPEC-PRICE-001〜004 | CT-019〜024 | SR-003 |
-| PRICE-002 | Block-time normalization / lookup | SPEC-TIME-001/002/004, SPEC-PRICE-005 | CT-016〜018, CT-020〜022 | SR-003 |
+| PRICE-001 | bitbank Provider adapter | SPEC-PRICE-001〜004 | CT-019〜024, CT-084 | SR-003 |
+| PRICE-002 | Block-time normalization / lookup | SPEC-TIME-001/002/004, SPEC-PRICE-005 | CT-016〜018, CT-020〜022, CT-084 | SR-003 |
 | PRICE-003 | Persistent observation store | SPEC-PRICE-002〜004 | CT-019, CT-023〜024, CT-039 | — |
 | PRICE-004 | Receipt evaluation evidence | SPEC-PRICE-007 | CT-016〜020, CT-023 | SR-003 |
 | PRICE-005 | Missing / ambiguous state | SPEC-PRICE-006, SPEC-ERR-001/002 | CT-021〜022 | SR-003 |
@@ -724,7 +725,7 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 | SEC-003 | Runtime expected/observed network guard | SPEC-NET-001〜003 | CT-001〜003, CT-032 | SR-002 |
 | PRIV-001 | Request-local user data / minimal logs | SPEC-PRIV-001/002 | CT-039 | — |
 | SEC-004 | Independent SymTax Store | SPEC-PRICE-004, SPEC-PRIV-001 | CT-019, CT-039 | — |
-| EXT-001 | Price Store read-through | SPEC-PRICE-001〜006 | CT-019〜024 | SR-003 |
+| EXT-001 | Price Store read-through | SPEC-PRICE-001〜006 | CT-019〜024, CT-084 | SR-003 |
 | EXT-002 | Cryptact Adapter / validation | SPEC-EXPORT-001〜007 | CT-034〜036 | SR-005 |
 | EXT-003 | Symbol adapter compatibility boundary | SPEC-TX-001〜004, SPEC-RCPT-001〜004, SPEC-ERR-001 | CT-011, CT-015, CT-033 | SR-001 |
 
@@ -734,7 +735,7 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 |---|---|---|---|
 | SR-001 Critical | **RESOLVED-IN-SPEC; node-profile gate remains** | Type-specific Transaction and Receipt semantic maps, identity, roles, quantities, source references and completeness are explicit from Catbuffer. A live Node profile still needs qualification before coverage claims | SPEC-TX-001〜004, SPEC-RCPT-001〜005; CT-047〜056 |
 | SR-002 Critical | **RESOLVED-IN-SPEC** | Mainnet/Testnet network type, generation seed and epoch adjustment are pinned; observed evidence and fail-closed outcomes are exact | SPEC-NET-001〜004; CT-041〜046 |
-| SR-003 Critical | **PARTIALLY RESOLVED; BLOCKING** | OHLC mean, exact decimal arithmetic, minute interval candidate, exact boundary, volume-zero and missing-candle outcomes are defined. bitbank's timestamp anchor/timezone is absent from official docs and live response could not be fetched, so price evaluation remains unavailable pending evidence | SPEC-PRICE-001, 005〜007; CT-057〜064 |
+| SR-003 Critical | **RESOLVED-IN-SPEC** | Live API reconstruction confirms minute-start anchoring for `xym_jpy` 1min; block-to-candle selection, exact boundary, OHLC arithmetic mean, zero-volume and missing-candle outcomes are specified. Official docs do not themselves declare the anchor | SPEC-PRICE-001, 005〜007; CT-057〜064, CT-084 |
 | SR-004 Critical | **RESOLVED-IN-SPEC** | Eligibility is deterministic and structural only; aggregation is optional, uses user splits and does not infer external trades or tax method | SPEC-AGG-001〜005; CT-065〜072 |
 | SR-005 Critical | **RESOLVED-IN-SPEC; external acceptance deferred** | Harvest individual/daily map to SymTax product action `STAKING` with explicit columns/values; other types are explicitly unmappable. This is not Cryptact's official Symbol classification; actual upload/economic behavior remains external verification | SPEC-EXPORT-001〜007; CT-073〜076 |
 | SR-006 Major | **RESOLVED-IN-SPEC** | Current-day/current-month calendar end is allowed; actual end is clipped to requestNow and future-only intervals reject | SPEC-IN-005; CT-077〜080 |
@@ -765,9 +766,21 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 ### 16.3 bitbank Public API
 
 - Official [Public API candle docs](https://github.com/bitbankinc/bitbank-api-docs/blob/master/public-api.md#candlestick) support pair list, `1min`, `YYYYMMDD` for minute candles, `[open, high, low, close, volume, unix timestamp milliseconds]`.
-- Official [pairs](https://github.com/bitbankinc/bitbank-api-docs/blob/master/pairs.md) includes `xym_jpy`.
-- Official docs confirm tuple values and millisecond timestamp only; they do not specify minute timestamp anchor or timezone/date-path boundary. The user-authorized SymTax evaluation rule is OHLC arithmetic mean. Official docs provide no tax price recommendation, zero-volume valuation, or missing-candle interpolation rule.
-- Current task environment `curl -L https://public.bitbank.cc/xym_jpy/candlestick/1min/20260923` failed DNS resolution (`Could not resolve host`); no live candle timestamp sample could be examined. The minute-anchor question remains a blocking external verification. Prior Concept records user-confirmed availability for 2025-01-01 and 2026-01-01; this user verification is distinct from official retention guarantees.
+- Official [Transactions docs](https://github.com/bitbankinc/bitbank-api-docs/blob/master/public-api.md#transactions) describe `GET /{pair}/transactions/{YYYYMMDD}`, `transaction_id`, `price`, `amount`, and `executed_at`; they state that omitting the date returns the latest 60. The documentation does not explicitly describe the candle timestamp anchor or the timezone of the date path. Official [pair list](https://github.com/bitbankinc/bitbank-api-docs/blob/master/pairs.md) includes `xym_jpy`.
+- **Official documentation fact:** candle tuple timestamp is Unix milliseconds and the OHLCV order is open, high, low, close, volume, timestamp. The docs do not say whether that timestamp marks the minute start or end. They also do not state a tax price recommendation or zero-volume / missing-candle valuation rule.
+- **Live Public API observation (2026-09-24, query date 2026-09-23):** fetched [Candlestick](https://public.bitbank.cc/xym_jpy/candlestick/1min/20260923) and [date-specified Transactions](https://public.bitbank.cc/xym_jpy/transactions/20260923). Candlestick returned 1,440 rows from `2026-09-23T00:00:00Z` through `23:59:00Z`; Transactions returned 545 records, all with `executed_at` within that UTC date. All 194 rows with `volume > 0` were reconstructed using exact decimal strings, grouping trades into `[T,T+60000)` and ordering equal-millisecond trades by ascending `transaction_id`; open, high, low, close, and volume each matched the API row in 194/194 cases. Under `[T-60000,T)`, field match counts were O=24/194, H=23/194, L=26/194, C=28/194, volume=3/194, with only 1/194 complete OHLCV match. For the date, exact sum of all 545 transaction amounts (`6415353.7709`) equaled exact sum of all 1,440 candle volumes (`6415353.7709`). The date-omitted [Transactions endpoint](https://public.bitbank.cc/xym_jpy/transactions) returned 60 records, consistent with the official description; the date-specific response was not the latest-60 response. This cross-check supports coverage for this observed date and rules out an apparent 60-record truncation; it does not claim a permanent provider retention guarantee.
+- Among same-millisecond groups, 73 groups were observed (maximum 13 records); in every such group, response order and ascending `transaction_id` agreed. No trade had `executed_at % 60000 == 0` in this sample (`exact-boundary transaction was not observed`). Exact-boundary placement therefore follows the specified `[minuteStart, minuteStart+60000)` rule rather than a directly observed trade.
+- Representative live rows (UTC; all five values are exact decimal comparisons):
+
+| Candle timestamp | API OHLCV `(O,H,L,C,V)` | `[T,T+60s)` reconstruction | `[T-60s,T)` reconstruction | Result |
+|---|---|---|---|---|
+| 2026-09-23 03:19Z | `0.507, 0.508, 0.507, 0.508, 0.0900` | exact match (2 trades) | no trades | start |
+| 2026-09-23 03:35Z | `0.508, 0.518, 0.508, 0.518, 1077956.6716` | exact match (8 trades) | no trades | start |
+| 2026-09-23 04:01Z | `0.511, 0.512, 0.509, 0.512, 319325.5454` | exact match (11 trades) | `0.508, 0.508, 0.508, 0.508, 0.0001` (1 trade) | start |
+| 2026-09-23 04:41Z | `0.512, 0.519, 0.510, 0.517, 81500.7000` | exact match (9 trades) | no trades | start |
+| 2026-09-23 05:04Z | `0.512, 0.512, 0.510, 0.512, 47035.5134` | exact match (5 trades) | `0.512, 0.512, 0.512, 0.512, 5815.2710` (1 trade) | start |
+
+- **Conclusion:** for bitbank `xym_jpy` `1min`, observed API candle timestamps anchor the minute start. This conclusion is based on the above real API reconstruction, not on an official documentation statement. The SymTax OHLC arithmetic-mean rule remains a separate product valuation rule.
 
 ### 16.4 Cryptact official material
 
@@ -791,8 +804,8 @@ Requirements ID grouping follows the 44 IDs defined in `requirements.md`. Each r
 - [x] MongoDB raw document / collection / queryをBrowser contractに出していない。
 - [x] Search condition / user history / evaluation / exportのuser-linked persistenceを禁止し、shared market observationを区別した。
 - [x] Harvest OHLC arithmetic mean, structural opt-in eligibility, arbitrary JST split points, `STAKING` product mapping, current-date periods, bounded resource rejection are specified.
-- [x] bitbank minute timestamp anchor remains an explicit external verification blocker; no price evaluation is claimed complete until resolved.
-- [x] CT-001〜083 cover prior cases plus network evidence, normalized types, price, aggregation, export and period boundaries.
+- [x] bitbank `xym_jpy` 1min timestamp anchor was verified by a full-day real API OHLCV / Transactions comparison; exact-boundary trade absence is recorded separately from the half-open interval contract.
+- [x] CT-001〜084 cover prior cases plus network evidence, normalized types, price, aggregation, export, period boundaries, and the recorded live anchor verification.
 - [x] Traceability covers all 44 Requirement IDs and SR-001〜007.
 - [x] Official Cryptact format support is separated from actual upload acceptance and economic equivalence.
 - [x] Formal Spec Reviewは実施していない。
