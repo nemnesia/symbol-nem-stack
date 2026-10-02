@@ -1,6 +1,6 @@
 ---
 name: phase-context-maintainer
-description: symbol-nem-wallet-core の正式資料から、任意のフェーズ用に非規範的な Phase Context を評価・作成・refresh する。Context の必要性を反復参照コストで判定し、正式資料やレビュー成果物は変更しない。
+description: 対象の正式資料から、任意のフェーズ用に非規範的な Phase Context を評価・作成・refresh する。Context の必要性を反復参照コストで判定し、正式資料やレビュー成果物は変更しない。
 ---
 
 # Phase Context Maintainer
@@ -32,7 +32,7 @@ Concept、Requirements、Design、Specification などの正式資料を、Autho
 2. 対象フェーズと、`AGENTS.md` の `Phase Contexts` 登録の有無を確認する。
 3. Context の作成・refresh を依頼された場合も、既存 Context ではなく承認済み正式資料を主な入力にする。既存 Context は stale / conflict の検出対象としてのみ読む。
 4. 対象フェーズの正式資料と、直接必要な承認済み上流資料を確認する。レビュー記録、実装、テストおよび技術資料は、正式資料の状態・整合性・技術的事実を確認する必要がある場合だけ補助的に読む。
-5. 資料間の競合は解消せず、対象、chain / network、version、資料の役割、影響および判断が必要な段階を報告する。
+5. 資料間の競合は解消せず、対象、テナント / 接続先 / 環境、version、資料の役割、影響および判断が必要な段階を報告する。
 
 対象フェーズの Context が `AGENTS.md` に登録されていない場合、既存の未登録ファイルを
 自動利用しない。作成する場合は、作成後に既存の Context パスを `Phase Contexts` へ登録する。
@@ -88,11 +88,11 @@ Context の source map は、例えば次のように topic、正式資料の所
 ```markdown
 | Topic | Authoritative source | Re-check |
 | --- | --- | --- |
-| responsibility boundary | `docs/design/architecture.md` §... | boundary wording |
+| responsibility boundary | `既存の設計文書architecture.md` §... | boundary wording |
 ```
 
 Context ファイルには有効な YAML frontmatter を付け、少なくとも `phase`、`status: non-normative`
-および `last_refreshed` を記録する。登録パスは `docs/context/<phase>-context.md` など、実在する
+および `last_refreshed` を記録する。登録パスは 対象リポジトリで確認したContextの保存先 など、実在する
 リポジトリ相対パスとする。`AGENTS.md` の登録、frontmatter、source map、見出しおよびリンクを
 作成後に確認する。
 

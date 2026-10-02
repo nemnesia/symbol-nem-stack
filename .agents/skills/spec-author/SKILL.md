@@ -1,126 +1,87 @@
 ---
 name: spec-author
-description: symbol-nem-wallet-core の承認済み要求・設計を、実装・検証可能な外部仕様へ具体化する。API契約、データ形式、validation、error、security、相互運用規則を定めるが、新しい要求や将来機能は発明しない。
+description: 承認済みの要求と設計を、実装・検証可能な外部仕様へ具体化する。API、データ契約、validation、error、状態、セキュリティ、相互運用性を定めるが、上流にない機能は追加しない。
 ---
 
 # Specification Author
 
-承認済み要求と基本設計を、実装者・利用者・別実装が同じ結果を得られる外部仕様へ具体化する。このSkillの責務は「外部から何が観測でき、どの入力をどう扱い、どの条件で成功・失敗するか」を定義することであり、要求や内部実装を新規に作ることではない。
+承認済み要求と設計を、利用者や別実装者が一貫して扱える外部仕様へ具体化する。入力、観測可能な結果、成功・失敗条件、互換性を定義し、新しい要求や内部実装を発明しない。
 
-作業開始時に次の順で全文を確認する。
+## 作業前の確認
 
-1. `AGENTS.md`
-2. ../author-common/author-playbook.md
-3. `AGENTS.md` に対象フェーズの Phase Context が登録されている場合だけ、その Context
-4. 対象の Specification と関連仕様
-5. `docs/design/` の対象設計と設計判断、および対象へ直接必要な承認済み requirements
-6. `docs/knowledge/` の対象技術資料と必要な公式資料
-7. 既存の実装、公開API、テスト、fixture（既存契約との互換性、実現可能性、回帰またはfixtureの照合に必要な場合だけ）
-8. 対象の公開レビュー結果と実装者フィードバック（対象一致する既存フィードバックの確認またはユーザーが明示した場合だけ）
+1. 対象リポジトリの作業指示（`AGENTS.md` など）があれば読む。
+2. `../author-common/author-playbook.md` と対象の仕様書を読む。
+3. 直接関係する承認済み要求、設計、関連仕様、レビュー結果を確認する。
+4. 技術的事実が必要なら、適用される一次資料や公式資料を確認する。
+5. 実装、API、テスト、fixture は既存契約や互換性の照合に必要な場合だけ参照する。
 
 ## 対象と出力
 
-- ユーザーが対象、出力先、更新範囲を指定した場合はそれを優先する。
-- 未指定の場合は対象機能を確定し、`docs/specifications/<topic>.md` に新規作成する。
-- 対象が不明、複数の責務にまたがる、または候補が複数の場合は推測で選ばない。
-- 既存仕様書は明示的な更新依頼がある場合だけ変更する。現行正本の移動・改名・上書きをしない。
-- 成果物は仕様書だけとし、requirements、design、implementation、test、reviewを同時に作成しない。
+- ユーザーが指定した対象、出力先、更新範囲を優先する。
+- 未指定なら既存文書から対象と保存先を確認する。対象が複数ある場合は推測しない。
+- 既存の仕様書を更新するのは依頼範囲に限る。正本を移動・改名・複製しない。
+- 成果物は仕様書に限り、要求、設計、実装、テスト、レビューを同時に作成しない。
 
 ## 仕様の責務
 
-対象に必要な範囲で、次を外部から判定できる粒度で定める。
+対象に必要な範囲で、外部から判定できるよう次を定義する。
 
-- 適用範囲、対象外、用語、前提、責任境界、capability
-- 入力、出力、公開API、データ形式、field、型、必須性、制約
+- 適用範囲、対象外、用語、前提、主体、責任境界
+- 入力、出力、公開インターフェース、field、型、必須性、制約
 - validation、正規化、処理順序、状態、lifecycle、error、禁止事項
-- 決定的serialization、encoding、byte列、数量、日時、version、互換性
-- security、認証、完全性、replay、期限、サイズ、秘密情報、失敗時の安全側動作
-- Symbol / NEM、Mainnet / Testnet、transaction / message、署名対象の差異
-- Rust Core、Native C ABI、WASM binding、上位 Application、外部 node の責任境界
-- 受け入れ条件、固定vector、fixtureの出典、実装・適合テストへの引継ぎ
+- serialization、encoding、バイト列、数量、日時、version、互換性
+- 認証、認可、完全性、replay、期限、サイズ、秘密情報、失敗時の安全な結果
+- 受け入れ条件、適合試験、固定vectorやfixtureの出典、実装への引継ぎ
 
-外部契約を定める場合も、既存要求・`docs/design/`・公式protocol仕様への根拠を付ける。根拠のない初期値、ID、version、サイズ、暗号パラメータを推測しない。
+各契約を承認済み要求・設計や適用される標準へ追跡する。初期値、ID、version、サイズ、暗号パラメータを推測しない。
 
 ## 仕様にしない内容
 
-- 上位要求にない機能、API、設定、field、error、fallback、互換動作
-- 内部class、function、module、package分割、DB実装、library、framework、infra
-- UI layout、実装者の好み、将来の拡張点、未要求の運用機能
-- SDKの便利APIや既存コードの挙動だけを根拠とするprotocol規則
-- binding が opaque と扱う Wallet Store / Pending Profile の意味解析や改変
+上流に根拠がない機能、API、設定、field、error、fallback、互換動作を追加しない。内部のclass、function、module、package、データベース、library、framework、infra、UIの詳細は仕様で決める必要がある場合を除き、設計や実装へ委ねる。SDKの利便APIや既存コードだけを外部標準の根拠とみなさない。
 
-方式が複数あり選択が必要な場合は、採用判断の根拠が承認されているか確認する。判断できなければ未決定事項として残し、実装できるように見せるための暫定値を入れない。
-
-## 上流資料とレビュー結果
-
-- requirementsの各要求を仕様の章・契約・受け入れ条件へ追跡する。
-- designの責務、依存方向、trust boundary、主要フローを外部契約へ適用するが、内部設計をwire仕様へ混ぜない。
-- concept、requirements、designの公開レビュー結果がある場合、Review Result、未解決Critical、Deferred、対象一致を確認する。
-- 実装者からの仕様フィードバックがある場合、仕様の欠落・矛盾・実装不能性を確認し、採用・保留・却下の根拠を記録する。実装フィードバックだけで新機能を追加しない。
-- 過去レビューの指摘をそのまま仕様にコピーせず、上流根拠と今回の対象へ再追跡する。
+方式の選択に承認が必要で、根拠から一意に決められない場合は未決定事項に残す。実装できるように見せるための暫定値を規範にしない。
 
 ## 作成手順
 
-1. 対象仕様、対象、出力先、更新可否を確定する。
-2. 承認済みrequirements、design、関連仕様を抽出し、要求IDとの対応表を作る。
-3. 実装・テスト・fixture・公式資料を、既存契約と技術的事実の照合に必要な範囲だけ確認する。
-4. 対象外、用語、主体、trust boundary、責任を先に固定する。
-5. 正常系の入力、出力、処理、状態、結果を定義する。
-6. malformed、境界、認証失敗、改ざん、truncated、duplicate、unknown version / type、wrong chain / network、timeoutなど該当する異常系を定義する。
-7. API、schema、encoding、serialization、署名、暗号、error、互換性を、根拠のある範囲で具体化する。
-8. Symbol / NEMとMainnet / Testnetの差異をchain-specificに分離する。
-9. 受け入れ条件、適合試験、fixed vector、fixture、未決定事項を整理する。
-10. 仕様の各契約が実装者の推測なしで判定可能か、上流要求へ戻って自己確認する。
-11. 自己確認後、仕様書だけを作成または明示的に更新する。
+1. 対象、出力先、変更可否を確定する。
+2. 上流要求と設計を仕様項目へ対応付ける。
+3. 用語、主体、対象外、責任境界を整理する。
+4. 正常系の入力、出力、結果、状態を定義する。
+5. 対象に関係する不正入力、境界値、認証失敗、改ざん、重複、未知値、サイズ超過などの結果を定義する。
+6. データ形式、encoding、暗号、互換性など必要な契約を根拠に沿って具体化する。
+7. 受け入れ条件、適合試験、fixture、未決定事項を記録する。
+8. 実装者が推測せず契約を判定できるか確認する。
+9. 仕様書だけを作成または更新する。
 
 ## 標準構成
 
 1. 概要と適用範囲
 2. 対象外、用語、責任境界
-3. 設計原則と前提
-4. 公開APIまたは外部契約
-5. データモデルとfield制約
-6. encoding / serialization / byte規則
+3. 前提と依存する外部契約
+4. 公開インターフェース
+5. データモデルと制約
+6. encoding / serialization
 7. 正常系処理と状態
 8. validation、error、禁止事項
-9. security、認証、完全性、replay、秘密情報
-10. chain / network / version / compatibility
-11. サイズ・resource・lifecycle制約
+9. セキュリティと秘密情報
+10. version、互換性、環境差異
+11. resource とlifecycle制約
 12. 受け入れ条件と適合試験
 13. 未決定事項と下流引継ぎ
 14. Traceabilityと参照資料
 
-対象に該当しない章は省略してよいが、必要な契約を「実装で決める」とだけして外部仕様を空白にしない。
-
-## symbol-nem-wallet-core固有の安全規則
-
-- `symbol-sdk` 3.3.2 は互換性検証の基準であり、SDK APIそのものをprotocol仕様と同一視しない。
-- Symbol / NEM、Mainnet / Testnet、通常 / embedded / aggregate、signer / cosignerの差異は、対象仕様にある場合だけ明示する。
-- quantityを浮動小数で定義・計算しない。hex、raw bytes、public key、private key、signature、hashの表現と長さを確認する。
-- 署名対象byte列、canonical serialization、network constant、address規則は承認済み仕様または公式資料へ追跡する。
-- Wallet Store と Pending Profile は仕様が定める opaque 境界を守り、bindingへ意味解析を移さない。
-- Rust Coreが正本とする鍵管理、Wallet Store、秘密情報処理、raw signingをNative / WASM bindingへ再実装しない。
-- 秘密鍵、Mnemonic、password、credential、復号データを仕様例やfixtureへ書かない。
-
-## 未決定事項
-
-未決定事項には、ID、論点、なぜ現時点で決められないか、影響する外部契約、判断者または判断段階、下限となる安全条件を記録する。未決定事項を隠して仮定を仕様の規範として扱わない。既存要求を満たすために不可欠な事項が未決定なら、仕様を実装開始可能と判定しない。
+該当しない章は省略してよい。必要な契約を「実装で決める」だけにして空白にしない。
 
 ## 自己確認
 
-- すべての仕様契約がrequirements、design、公式資料へ追跡できる。
-- 入力、出力、必須性、validation、error、状態、禁止事項、versionが一意である。
-- 正常系だけでなく該当する異常系、境界、改ざん、replay、認証失敗を定義している。
-- 署名対象、byte列、encoding、数量、chain、networkが別実装で一致する。
-- security、秘密情報、Core / Native / WASM binding境界を弱めていない。
-- APIや暗号方式を根拠なく発明していない。
-- 未知値、未対応、解析不能、結果不明を成功として扱っていない。
-- 受け入れ条件と適合試験が、仕様の外部契約を検証できる。
+- 仕様契約を承認済み要求、設計、標準へ追跡できる。
+- 入力、出力、必須性、validation、error、状態、禁止事項、versionが判定可能である。
+- 対象に関係する異常系、境界、改ざん、replay、認証失敗を扱っている。
+- 外部形式や処理結果が複数実装で一致するために必要な情報がある。
+- API、暗号方式、policyを根拠なく発明していない。
+- 未知値、未対応、解析不能、結果不明を成功とみなしていない。
+- 受け入れ条件が外部契約を検証できる。
 - レビュー指摘や実装フィードバックを新しい要求へ無断変換していない。
 - 未決定事項、競合、未確認資料を明示している。
 
-仕様の独立した品質判定が必要な場合は、作成後にspec-reviewを使用する。このSkill自身はレビュー成果物を生成しない。
-
-## 作業完了後の Git 運用
-
-`../author-common/author-playbook.md` の「完了と Git」を適用する。
+独立した品質判定が必要な場合は `spec-review` を使用する。このスキル自身はレビュー成果物を作成しない。
