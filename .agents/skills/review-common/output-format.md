@@ -16,7 +16,7 @@
 10. `Upstream Feedback`: 上流の正式資料・decision の不足、曖昧さ、矛盾を返す記録
 11. `Deferred Findings`: 下流・対象範囲外・後続検証へ引き継ぐ指摘、未決定事項、確認事項
 12. `Scope and Traceability`: 対象境界、上流・下流資料との追跡、責任分界
-13. `Domain Checks`: 対象 Skill 固有の評価項目
+13. `Domain Checks`: 対象スキルに応じた評価項目
 14. `Validation Results`: 実行した検証、結果、未実行・未確認範囲
 15. `Review Gates`: 各ゲートの合否、根拠、対応 ID
 16. `Remaining Risks and Open Decisions`: 残存リスク、未決定事項、前提
@@ -41,7 +41,7 @@
 
 上流 gap が残っていても現在フェーズを安全に評価・完了できる場合は、`Upstream Feedback` のみを記録し、non-blocking とする。上流 gap により現在フェーズを安全に評価・完了できない場合は、現在フェーズ側の formal finding を別途記録し、その finding から該当する `Upstream Feedback` へ trace する。current-phase finding には「上流欠落によって現在フェーズが成立しない」という影響を記載し、Severity、Required Change、Gate failure、Review Result には現在フェーズの既存 Skill policy を適用する。`Upstream Feedback` 自体には Severity、Required Change、Gate failure、Review Result を付けない。同じ根本問題を feedback と formal finding の二重欠陥として数えず、Chair が両者の trace relationship と状態を管理する。
 
-この関係は、Design Review から Requirements へ返す場合、Specification Review から Design / 必要時 Requirements へ返す場合、Implementation Review から Specification / 必要時 Design・Requirements へ返す場合に同じように適用する。例えば Design の Requirements gap が ownership / trust boundary / signing authority を安全に確定できなくする場合は、Requirements への `Upstream Feedback` と Design 側の formal finding を記録する。安全に確定できる場合は feedback のみとする。
+この関係は、Design Review から Requirements へ返す場合、Specification Review から Design / 必要時 Requirements へ返す場合、Implementation Review から Specification / 必要時 Design・Requirements へ返す場合に同じように適用する。例えば、Requirementsの不足により責任や信頼境界を設計で安全に決められない場合は、Requirementsへの `Upstream Feedback` とDesign側のformal findingを記録する。安全に確定できる場合は feedback のみとする。
 
 通常の feedback direction は次のとおりとする。問題の発生源が本当に Requirements にある場合だけ Requirements へ返し、機械的に最上流まで遡らせない。
 
