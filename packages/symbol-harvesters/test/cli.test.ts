@@ -345,46 +345,119 @@ describe('暗号化・復号CLI', () => {
     await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('探索CLIが秘密鍵PEM・フルREST・キャッシュを使い、リンク高さと残高をJSONへ保存する', async () => {
-    const nodeAddress = Network.TESTNET.publicKeyToAddress(new PublicKey(publicHex));
-    const requestLog = join(directory, 'requests.jsonl');
-    const preload = join(directory, 'mock-rest.mjs');
-    const linked = {
-      id: '000000000000000000000001',
-      meta: { height: '2', index: 0 },
-      transaction: { network: 152, type: 16972, signerPublicKey: publicHex, linkedPublicKey: publicHex, linkAction: 1 },
-    };
-    const plaintext = (await decryptHarvesters(await readFile(fixture), privateHex))[0];
-    const delegation = {
-      id: '000000000000000000000002',
-      meta: { height: '3', index: 1 },
-      transaction: {
-        network: 152,
-        type: 16724,
-        signerPublicKey: publicHex,
-        recipientAddress: Buffer.from(nodeAddress.bytes).toString('hex'),
-        message: 'FE2A8061577301E2' + (await readFile(fixture)).subarray(0, 124).toString('hex').toUpperCase(),
-      },
-    };
-    const account = {
-      publicKey: publicHex,
-      address: Buffer.from(nodeAddress.bytes).toString('hex'),
-      supplementalPublicKeys: {
-        node: { publicKey: publicHex },
-        linked: { publicKey: new KeyPair(new PrivateKey(plaintext.signingPrivateKey)).publicKey.toString() },
-        vrf: { publicKey: new KeyPair(new PrivateKey(plaintext.vrfPrivateKey)).publicKey.toString() },
-      },
-      mosaics: [{ id: '6BED913FA20223F8', amount: '1000000' }],
-    };
-    // 子プロセスへRESTの公開応答だけを注入し、秘密鍵を送信していないことも確認します。
+  it.each([
+    {
+      response: "Response.json({ chain: { currencyMosaicId: '秘密の値' } })",
+      divisibility: 6,
+      reason: '通貨モザイクID',
+    },
+    {
+      response: "Response.json({ chain: { currencyMosaicId: '6BED913FA20223F8' } })",
+      divisibility: 5,
+      reason: '小数桁数6',
+    },
+    { response: "new Response('秘密の応答', { status: 503 })", divisibility: 6, reason: 'HTTP 503' },
+    { response: "new Response('秘密のJSON')", divisibility: 6, reason: 'JSON応答' },
+  ])('XYM情報が不正なら誤った残高を出力せず安全に失敗する（$reason）', async ({ response, divisibility, reason }) => {
+    const preload = join(directory, 'currency-rest.mjs');
     await writeFile(
       preload,
-      `
+      `globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      if (url.pathname === '/node/info') return Response.json({ networkIdentifier: 104, networkGenerationHashSeed: 'A'.repeat(64) });
+      if (url.pathname === '/chain/info') return Response.json({ height: '100', latestFinalizedBlock: { height: '100', hash: '64'.padStart(64, '0') } });
+      if (url.pathname.startsWith('/blocks/')) { const height = url.pathname.split('/').at(-1); return Response.json({ block: { height }, meta: { hash: BigInt(height).toString(16).padStart(64, '0') } }); }
+      if (url.pathname === '/transactions/confirmed') return Response.json({ data: [], pagination: { pageNumber: 1, pageSize: 100 } });
+      if (url.pathname === '/network/properties') return ${response};
+      if (url.pathname.startsWith('/mosaics/')) return Response.json({ mosaic: { id: '6BED913FA20223F8', divisibility: ${divisibility} } });
+      return new Response('', { status: 404 });
+    };`
+    );
+    vi.stubEnv('NODE_OPTIONS', `--import=${pathToFileURL(preload).href}`);
+    const result = run(
+      'discover',
+      '--output',
+      jsonFile,
+      '--key-file',
+      privateFile,
+      '--cache-file',
+      join(directory, 'cache.json')
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(reason);
+    expect(result.stderr).not.toContain('秘密の');
+    await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each([
+    { name: 'Mainnet', networkIdentifier: 104, currencyId: '6BED913FA20223F8', amount: '1000000', xym: '1.000000' },
+    { name: 'Testnet', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: '1000000', xym: '1.000000' },
+    { name: '最小単位', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: '1', xym: '0.000001' },
+    { name: '小数', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: '123456789', xym: '123.456789' },
+    {
+      name: '大きな数量',
+      networkIdentifier: 152,
+      currencyId: '72C0212E67A08BCE',
+      amount: '18446744073709551615',
+      xym: '18446744073709.551615',
+    },
+    { name: '残高ゼロ', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: '0', xym: '0.000000' },
+    { name: 'XYM未保有', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: undefined, xym: '0.000000' },
+  ])(
+    '探索CLIはアドレス・XYMだけを出力しキャッシュから復元できる（$name）',
+    async ({ networkIdentifier, currencyId, amount, xym }) => {
+      const network = networkIdentifier === 104 ? Network.MAINNET : Network.TESTNET;
+      const nodeAddress = network.publicKeyToAddress(new PublicKey(publicHex));
+      const requestLog = join(directory, 'requests.jsonl');
+      const preload = join(directory, 'mock-rest.mjs');
+      const linked = {
+        id: '000000000000000000000001',
+        meta: { height: '2', index: 0 },
+        transaction: {
+          network: networkIdentifier,
+          type: 16972,
+          signerPublicKey: publicHex,
+          linkedPublicKey: publicHex,
+          linkAction: 1,
+        },
+      };
+      const plaintext = (await decryptHarvesters(await readFile(fixture), privateHex))[0];
+      const delegation = {
+        id: '000000000000000000000002',
+        meta: { height: '3', index: 1 },
+        transaction: {
+          network: networkIdentifier,
+          type: 16724,
+          signerPublicKey: publicHex,
+          recipientAddress: Buffer.from(nodeAddress.bytes).toString('hex'),
+          message: 'FE2A8061577301E2' + (await readFile(fixture)).subarray(0, 124).toString('hex').toUpperCase(),
+        },
+      };
+      const account = {
+        publicKey: publicHex,
+        address: Buffer.from(nodeAddress.bytes).toString('hex'),
+        supplementalPublicKeys: {
+          node: { publicKey: publicHex },
+          linked: { publicKey: new KeyPair(new PrivateKey(plaintext.signingPrivateKey)).publicKey.toString() },
+          vrf: { publicKey: new KeyPair(new PrivateKey(plaintext.vrfPrivateKey)).publicKey.toString() },
+        },
+        mosaics: [
+          { id: '0000000000000001', amount: '999999999' },
+          ...(amount === undefined ? [] : [{ id: currencyId, amount }]),
+        ],
+      };
+      // 子プロセスへRESTの公開応答だけを注入し、秘密鍵を送信していないことも確認します。
+      await writeFile(
+        preload,
+        `
       import { appendFile } from 'node:fs/promises';
       globalThis.fetch = async (input) => {
         const url = new URL(input);
         await appendFile(${JSON.stringify(requestLog)}, url.toString() + '\\n');
-        if (url.pathname === '/node/info') return Response.json({ networkIdentifier: 152, networkGenerationHashSeed: 'A'.repeat(64) });
+        if (url.pathname === '/node/info') return Response.json({ networkIdentifier: ${networkIdentifier}, networkGenerationHashSeed: 'A'.repeat(64) });
+        if (url.pathname === '/network/properties') return Response.json({ chain: { currencyMosaicId: ${JSON.stringify('0x' + currencyId.match(/.{4}/g)!.join("'"))} } });
+        if (url.pathname === '/mosaics/${currencyId}') return Response.json({ mosaic: { id: '${currencyId}', divisibility: 6 } });
         if (url.pathname === '/chain/info') return Response.json({ height: '102', latestFinalizedBlock: { height: '100', hash: '64'.padStart(64, '0') } });
         if (url.pathname.startsWith('/blocks/')) {
           const height = url.pathname.split('/').at(-1);
@@ -395,64 +468,63 @@ describe('暗号化・復号CLI', () => {
         return new Response('', { status: 404 });
       };
     `
-    );
-    vi.stubEnv('NODE_OPTIONS', `--import=${pathToFileURL(preload).href}`);
-    const cache = join(directory, 'discovery-cache.json');
-    const first = run(
-      'discover',
-      '--output',
-      jsonFile,
-      '--key-file',
-      privateFile,
-      '--rest-url',
-      'https://full-rest.example:3001',
-      '--cache-file',
-      cache
-    );
-    expect(first.status).toBe(0);
-    const result = JSON.parse(await readFile(jsonFile, 'utf8'));
-    expect(result.accounts[0]).toMatchObject({
-      publicKey: publicHex,
-      linkedHeight: '2',
-      balances: [{ mosaicId: '6BED913FA20223F8', amount: '1000000' }],
-    });
-    const requests = await readFile(requestLog, 'utf8');
-    expect(requests).toContain('https://full-rest.example:3001/transactions/confirmed');
-    expect(requests).not.toContain(privateHex);
-    expect(first.stderr).toContain('ノード関連取引');
-    expect(first.stderr).toContain('取得中');
-    expect(first.stderr).toContain('リンク・残高確認');
-    const second = run(
-      'discover',
-      '--output',
-      join(directory, 'next.json'),
-      '--key-file',
-      privateFile,
-      '--cache-file',
-      cache
-    );
-    expect(second.status).toBe(0);
-    expect(second.stderr).toContain('リンク・残高確認');
-    expect(await readFile(requestLog, 'utf8')).toContain('http://localhost:3000/accounts/');
-    const offline = join(directory, 'offline.mjs');
-    await writeFile(offline, `globalThis.fetch = () => { throw new Error('復元中のREST通信は禁止'); };`);
-    vi.stubEnv('NODE_OPTIONS', `--import=${pathToFileURL(offline).href}`);
-    const restoredFile = join(directory, 'restored.json');
-    const restored = run('restore', '--output', restoredFile, '--key-file', privateFile, '--cache-file', cache);
-    expect(restored.status).toBe(0);
-    expect(restored.stderr).toContain('復元1件、復元不可0件');
-    const expected = [
-      {
-        signingPrivateKey: Buffer.from(plaintext.signingPrivateKey).toString('hex').toUpperCase(),
-        vrfPrivateKey: Buffer.from(plaintext.vrfPrivateKey).toString('hex').toUpperCase(),
-      },
-    ];
-    expect(JSON.parse(await readFile(restoredFile, 'utf8'))).toEqual(expected);
-    expect(restored.stdout + restored.stderr).not.toContain(expected[0].signingPrivateKey);
-    expect((await stat(restoredFile)).mode & 0o777).toBe(0o600);
-    expect(run('encrypt', '--input', restoredFile, '--output', dataFile, '--key-file', privateFile).status).toBe(0);
-    expect(await decryptHarvesters(await readFile(dataFile), privateHex)).toEqual([plaintext]);
-  });
+      );
+      vi.stubEnv('NODE_OPTIONS', `--import=${pathToFileURL(preload).href}`);
+      const cache = join(directory, 'discovery-cache.json');
+      const first = run(
+        'discover',
+        '--output',
+        jsonFile,
+        '--key-file',
+        privateFile,
+        '--rest-url',
+        'https://full-rest.example:3001',
+        '--cache-file',
+        cache
+      );
+      expect(first.status).toBe(0);
+      const result = JSON.parse(await readFile(jsonFile, 'utf8'));
+      expect(result).toEqual([{ address: nodeAddress.toString(), xym }]);
+      const cached = JSON.parse(await readFile(cache, 'utf8'));
+      expect(cached.candidates[0].messages.entries).toHaveLength(1);
+      const requests = await readFile(requestLog, 'utf8');
+      expect(requests).toContain('https://full-rest.example:3001/transactions/confirmed');
+      expect(requests).not.toContain(privateHex);
+      expect(first.stderr).toContain('ノード関連取引');
+      expect(first.stderr).toContain('取得中');
+      expect(first.stderr).toContain('リンク・残高確認');
+      const second = run(
+        'discover',
+        '--output',
+        join(directory, 'next.json'),
+        '--key-file',
+        privateFile,
+        '--cache-file',
+        cache
+      );
+      expect(second.status).toBe(0);
+      expect(second.stderr).toContain('リンク・残高確認');
+      expect(await readFile(requestLog, 'utf8')).toContain('http://localhost:3000/accounts/');
+      const offline = join(directory, 'offline.mjs');
+      await writeFile(offline, `globalThis.fetch = () => { throw new Error('復元中のREST通信は禁止'); };`);
+      vi.stubEnv('NODE_OPTIONS', `--import=${pathToFileURL(offline).href}`);
+      const restoredFile = join(directory, 'restored.json');
+      const restored = run('restore', '--output', restoredFile, '--key-file', privateFile, '--cache-file', cache);
+      expect(restored.status).toBe(0);
+      expect(restored.stderr).toContain('復元1件、復元不可0件');
+      const expected = [
+        {
+          signingPrivateKey: Buffer.from(plaintext.signingPrivateKey).toString('hex').toUpperCase(),
+          vrfPrivateKey: Buffer.from(plaintext.vrfPrivateKey).toString('hex').toUpperCase(),
+        },
+      ];
+      expect(JSON.parse(await readFile(restoredFile, 'utf8'))).toEqual(expected);
+      expect(restored.stdout + restored.stderr).not.toContain(expected[0].signingPrivateKey);
+      expect((await stat(restoredFile)).mode & 0o777).toBe(0o600);
+      expect(run('encrypt', '--input', restoredFile, '--output', dataFile, '--key-file', privateFile).status).toBe(0);
+      expect(await decryptHarvesters(await readFile(dataFile), privateHex)).toEqual([plaintext]);
+    }
+  );
 
   it.each(
     [[], ['unknown'], ['decrypt'], ['decrypt', '--unknown', '秘密値'], ['decrypt', '--key', privateHex]].map(

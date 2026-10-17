@@ -9,6 +9,7 @@ import {
   type DecryptedHarvesterKeys,
   HARVESTER_RECORD_SIZE,
   type HarvesterKeys,
+  type LinkedAccountsResult,
   decryptHarvesters,
   discoverLinkedAccounts,
   encryptHarvesters,
@@ -67,6 +68,37 @@ function parseHarvesters(contents: Buffer): HarvesterKeys[] {
         throw new DiagnosticError(`--input の${index + 1}件目の ${field} は64文字の16進文字列で指定してください。`);
     }
     return { signingPrivateKey: record.signingPrivateKey as string, vrfPrivateKey: record.vrfPrivateKey as string };
+  });
+}
+
+/** 接続先の通貨モザイクを確認し、探索結果をアドレスと正確なXYM数量に整えます。 */
+async function discoverySummary(discovered: LinkedAccountsResult, restUrl = 'http://localhost:3000') {
+  const base = new URL(restUrl);
+  base.pathname = base.pathname.replace(/\/$/, '') + '/';
+  async function request(path: string): Promise<Record<string, unknown>> {
+    try {
+      const response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(30_000), redirect: 'error' });
+      if (!response.ok) throw new DiagnosticError(`XYM情報の取得に失敗しました（HTTP ${response.status}）。`);
+      const data: unknown = await response.json();
+      if (data === null || typeof data !== 'object' || Array.isArray(data)) throw new Error();
+      return data as Record<string, unknown>;
+    } catch (error) {
+      if (error instanceof DiagnosticError) throw error;
+      throw new DiagnosticError('XYM情報の取得に失敗しました。RESTの接続先とJSON応答を確認してください。');
+    }
+  }
+  const properties = await request('network/properties');
+  const chain = properties.chain as Record<string, unknown> | undefined;
+  if (typeof chain?.currencyMosaicId !== 'string') throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
+  const mosaicId = chain.currencyMosaicId.replace(/^0x/i, '').replaceAll("'", '').toUpperCase();
+  if (!/^[0-9A-F]{16}$/.test(mosaicId)) throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
+  const info = await request(`mosaics/${mosaicId}`);
+  const mosaic = info.mosaic as Record<string, unknown> | undefined;
+  if (typeof mosaic?.id !== 'string' || mosaic.id.toUpperCase() !== mosaicId || mosaic.divisibility !== 6)
+    throw new DiagnosticError('RESTの通貨モザイク情報が不正です。XYMの小数桁数6を確認できません。');
+  return discovered.accounts.map(({ address, balances }) => {
+    const amount = BigInt(balances.find((balance) => balance.mosaicId === mosaicId)?.amount ?? '0');
+    return { address, xym: `${amount / 1_000_000n}.${(amount % 1_000_000n).toString().padStart(6, '0')}` };
   });
 }
 
@@ -134,7 +166,8 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
           }
         },
       });
-      result = Buffer.from(JSON.stringify(discovered, null, 2) + '\n');
+      stage = '探索結果のXYM残高表示';
+      result = Buffer.from(JSON.stringify(await discoverySummary(discovered, options.restUrl), null, 2) + '\n');
     } else if (command === 'encrypt') {
       stage = '入力ファイルの読み込み（--input）';
       hint = '入力ファイルとアクセス権を確認してください。';
@@ -233,7 +266,7 @@ async function main(): Promise<void> {
     '--input <path>',
     '暗号化されたharvesters.dat。'
   );
-  command('discover', '現在もノードキーがリンクしているアカウントの残高・リンク高さ・委任開始メッセージを保存します。')
+  command('discover', '現在もノードキーがリンクしているアカウントのアドレス・XYM残高を保存します。')
     .option('--rest-url <url>', '探索に使用するフルRESTのURL。', 'http://localhost:3000')
     .option(
       '--cache-file <path>',
