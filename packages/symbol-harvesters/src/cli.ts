@@ -71,33 +71,10 @@ function parseHarvesters(contents: Buffer): HarvesterKeys[] {
   });
 }
 
-/** 接続先の通貨モザイクを確認し、探索結果をアドレスと正確なXYM数量に整えます。 */
-async function discoverySummary(discovered: LinkedAccountsResult, restUrl = 'http://localhost:3000') {
-  const base = new URL(restUrl);
-  base.pathname = base.pathname.replace(/\/$/, '') + '/';
-  async function request(path: string): Promise<Record<string, unknown>> {
-    try {
-      const response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(30_000), redirect: 'error' });
-      if (!response.ok) throw new DiagnosticError(`XYM情報の取得に失敗しました（HTTP ${response.status}）。`);
-      const data: unknown = await response.json();
-      if (data === null || typeof data !== 'object' || Array.isArray(data)) throw new Error();
-      return data as Record<string, unknown>;
-    } catch (error) {
-      if (error instanceof DiagnosticError) throw error;
-      throw new DiagnosticError('XYM情報の取得に失敗しました。RESTの接続先とJSON応答を確認してください。');
-    }
-  }
-  const properties = await request('network/properties');
-  const chain = properties.chain as Record<string, unknown> | undefined;
-  if (typeof chain?.currencyMosaicId !== 'string') throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
-  const mosaicId = chain.currencyMosaicId.replace(/^0x/i, '').replaceAll("'", '').toUpperCase();
-  if (!/^[0-9A-F]{16}$/.test(mosaicId)) throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
-  const info = await request(`mosaics/${mosaicId}`);
-  const mosaic = info.mosaic as Record<string, unknown> | undefined;
-  if (typeof mosaic?.id !== 'string' || mosaic.id.toUpperCase() !== mosaicId || mosaic.divisibility !== 6)
-    throw new DiagnosticError('RESTの通貨モザイク情報が不正です。XYMの小数桁数6を確認できません。');
+/** 探索結果をアドレスと正確なXYM数量に整えます。 */
+function discoverySummary(discovered: LinkedAccountsResult) {
   return discovered.accounts.map(({ address, balances }) => {
-    const amount = BigInt(balances.find((balance) => balance.mosaicId === mosaicId)?.amount ?? '0');
+    const amount = BigInt(balances.find((balance) => balance.mosaicId === discovered.currencyMosaicId)?.amount ?? '0');
     return { address, xym: `${amount / 1_000_000n}.${(amount % 1_000_000n).toString().padStart(6, '0')}` };
   });
 }
@@ -167,7 +144,7 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
         },
       });
       stage = '探索結果のXYM残高表示';
-      result = Buffer.from(JSON.stringify(await discoverySummary(discovered, options.restUrl), null, 2) + '\n');
+      result = Buffer.from(JSON.stringify(discoverySummary(discovered), null, 2) + '\n');
     } else if (command === 'encrypt') {
       stage = '入力ファイルの読み込み（--input）';
       hint = '入力ファイルとアクセス権を確認してください。';
@@ -184,8 +161,11 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
           cacheFile: options.cacheFile!,
         });
         decrypted = restored.harvesters;
+        const excludedCount = restored.skippedAccounts.filter(
+          (account) => account.reason === 'below-minimum-balance'
+        ).length;
         process.stderr.write(
-          `キャッシュ確認日時: ${restored.checkedAt}。復元${decrypted.length}件、復元不可${restored.skippedAccounts.length}件。\n`
+          `キャッシュ確認日時: ${restored.checkedAt}。復元${decrypted.length}件、残高条件による除外${excludedCount}件、復元不可${restored.skippedAccounts.length - excludedCount}件。\n`
         );
       } else {
         stage = '入力ファイルの読み込み（--input）';
@@ -272,10 +252,10 @@ async function main(): Promise<void> {
       '--cache-file <path>',
       '探索キャッシュ（省略時は.symbol-harvesters-cache配下にネットワーク・鍵ごとに保存）。'
     );
-  command(
-    'restore',
-    '完了済みキャッシュの委任開始メッセージから、harvesters.datと同形式の平文の鍵JSONを復元します。'
-  ).requiredOption('--cache-file <path>', '探索が完了したキャッシュファイル。');
+  command('restore', '完了済みキャッシュで10,000 XYM以上のアカウントから、平文の鍵JSONを復元します。').requiredOption(
+    '--cache-file <path>',
+    '探索が完了したキャッシュファイル。'
+  );
 
   try {
     await program.parseAsync(process.argv);

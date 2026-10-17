@@ -393,6 +393,27 @@ describe('暗号化・復号CLI', () => {
   it.each([
     { name: 'Mainnet', networkIdentifier: 104, currencyId: '6BED913FA20223F8', amount: '1000000', xym: '1.000000' },
     { name: 'Testnet', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: '1000000', xym: '1.000000' },
+    {
+      name: '閾値直前',
+      networkIdentifier: 152,
+      currencyId: '72C0212E67A08BCE',
+      amount: '9999999999',
+      xym: '9999.999999',
+    },
+    {
+      name: '閾値一致',
+      networkIdentifier: 152,
+      currencyId: '72C0212E67A08BCE',
+      amount: '10000000000',
+      xym: '10000.000000',
+    },
+    {
+      name: '閾値直後',
+      networkIdentifier: 152,
+      currencyId: '72C0212E67A08BCE',
+      amount: '10000000001',
+      xym: '10000.000001',
+    },
     { name: '最小単位', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: '1', xym: '0.000001' },
     { name: '小数', networkIdentifier: 152, currencyId: '72C0212E67A08BCE', amount: '123456789', xym: '123.456789' },
     {
@@ -511,18 +532,25 @@ describe('暗号化・復号CLI', () => {
       const restoredFile = join(directory, 'restored.json');
       const restored = run('restore', '--output', restoredFile, '--key-file', privateFile, '--cache-file', cache);
       expect(restored.status).toBe(0);
-      expect(restored.stderr).toContain('復元1件、復元不可0件');
-      const expected = [
-        {
-          signingPrivateKey: Buffer.from(plaintext.signingPrivateKey).toString('hex').toUpperCase(),
-          vrfPrivateKey: Buffer.from(plaintext.vrfPrivateKey).toString('hex').toUpperCase(),
-        },
-      ];
+      const eligible = amount !== undefined && BigInt(amount) >= 10_000_000_000n;
+      expect(restored.stderr).toContain(
+        `復元${eligible ? 1 : 0}件、残高条件による除外${eligible ? 0 : 1}件、復元不可0件`
+      );
+      const expected = eligible
+        ? [
+            {
+              signingPrivateKey: Buffer.from(plaintext.signingPrivateKey).toString('hex').toUpperCase(),
+              vrfPrivateKey: Buffer.from(plaintext.vrfPrivateKey).toString('hex').toUpperCase(),
+            },
+          ]
+        : [];
       expect(JSON.parse(await readFile(restoredFile, 'utf8'))).toEqual(expected);
-      expect(restored.stdout + restored.stderr).not.toContain(expected[0].signingPrivateKey);
+      expect(restored.stdout + restored.stderr).not.toContain(
+        Buffer.from(plaintext.signingPrivateKey).toString('hex').toUpperCase()
+      );
       expect((await stat(restoredFile)).mode & 0o777).toBe(0o600);
       expect(run('encrypt', '--input', restoredFile, '--output', dataFile, '--key-file', privateFile).status).toBe(0);
-      expect(await decryptHarvesters(await readFile(dataFile), privateHex)).toEqual([plaintext]);
+      expect(await decryptHarvesters(await readFile(dataFile), privateHex)).toEqual(eligible ? [plaintext] : []);
     }
   );
 

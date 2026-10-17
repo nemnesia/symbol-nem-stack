@@ -89,6 +89,10 @@ describe('ノードキーに現在もリンクしているアカウントの探�
         if (intercepted) return intercepted;
         if (url.pathname === '/node/info')
           return Response.json({ networkIdentifier: 152, networkGenerationHashSeed: generationHashSeed });
+        if (url.pathname === '/network/properties')
+          return Response.json({ chain: { currencyMosaicId: "0x6BED'913F'A202'23F8" } });
+        if (url.pathname === '/mosaics/6BED913FA20223F8')
+          return Response.json({ mosaic: { id: '6BED913FA20223F8', divisibility: 6 } });
         if (url.pathname === '/chain/info')
           return Response.json({
             height: (BigInt(finalizedHeight) + 2n).toString(),
@@ -183,7 +187,7 @@ describe('ノードキーに現在もリンクしているアカウントの探�
     expect(calls.every((url) => url.origin === 'http://localhost:3000')).toBe(true);
     const cache = await readFile(cacheFile, 'utf8');
     expect(cache).not.toContain(Buffer.from(nodePrivateKey).toString('hex'));
-    expect(cache).not.toContain('9007199254740993');
+    expect(JSON.parse(cache).snapshot.activeAccounts[0].xymAmount).toBe('9007199254740993');
     expect((await stat(cacheFile)).mode & 0o777).toBe(0o600);
   });
 
@@ -693,6 +697,52 @@ describe('ノードキーに現在もリンクしているアカウントの探�
     expect(scans(calls)).toHaveLength(0);
     expect(messageScans().map((url) => url.searchParams.get('pageNumber'))).toEqual(['2']);
   });
+
+  it.each([
+    { amount: '0', restored: false },
+    { amount: '9999999999', restored: false },
+    { amount: '10000000000', restored: true },
+    { amount: '10000000001', restored: true },
+    { amount: '18446744073709551615', restored: true },
+    { amount: undefined, restored: false },
+  ])('キャッシュのXYM最小単位が$amountの場合に10,000 XYM以上だけ復元する', async ({ amount, restored }) => {
+    balances = [
+      { id: '0000000000000001', amount: '18446744073709551615' },
+      ...(amount === undefined ? [] : [{ id: '6BED913FA20223F8', amount }]),
+    ];
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
+    expect(cached.snapshot).toMatchObject({
+      currencyMosaicId: '6BED913FA20223F8',
+      currencyDivisibility: 6,
+      activeAccounts: [expect.objectContaining({ xymAmount: amount ?? '0' })],
+    });
+    calls = [];
+    const result = await restoreHarvestersFromCache({ nodePrivateKey, cacheFile });
+    expect(calls).toEqual([]);
+    expect(result.harvesters).toHaveLength(restored ? 1 : 0);
+    expect(result.skippedAccounts).toEqual(restored ? [] : [{ publicKey: signer, reason: 'below-minimum-balance' }]);
+  });
+
+  it.each(['currencyMosaicId', 'currencyDivisibility', 'xymAmount'])(
+    '残高判定情報がない旧キャッシュは再探索を案内する（%s）',
+    async (field) => {
+      transfers = [transfer(10, await delegationMessage())];
+      await discover();
+      const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
+      if (field === 'xymAmount') delete cached.snapshot.activeAccounts[0].xymAmount;
+      else delete cached.snapshot[field];
+      await writeFile(cacheFile, JSON.stringify(cached));
+      calls = [];
+      await expect(restoreHarvestersFromCache({ nodePrivateKey, cacheFile })).rejects.toThrow('discoverを再実行');
+      expect(calls).toEqual([]);
+      // 新版キャッシュの履歴は再走査せずに、現在の残高を保存し直せます。
+      await discover();
+      expect(scans(calls)).toHaveLength(0);
+      expect((await restoreHarvestersFromCache({ nodePrivateKey, cacheFile })).harvesters).toHaveLength(1);
+    }
+  );
 
   it('キャッシュだけで平文の署名用鍵とVRF鍵を復元し、暗号化APIへ渡せる', async () => {
     transfers = [transfer(10, await delegationMessage())];

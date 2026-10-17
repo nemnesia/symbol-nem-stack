@@ -69,6 +69,7 @@ export interface LinkedAccountsResult {
   generationHashSeed: string;
   nodePublicKey: string;
   nodeAddress: string;
+  currencyMosaicId: string;
   scannedThrough: string;
   candidateCount: number;
   accounts: LinkedAccount[];
@@ -103,7 +104,9 @@ interface ScanCache extends Scan {
   snapshot?: {
     scannedThrough: string;
     checkedAt: string;
-    activeAccounts: { publicKey: string; linkedPublicKey?: string; vrfPublicKey?: string }[];
+    currencyMosaicId?: string;
+    currencyDivisibility?: 6;
+    activeAccounts: { publicKey: string; linkedPublicKey?: string; vrfPublicKey?: string; xymAmount?: string }[];
   };
 }
 
@@ -207,16 +210,20 @@ function parseCache(value: unknown, identity: ScanCache): ScanCache {
     if (
       typeof snapshot.checkedAt !== 'string' ||
       !Number.isFinite(Date.parse(snapshot.checkedAt)) ||
-      !Array.isArray(snapshot.activeAccounts)
+      !Array.isArray(snapshot.activeAccounts) ||
+      (snapshot.currencyDivisibility !== undefined && snapshot.currencyDivisibility !== 6)
     )
       throw new DiagnosticError('キャッシュのリンク状態が不正です。');
     cache.snapshot = {
       scannedThrough: uint64(snapshot.scannedThrough),
       checkedAt: snapshot.checkedAt,
+      currencyMosaicId: snapshot.currencyMosaicId === undefined ? undefined : hex(snapshot.currencyMosaicId, 16),
+      currencyDivisibility: snapshot.currencyDivisibility === undefined ? undefined : 6,
       activeAccounts: snapshot.activeAccounts.map((value: unknown) => {
         const account = object(value);
         return {
           publicKey: hex(account.publicKey),
+          xymAmount: account.xymAmount === undefined ? undefined : uint64(account.xymAmount),
           linkedPublicKey: account.linkedPublicKey === undefined ? undefined : hex(account.linkedPublicKey),
           vrfPublicKey: account.vrfPublicKey === undefined ? undefined : hex(account.vrfPublicKey),
         };
@@ -579,6 +586,15 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
       };
     });
 
+    const properties = await request('network/properties');
+    const currencyId = object(properties.chain).currencyMosaicId;
+    if (typeof currencyId !== 'string') throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
+    const currencyMosaicId = currencyId.replace(/^0x/i, '').replaceAll("'", '').toUpperCase();
+    if (!/^[0-9A-F]{16}$/.test(currencyMosaicId)) throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
+    const mosaic = object((await request(`mosaics/${currencyMosaicId}`)).mosaic);
+    if (hex(mosaic.id, 16) !== currencyMosaicId || mosaic.divisibility !== 6)
+      throw new DiagnosticError('RESTの通貨モザイク情報が不正です。XYMの小数桁数6を確認できません。');
+
     const accounts: LinkedAccount[] = [];
     const activeAccounts: NonNullable<ScanCache['snapshot']>['activeAccounts'] = [];
     for (const [candidateIndex, candidate] of cache.candidates.entries()) {
@@ -691,17 +707,25 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
       });
       activeAccounts.push({
         publicKey,
+        xymAmount: balances.find((balance) => balance.mosaicId === currencyMosaicId)?.amount ?? '0',
         linkedPublicKey: supplemental.linked === undefined ? undefined : hex(object(supplemental.linked).publicKey),
         vrfPublicKey: supplemental.vrf === undefined ? undefined : hex(object(supplemental.vrf).publicKey),
       });
     }
-    cache.snapshot = { scannedThrough: cache.scannedThrough, checkedAt: new Date().toISOString(), activeAccounts };
+    cache.snapshot = {
+      scannedThrough: cache.scannedThrough,
+      checkedAt: new Date().toISOString(),
+      currencyMosaicId,
+      currencyDivisibility: 6,
+      activeAccounts,
+    };
     await saveCache(cacheFile, cache);
     return {
       network: network.identifier === Network.MAINNET.identifier ? 'mainnet' : 'testnet',
       generationHashSeed,
       nodePublicKey: identity.nodePublicKey,
       nodeAddress: nodeAddress.toString(),
+      currencyMosaicId,
       scannedThrough: cache.scannedThrough,
       candidateCount: cache.candidates.length,
       accounts,
@@ -715,7 +739,10 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
 /** キャッシュから復元した平文のハーベスター鍵と、復元できなかった公開アカウントの情報です。 */
 export interface RestoreHarvestersResult {
   harvesters: { signingPrivateKey: Uint8Array; vrfPrivateKey: Uint8Array }[];
-  skippedAccounts: { publicKey: string; reason: 'missing-harvesting-keys' | 'no-matching-message' }[];
+  skippedAccounts: {
+    publicKey: string;
+    reason: 'missing-harvesting-keys' | 'no-matching-message' | 'below-minimum-balance';
+  }[];
   checkedAt: string;
 }
 
@@ -755,6 +782,12 @@ export async function restoreHarvestersFromCache(options: {
   }
   if (!cache.snapshot || cache.pending || cache.snapshot.scannedThrough !== cache.scannedThrough)
     throw new DiagnosticError('探索が完了したキャッシュを指定してください。');
+  if (
+    !cache.snapshot.currencyMosaicId ||
+    cache.snapshot.currencyDivisibility !== 6 ||
+    cache.snapshot.activeAccounts.some((account) => account.xymAmount === undefined)
+  )
+    throw new DiagnosticError('キャッシュにXYM残高の判定情報がありません。先にdiscoverを再実行してください。');
   const encoder = new MessageEncoder(keyPair);
   const result: RestoreHarvestersResult = { harvesters: [], skippedAccounts: [], checkedAt: cache.snapshot.checkedAt };
   const restored = new Set<string>();
@@ -769,6 +802,10 @@ export async function restoreHarvestersFromCache(options: {
         candidate.messages.scannedThrough !== cache.scannedThrough
       )
         throw new DiagnosticError('委任開始メッセージの探索が完了していません。');
+      if (BigInt(account.xymAmount!) < 10_000_000_000n) {
+        result.skippedAccounts.push({ publicKey: account.publicKey, reason: 'below-minimum-balance' });
+        continue;
+      }
       if (!account.linkedPublicKey || !account.vrfPublicKey) {
         result.skippedAccounts.push({ publicKey: account.publicKey, reason: 'missing-harvesting-keys' });
         continue;
