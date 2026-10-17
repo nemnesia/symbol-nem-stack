@@ -419,7 +419,9 @@ describe('暗号化・復号CLI', () => {
     const requests = await readFile(requestLog, 'utf8');
     expect(requests).toContain('https://full-rest.example:3001/transactions/confirmed');
     expect(requests).not.toContain(privateHex);
-    expect(first.stderr).toContain('リンク探索');
+    expect(first.stderr).toContain('ノード関連取引');
+    expect(first.stderr).toContain('取得中');
+    expect(first.stderr).toContain('リンク・残高確認');
     const second = run(
       'discover',
       '--output',
@@ -430,7 +432,7 @@ describe('暗号化・復号CLI', () => {
       cache
     );
     expect(second.status).toBe(0);
-    expect(second.stderr).toBe('');
+    expect(second.stderr).toContain('リンク・残高確認');
     expect(await readFile(requestLog, 'utf8')).toContain('http://localhost:3000/accounts/');
     const offline = join(directory, 'offline.mjs');
     await writeFile(offline, `globalThis.fetch = () => { throw new Error('復元中のREST通信は禁止'); };`);

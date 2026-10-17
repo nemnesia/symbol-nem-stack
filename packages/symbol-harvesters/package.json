@@ -52,8 +52,5 @@
   "dependencies": {
     "commander": "^14.0.3",
     "symbol-sdk": "^3.3.3"
-  },
-  "devDependencies": {
-    "@types/node": "^26.6.5"
   }
 }

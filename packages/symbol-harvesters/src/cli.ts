@@ -101,10 +101,37 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
         nodePrivateKey: nodeKey,
         restUrl: options.restUrl,
         cacheFile: options.cacheFile,
-        onProgress: ({ phase, pageNumber, toHeight, candidateCount }) => {
-          process.stderr.write(
-            `${phase === 'links' ? 'リンク' : 'メッセージ'}探索: 高さ${toHeight}までのページ${pageNumber}を保存しました（候補${candidateCount}件）。\n`
-          );
+        onProgress: ({
+          phase,
+          status,
+          pageNumber,
+          fromHeight,
+          toHeight,
+          candidateCount,
+          transactionCount,
+          lastHeight,
+          accountNumber,
+          accountCount,
+          aggregateNumber,
+          aggregateCount,
+        }) => {
+          if (phase === 'accounts') {
+            process.stderr.write(`リンク・残高確認: ${accountNumber}/${accountCount}件。\n`);
+            return;
+          }
+          const label =
+            phase === 'transactions' ? 'ノード関連取引' : phase === 'links' ? '候補のリンク履歴' : '委任メッセージ';
+          if (status === 'aggregate') {
+            process.stderr.write(
+              `${label}: ページ${pageNumber}のAggregate詳細を取得中（${aggregateNumber}/${aggregateCount}件）。\n`
+            );
+          } else if (status === 'request') {
+            process.stderr.write(`${label}: ページ${pageNumber}取得中（検索範囲${fromHeight}〜${toHeight}）。\n`);
+          } else {
+            process.stderr.write(
+              `${label}: ページ${pageNumber}の${transactionCount}件を保存（取得した最終高さ${lastHeight ?? '該当なし'}、候補${candidateCount}件）。\n`
+            );
+          }
         },
       });
       result = Buffer.from(JSON.stringify(discovered, null, 2) + '\n');

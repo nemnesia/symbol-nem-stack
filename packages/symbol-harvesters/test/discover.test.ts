@@ -102,9 +102,14 @@ describe('ノードキーに現在もリンクしているアカウントの探�
           const pageNumber = Number(url.searchParams.get('pageNumber'));
           const from = BigInt(url.searchParams.get('fromHeight')!);
           const to = BigInt(url.searchParams.get('toHeight')!);
-          const source =
-            url.searchParams.get('type') === '16972'
-              ? transactions
+          const source = url.searchParams.has('address')
+            ? [...transactions, ...transfers]
+                .filter((entry) => !entry.meta.aggregateHash)
+                .sort((lhs, rhs) => lhs.id.localeCompare(rhs.id))
+            : url.searchParams.get('type') === '16972'
+              ? transactions.filter(
+                  (entry) => entry.transaction.signerPublicKey === url.searchParams.get('signerPublicKey')
+                )
               : transfers.filter(
                   (entry) => entry.transaction.signerPublicKey === url.searchParams.get('signerPublicKey')
                 );
@@ -146,12 +151,12 @@ describe('ノードキーに現在もリンクしているアカウントの探�
   });
 
   const scans = (urls: URL[]) =>
-    urls.filter((url) => url.pathname === '/transactions/confirmed' && url.searchParams.get('type') === '16972');
+    urls.filter((url) => url.pathname === '/transactions/confirmed' && url.searchParams.has('address'));
   const messageScans = () =>
     calls.filter((url) => url.pathname === '/transactions/confirmed' && url.searchParams.get('type') === '16724');
   const discover = (restUrl?: string) => discoverLinkedAccounts({ nodePrivateKey, cacheFile, restUrl });
 
-  it('高さ1からNodeKeyLinkを探索し、宛先条件を使わず署名者の現在のリンクと残高を取得する', async () => {
+  it('ノードのaddressで履歴を探索し、候補の現在のリンクと残高を取得する', async () => {
     transactions.push(transaction(2, otherSigner), transaction(3, otherSigner, anotherNode));
     const result = await discover();
     expect(result.network).toBe('testnet');
@@ -168,8 +173,7 @@ describe('ノードキーに現在もリンクしているアカウントの探�
       },
     ]);
     expect(Object.fromEntries(scans(calls)[0].searchParams)).toEqual({
-      type: '16972',
-      embedded: 'true',
+      address: address(nodePublicKey).toString(),
       pageSize: '100',
       pageNumber: '1',
       order: 'asc',
@@ -238,6 +242,177 @@ describe('ノードキーに現在もリンクしているアカウントの探�
     await expect(discover()).rejects.toThrow('MainnetまたはTestnet');
   });
 
+  it('単独の委任開始Transferから候補を拾い、リンク履歴を署名者で絞る', async () => {
+    transfers = [transfer(10, await delegationMessage())];
+    intercept = (url) =>
+      url.pathname === '/transactions/confirmed' && url.searchParams.has('address')
+        ? Response.json({ data: transfers, pagination: { pageNumber: 1, pageSize: 100 } })
+        : undefined;
+    const result = await discover();
+    expect(result.accounts).toHaveLength(1);
+    expect(result.accounts[0].linkedHeight).toBe('2');
+    expect(result.accounts[0].delegationMessages).toHaveLength(1);
+    expect(Object.fromEntries(scans(calls)[0].searchParams)).toMatchObject({
+      address: address(nodePublicKey).toString(),
+      order: 'asc',
+    });
+    expect(scans(calls)[0].searchParams.has('type')).toBe(false);
+    expect(scans(calls)[0].searchParams.has('embedded')).toBe(false);
+    const links = calls.filter((url) => url.searchParams.get('type') === '16972');
+    expect(links).toHaveLength(1);
+    expect(links[0].searchParams.get('signerPublicKey')).toBe(signer);
+    expect((await restoreHarvestersFromCache({ nodePrivateKey, cacheFile })).harvesters).toHaveLength(1);
+  });
+
+  it.each([16705, 16961])('address検索のAggregate（%i）を展開してリンクと内部Transferを復元する', async (type) => {
+    const aggregateHash = 'C'.repeat(64);
+    const message = await delegationMessage();
+    const linked = transaction(1);
+    linked.meta.index = 0;
+    linked.meta.aggregateHash = aggregateHash;
+    const delegated = transfer(2, message, '2', 1);
+    delegated.meta.aggregateHash = aggregateHash;
+    transactions = [linked];
+    transfers = [delegated];
+    const root = {
+      id: '000000000000000000000003',
+      meta: { height: '2', index: 7, hash: aggregateHash },
+      transaction: { type, network: 152 },
+    };
+    intercept = (url) => {
+      if (url.pathname === '/transactions/confirmed' && url.searchParams.has('address'))
+        return Response.json({ data: [root], pagination: { pageNumber: 1, pageSize: 100 } });
+      if (url.pathname.endsWith(aggregateHash))
+        return Response.json({ ...root, transaction: { ...root.transaction, transactions: [linked, delegated] } });
+      return undefined;
+    };
+    const onProgress = vi.fn();
+    const result = await discoverLinkedAccounts({ nodePrivateKey, cacheFile, onProgress });
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'transactions', status: 'aggregate', aggregateNumber: 1, aggregateCount: 1 })
+    );
+    expect(result.candidateCount).toBe(1);
+    expect(result.accounts[0].linkedHeight).toBe('2');
+    expect(result.accounts[0].delegationMessages).toEqual([
+      expect.objectContaining({ height: '2', blockIndex: 7, innerIndex: 1, message }),
+    ]);
+    expect(calls.filter((url) => url.pathname.endsWith(aggregateHash))).toHaveLength(1);
+    expect((await restoreHarvestersFromCache({ nodePrivateKey, cacheFile })).harvesters).toHaveLength(1);
+  });
+
+  it.each(['hash', 'height', 'index', 'network', 'inner-index', 'inner-hash', 'transactions'])(
+    '不正なAggregateのページを保存しない（%s）',
+    async (field) => {
+      const aggregateHash = 'C'.repeat(64);
+      const linked = transaction(1);
+      linked.meta.index = field === 'inner-index' ? 3 : 0;
+      linked.meta.aggregateHash = field === 'inner-hash' ? 'D'.repeat(64) : aggregateHash;
+      const root = {
+        id: '000000000000000000000003',
+        meta: { height: '2', index: 7, hash: aggregateHash },
+        transaction: { type: 16705, network: 152 },
+      };
+      const detail = {
+        ...root,
+        meta: {
+          height: field === 'height' ? '3' : '2',
+          index: field === 'index' ? 8 : 7,
+          hash: field === 'hash' ? 'D'.repeat(64) : aggregateHash,
+        },
+        transaction: {
+          type: 16705,
+          network: field === 'network' ? 104 : 152,
+          transactions: field === 'transactions' ? null : [linked],
+        },
+      };
+      intercept = (url) => {
+        if (url.pathname === '/transactions/confirmed' && url.searchParams.has('address'))
+          return Response.json({ data: [root], pagination: { pageNumber: 1, pageSize: 100 } });
+        if (url.pathname.endsWith(aggregateHash)) return Response.json(detail);
+        return undefined;
+      };
+      await expect(discover()).rejects.toThrow('Aggregate');
+      expect(JSON.parse(await readFile(cacheFile, 'utf8'))).toMatchObject({
+        candidates: [],
+        scannedThrough: '0',
+        pending: { nextPage: 1 },
+      });
+    }
+  );
+
+  it('通常の受信Transferや復号できないメッセージから候補を作らない', async () => {
+    transactions = [];
+    const valid = await delegationMessage();
+    const damaged = valid.slice(0, -2) + (valid.endsWith('00') ? '01' : '00');
+    transfers = [transfer(1, '0068656C6C6F'), transfer(2, damaged)];
+    expect((await discover()).candidateCount).toBe(0);
+    expect(calls.some((url) => url.searchParams.has('signerPublicKey'))).toBe(false);
+  });
+
+  it('旧キャッシュのページ番号は引き継がずaddress検索を開始する', async () => {
+    await discover();
+    const old = JSON.parse(await readFile(cacheFile, 'utf8'));
+    old.version = 1;
+    old.pending = {
+      toHeight: '200',
+      hash: hash('200'),
+      restUrl: 'http://localhost:3000/',
+      nextPage: 99,
+      lastId: 'F'.repeat(24),
+    };
+    delete old.candidates[0].links;
+    await writeFile(cacheFile, JSON.stringify(old));
+    calls = [];
+    await discover();
+    expect(scans(calls).map((url) => url.searchParams.get('pageNumber'))).toEqual(['1']);
+    expect(scans(calls)[0].searchParams.get('fromHeight')).toBe('1');
+    expect(JSON.parse(await readFile(cacheFile, 'utf8')).version).toBe(2);
+  });
+
+  it('旧版の完了キャッシュはREST通信せず引き続き復元できる', async () => {
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    const old = JSON.parse(await readFile(cacheFile, 'utf8'));
+    old.version = 1;
+    delete old.candidates[0].links;
+    await writeFile(cacheFile, JSON.stringify(old));
+    calls = [];
+    expect((await restoreHarvestersFromCache({ nodePrivateKey, cacheFile })).harvesters).toHaveLength(1);
+    expect(calls).toEqual([]);
+  });
+
+  it('候補のリンク履歴が途中なら同じ高さの古いsnapshotがあっても復元しない', async () => {
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    const cache = JSON.parse(await readFile(cacheFile, 'utf8'));
+    cache.candidates[0].links = {
+      scannedThrough: '0',
+      pending: { toHeight: '100', hash: hash('100'), restUrl: 'http://localhost:3000/', nextPage: 1 },
+    };
+    await writeFile(cacheFile, JSON.stringify(cache));
+    await expect(restoreHarvestersFromCache({ nodePrivateKey, cacheFile })).rejects.toThrow('完了');
+  });
+
+  it('ページ取得前と保存後に検索範囲・取得件数・取得した高さを通知する', async () => {
+    const onProgress = vi.fn();
+    await discoverLinkedAccounts({ nodePrivateKey, cacheFile, onProgress });
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'transactions',
+        status: 'request',
+        pageNumber: 1,
+        fromHeight: '1',
+        toHeight: '100',
+      })
+    );
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'transactions', status: 'saved', transactionCount: 1, lastHeight: '2' })
+    );
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'accounts', accountNumber: 1, accountCount: 1 })
+    );
+  });
+
   it('全ページを処理済みなら履歴を再取得せず、現在の解除状態を確認して結果から外す', async () => {
     await discover();
     linkedKeys.delete(signer);
@@ -302,7 +477,7 @@ describe('ノードキーに現在もリンクしているアカウントの探�
 
   it('ページ内に不正な取引がある場合はそのページの候補も進捗も保存しない', async () => {
     const invalid = transaction(2, otherSigner);
-    invalid.transaction.type = 16724;
+    invalid.transaction.network = 104;
     transactions.push(invalid);
     await expect(discover()).rejects.toThrow('取引');
     expect(JSON.parse(await readFile(cacheFile, 'utf8'))).toMatchObject({
@@ -429,6 +604,7 @@ describe('ノードキーに現在もリンクしているアカウントの探�
     const message = await delegationMessage();
     const aggregateHash = 'C'.repeat(64);
     transactions[0].meta.aggregateHash = aggregateHash;
+    transactions.push(transaction(2, signer, nodePublicKey, '1'));
     transfers = [transfer(10, message, '2', 0), transfer(11, message, '2', 2)];
     transfers.forEach((entry) => {
       entry.meta.aggregateHash = aggregateHash;
