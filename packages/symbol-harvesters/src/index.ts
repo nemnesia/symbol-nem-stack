@@ -1,6 +1,16 @@
 import { PrivateKey, PublicKey } from 'symbol-sdk';
 import { KeyPair, SymbolFacade } from 'symbol-sdk/symbol';
 
+export {
+  type DelegationMessage,
+  discoverLinkedAccounts,
+  type DiscoverLinkedAccountsOptions,
+  type LinkedAccount,
+  type LinkedAccountsResult,
+  restoreHarvestersFromCache,
+  type RestoreHarvestersResult,
+} from './discover.js';
+
 /** 32バイトの鍵。バイト配列または64文字の16進文字列で指定します。 */
 export type KeyInput = Uint8Array | string;
 

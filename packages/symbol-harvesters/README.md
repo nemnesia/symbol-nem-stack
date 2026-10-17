@@ -42,6 +42,8 @@ npm install -g @nemnesia/symbol-harvesters
 symbol-harvesters --help
 ```
 
+各コマンドの引数は `symbol-harvesters encrypt --help`、`decrypt --help`、`discover --help`、`restore --help` で確認できます。
+
 復号には元のノード証明書の秘密鍵 PEM ファイルを使用します。
 
 ```sh
@@ -77,7 +79,71 @@ JSON の入出力形式は次の配列です。以下は説明用の架空の鍵
 
 出力は権限 `0600` で新規作成し、既存ファイルやシンボリックリンクを上書きしません。全件の変換が成功するまで出力ファイルを作成しません。成功時の終了コードは `0`、引数・入出力・暗号処理の失敗時は `1` です。標準出力に秘密鍵や JSON は出しません。
 
-復号した JSON は秘密鍵を含む平文です。必要な作業後に呼び出し側で管理・削除してください。ファイル権限の扱いは OS に依存し、`0600` による制限は POSIX 環境を対象とします。暗号化された秘密鍵 PEM、アドレス一覧表示は提供しません。
+復号した JSON は秘密鍵を含む平文です。必要な作業後に呼び出し側で管理・削除してください。ファイル権限の扱いは OS に依存し、`0600` による制限は POSIX 環境を対象とします。暗号化された秘密鍵 PEM は受け付けません。
+
+## リンク中のアカウントと委任開始メッセージの探索
+
+`discover` は指定ノードへ NodeKeyLink を送ったアカウントを探索します。現在も同じノードキーへリンクしているアカウントだけを結果に含め、残高、最新のリンク設定ブロック高、リンク設定後の委任開始メッセージを取得します。
+
+```sh
+symbol-harvesters discover \
+  --key-file node.key.pem \
+  --rest-url https://full-rest.example:3001 \
+  --cache-file ./discovery-cache.json \
+  --output linked-accounts.json
+```
+
+`--rest-url` は全履歴を保持するフル REST を指定します。省略時は `http://localhost:3000` を使用します。リモートノードにも秘密鍵は送信しません。ネットワークは `/node/info` の識別子から Mainnet / Testnet を区別します。
+
+探索は次の順序で進みます。
+
+1. `/transactions/confirmed?type=16972&embedded=true` で高さ1から NodeKeyLink を100件ずつ取得し、`linkedPublicKey` が指定ノードの公開鍵と一致するリンク設定取引の署名者を候補にします。NodeKeyLink には宛先がないため `recipientAddress` は指定しません。
+2. `/accounts/{address}` の現在の `supplementalPublicKeys.node.publicKey` を照合します。解除済み、他ノードへ移行済み、存在しないアカウントは結果から除外します。
+3. リンク中のアカウントの残高をモザイクIDごとの最小単位の10進整数文字列で返します。残高と現在のリンク状態は毎回再取得します。
+4. 署名者・ノードの宛先アドレス・リンク設定高さで Transfer（`type=16724`）を絞り込み、委任開始マーカーを持ち、ノード秘密鍵で認証・復号できたメッセージを取得します。ノード公開鍵から導出したアドレスを直接宛先に指定した Transfer が対象です。同じブロックでは取引順序を比較し、Aggregate 内部では親取引の位置と内部 index を使ってリンク設定より後のメッセージだけを採用します。
+
+結果の `accounts` の主な項目は次のとおりです。
+
+| 項目                   | 内容                                                                     |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `address`, `publicKey` | 現在もノードキーとリンクしている署名者アカウント                         |
+| `linkedHeight`         | 探索済み範囲における最新のリンク設定ブロック高。解除取引では更新しません |
+| `balances`             | `{ mosaicId, amount }` の配列。XYM を含む全保有モザイクを返します        |
+| `delegationMessages`   | リンク設定後の、復号可能な委任開始メッセージの配列                       |
+
+各メッセージは `id`、`height`、`blockIndex`、`innerIndex`、`message` を持ちます。`message` は委任開始マーカーを含む暗号文の16進文字列で、平文の秘密鍵は含みません。`innerIndex` は単独取引の場合 `-1` です。REST の `id` は接続先DB内の識別子で、ブロック内の位置はネットワーク上の取引順序を表します。
+
+### 探索キャッシュと再開
+
+`--cache-file` の省略時は `.symbol-harvesters-cache/` にネットワークの生成ハッシュとノード公開鍵別のキャッシュを作成します。NodeKeyLink 履歴とアカウント別のメッセージ履歴を、検証が完了したページごとに保存します。再実行では途中の次ページから、完了済みの範囲については次の高さから探索します。再リンクを見つけた場合、その新しいリンクより前のメッセージは対象から外します。
+
+上限は開始時の最終確定高さに固定します。最終確定前の取引は次回以降、確定してから取得します。ページ番号と並び順、ネットワーク・鍵・ブロックハッシュを検証し、不整合があれば停止します。REST の変更時はDB内のページ順序の違いを避けるため、未完了範囲だけをページ1から走査し直します。
+
+キャッシュは一時ファイルから置換し、同じキャッシュへの同時探索を拒否します。強制終了で `.lock` が残った場合は、同じキャッシュを使う処理が停止していることを確認してからその `.lock` を削除してください。既存の結果JSONは上書きしないため、再実行時は新しい `--output` を指定するか、不要になった結果ファイルを削除してください。
+
+キャッシュには公開鍵、取引位置、暗号化メッセージ、探索進捗、最後に確認した有効なリンク情報を保存します。ノード秘密鍵や復号した秘密鍵は保存しません。キャッシュの保管先と内容は利用者が管理してください。
+
+### キャッシュから平文の鍵JSONを復元する
+
+```sh
+symbol-harvesters restore \
+  --key-file node.key.pem \
+  --cache-file ./discovery-cache.json \
+  --output harvesters.restored.json
+
+symbol-harvesters encrypt \
+  --key-file node.key.pem \
+  --input harvesters.restored.json \
+  --output harvesters.restored.dat
+```
+
+`restore` は REST に接続せず、最後に探索が完了したキャッシュを使用します。キャッシュ上でリンク中のアカウントについて、新しい委任開始メッセージから順に復号し、署名用・VRF用公開鍵が最後の探索で取得したリンク情報と両方一致する鍵を復元します。解除済みアカウント、公開鍵が一致しないメッセージは採用しません。
+
+出力は `decrypt` と同じ `{ signingPrivateKey, vrfPrivateKey }` のJSON配列です。そのまま `encrypt` へ渡せます。復元できないアカウントがある場合は復元できた分だけを出力し、標準エラーへ復元件数・復元不可件数とキャッシュの確認日時を通知します。探索途中のキャッシュや別ノードの秘密鍵は拒否します。
+
+探索はフルRESTの履歴と現在のアカウント応答を根拠にします。履歴を削除したRESTが取引を返さない場合、その欠落を完全には検出できません。また、現在のリンク・残高はアカウントごとに取得するため、単一ブロック時点のスナップショットではありません。`restore` が使用するリンク状態はキャッシュの確認日時のもので、最新状態へ更新するには先に `discover` を再実行してください。
+
+委任開始リクエストはノードに受理されたことや、現在ハーベスト可能であることを保証しません。残高・インポータンス・ノードの受入枠などによる実際の稼働状態や、ノードが保持する元の `harvesters.dat` との完全一致は検証しません。復元するのは条件を満たすリクエストから得られた鍵です。
 
 ## API
 
@@ -88,6 +154,10 @@ JSON の入出力形式は次の配列です。以下は説明用の架空の鍵
 | `HARVESTER_RECORD_SIZE`                        | —                                                                 | `124`                               |
 
 鍵の入力は32バイトの `Uint8Array`（`Buffer` を含む）または64文字の16進文字列です。復号結果の各鍵は32バイトの独立した `Uint8Array` です。空配列は空ファイルに対応します。
+
+探索には `discoverLinkedAccounts({ nodePrivateKey, restUrl?, cacheFile?, onProgress? })`、キャッシュからの復元には `restoreHarvestersFromCache({ nodePrivateKey, cacheFile })` を使用します。これらの `nodePrivateKey` は32バイトの `Uint8Array` で指定します。PEM の読み込みは CLI が担当します。
+
+`discoverLinkedAccounts` は `LinkedAccountsResult` を返します。`restoreHarvestersFromCache` は `{ harvesters, skippedAccounts, checkedAt }` を返し、`skippedAccounts` の理由は `missing-harvesting-keys`（署名用・VRF用のリンク情報不足）または `no-matching-message`（一致するメッセージなし）です。復元した `harvesters` の各秘密鍵は呼び出し側が使用後に消去してください。
 
 不正な鍵の形式、不完全なレコードは `TypeError`、復号時の不正な公開鍵や認証失敗は `Error` として拒否します。1件でも復号に失敗した場合は結果を返しません。レコードごとに認証する形式のため、レコード単位の削除・並べ替えは検出できません。
 
@@ -111,6 +181,11 @@ JSON の入出力形式は次の配列です。以下は説明用の架空の鍵
 - [Shoestring import_harvesters.py（確認したコミット固定）](https://github.com/symbol/product/blob/9a3f1bf92ff6009b364bda6107af0ccfca9b08ce/tools/shoestring/shoestring/commands/import_harvesters.py)
 - [Shoestring の公式テスト](https://github.com/symbol/product/blob/9a3f1bf92ff6009b364bda6107af0ccfca9b08ce/tools/shoestring/tests/commands/test_import_harvesters.py)
 - [通常版 Symbol SDK](https://www.npmjs.com/package/symbol-sdk)
+- [REST仕様の NodeKeyLink DTO](https://github.com/symbol/symbol/blob/14a0cc16ef277875fb9af71b3a0d03b80f27283e/openapi/spec/plugins/account_link/schemas/NodeKeyLinkTransactionBodyDTO.yml)
+- [Aggregate内部取引の位置を保存する公式Mongo実装](https://github.com/symbol/symbol/blob/14a0cc16ef277875fb9af71b3a0d03b80f27283e/client/catapult/extensions/mongo/plugins/aggregate/src/AggregateMapper.cpp)
+- [公式Catapultの委任アカウント検証](https://github.com/symbol/symbol/blob/14a0cc16ef277875fb9af71b3a0d03b80f27283e/client/catapult/extensions/harvesting/src/UnlockedAccountsUpdater.cpp)
+
+探索のRESTフィールドと取引型はREST仕様、委任メッセージの判定と復号はSDKの利便API、署名用・VRF用・ノード公開鍵の照合はCatapult実装を根拠にします。キャッシュ、ページ再開、CLIの入出力はこのパッケージ固有の設計判断です。
 
 テストでは公式 Shoestring の fixture から4件の Testnet アドレスを確認し、通常版 SDK の委任メッセージ形式との相互変換、鍵の移行、改ざんや鍵違いの拒否を検証します。稼働中ノードへの投入は検証対象に含みません。
 
