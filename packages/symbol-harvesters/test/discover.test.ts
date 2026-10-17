@@ -183,6 +183,61 @@ describe('ノードキーに現在もリンクしているアカウントの探�
     expect((await stat(cacheFile)).mode & 0o777).toBe(0o600);
   });
 
+  it.each([
+    { network: Network.MAINNET, identifier: 104, name: 'mainnet' },
+    { network: Network.TESTNET, identifier: 152, name: 'testnet' },
+  ])('$name の識別子で探索・アドレス生成・キャッシュ復元ができる', async ({ network, identifier, name }) => {
+    const nodeAddress = network.publicKeyToAddress(new PublicKey(nodePublicKey));
+    const signerAddress = network.publicKeyToAddress(new PublicKey(signer));
+    transactions[0].transaction.network = identifier;
+    const message = transfer(2, await delegationMessage());
+    message.transaction.network = identifier;
+    message.transaction.recipientAddress = Buffer.from(nodeAddress.bytes).toString('hex');
+    transfers = [message];
+    intercept = (url) => {
+      if (url.pathname === '/node/info')
+        return Response.json({ networkIdentifier: identifier, networkGenerationHashSeed: generationHashSeed });
+      if (url.pathname === `/accounts/${signerAddress.toString()}`)
+        return Response.json({
+          account: {
+            publicKey: signer,
+            address: Buffer.from(signerAddress.bytes).toString('hex'),
+            supplementalPublicKeys: {
+              node: { publicKey: nodePublicKey },
+              linked: { publicKey: new KeyPair(new PrivateKey(new Uint8Array(32).fill(5))).publicKey.toString() },
+              vrf: { publicKey: new KeyPair(new PrivateKey(new Uint8Array(32).fill(6))).publicKey.toString() },
+            },
+            mosaics: balances,
+          },
+        });
+      return undefined;
+    };
+    const result = await discover();
+    expect(result.network).toBe(name);
+    expect(result.nodeAddress).toBe(nodeAddress.toString());
+    expect(result.accounts[0].address).toBe(signerAddress.toString());
+    expect(result.accounts[0].delegationMessages).toHaveLength(1);
+    expect(JSON.parse(await readFile(cacheFile, 'utf8')).networkIdentifier).toBe(identifier);
+    calls = [];
+    const restored = await restoreHarvestersFromCache({ nodePrivateKey, cacheFile });
+    expect(calls).toEqual([]);
+    expect(restored.skippedAccounts).toEqual([]);
+    expect(restored.harvesters).toEqual([
+      {
+        signingPrivateKey: new Uint8Array(32).fill(5),
+        vrfPrivateKey: new Uint8Array(32).fill(6),
+      },
+    ]);
+  });
+
+  it('誤った旧Mainnet判定値144は受け付けない', async () => {
+    intercept = (url) =>
+      url.pathname === '/node/info'
+        ? Response.json({ networkIdentifier: 144, networkGenerationHashSeed: generationHashSeed })
+        : undefined;
+    await expect(discover()).rejects.toThrow('MainnetまたはTestnet');
+  });
+
   it('全ページを処理済みなら履歴を再取得せず、現在の解除状態を確認して結果から外す', async () => {
     await discover();
     linkedKeys.delete(signer);

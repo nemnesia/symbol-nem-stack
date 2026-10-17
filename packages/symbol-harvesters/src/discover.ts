@@ -280,7 +280,11 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
 
   const info = await request('node/info');
   const network =
-    info.networkIdentifier === 144 ? Network.MAINNET : info.networkIdentifier === 152 ? Network.TESTNET : undefined;
+    info.networkIdentifier === Network.MAINNET.identifier
+      ? Network.MAINNET
+      : info.networkIdentifier === Network.TESTNET.identifier
+        ? Network.TESTNET
+        : undefined;
   if (!network) throw new DiagnosticError('MainnetまたはTestnetのRESTを指定してください。');
   const networkIdentifier = network.identifier;
   const generationHashSeed = hex(info.networkGenerationHashSeed);
@@ -563,7 +567,7 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
     cache.snapshot = { scannedThrough: cache.scannedThrough, checkedAt: new Date().toISOString(), activeAccounts };
     await saveCache(cacheFile, cache);
     return {
-      network: network.identifier === 144 ? 'mainnet' : 'testnet',
+      network: network.identifier === Network.MAINNET.identifier ? 'mainnet' : 'testnet',
       generationHashSeed,
       nodePublicKey: identity.nodePublicKey,
       nodeAddress: nodeAddress.toString(),
@@ -605,7 +609,8 @@ export async function restoreHarvestersFromCache(options: {
   let cache: ScanCache;
   try {
     const data = object(JSON.parse(cached));
-    if (![144, 152].includes(data.networkIdentifier as number)) throw new DiagnosticError();
+    if (![Network.MAINNET.identifier, Network.TESTNET.identifier].includes(data.networkIdentifier as number))
+      throw new DiagnosticError();
     cache = parseCache(data, {
       version: 1,
       networkIdentifier: data.networkIdentifier as number,
