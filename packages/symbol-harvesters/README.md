@@ -1,99 +1,77 @@
 # @nemnesia/symbol-harvesters
 
-Symbol の `harvesters.dat` を暗号化・復号する TypeScript / ESM ライブラリです。Shoestring の `import-harvesters` と同じ保存形式を扱います。Node.js 20.19 以降が必要です。通常版の `symbol-sdk` に依存します。
+Symbol の `harvesters.dat` を暗号化・復号し、委任開始メッセージからハーベスターの鍵を復元する CLI / TypeScript ライブラリです。Shoestring の `import-harvesters` と互換性のある保存形式を扱います。
 
-```sh
-npm install @nemnesia/symbol-harvesters
-```
+- ノードにリンクしているアカウントを探索し、アドレスと XYM 残高を出力します。
+- 探索キャッシュから、10,000 XYM 以上のアカウントの署名用・VRF用秘密鍵を復元します。
+- 秘密鍵の JSON と `harvesters.dat` を相互変換し、別ノードの鍵で再暗号化できます。
 
-## 使い方
+対象は Symbol Mainnet / Testnet です。NEM の保存形式は対象外です。Node.js **20.19.0 以降**が必要です。
 
-```ts
-import { decryptHarvesters, encryptHarvesters } from '@nemnesia/symbol-harvesters';
+## インストール
 
-import { readFile, writeFile } from 'node:fs/promises';
-
-// 元のノードの暗号化用秘密鍵と、移行先ノードの公開鍵を環境変数から取得します。
-const sourcePrivateKey = process.env.SOURCE_NODE_PRIVATE_KEY!;
-const destinationPublicKey = process.env.DESTINATION_NODE_PUBLIC_KEY!;
-
-const encrypted = await readFile('harvesters.dat');
-const harvesters = await decryptHarvesters(encrypted, sourcePrivateKey);
-try {
-  const migrated = await encryptHarvesters(harvesters, destinationPublicKey);
-  // 元ファイルを上書きせず、所有者だけが読み書きできる新規ファイルに保存します。
-  await writeFile('harvesters.migrated.dat', migrated, { mode: 0o600, flag: 'wx' });
-} finally {
-  for (const harvester of harvesters) {
-    harvester.signingPrivateKey.fill(0);
-    harvester.vrfPrivateKey.fill(0);
-  }
-}
-```
-
-秘密鍵はノードの暗号化用鍵を指定します。署名用・VRF用の秘密鍵やパスワードで代用できません。ライブラリ API はファイル操作を行いません。
-
-## CLI
-
-パッケージには `symbol-harvesters` コマンドを同梱しています。
+CLI をインストールする場合:
 
 ```sh
 npm install -g @nemnesia/symbol-harvesters
 symbol-harvesters --help
 ```
 
-各コマンドの引数は `symbol-harvesters encrypt --help`、`decrypt --help`、`discover --help`、`restore --help` で確認できます。
-
-復号には元のノード証明書の秘密鍵 PEM ファイルを使用します。
+インストールせずに実行する場合:
 
 ```sh
-symbol-harvesters decrypt \
-  --input harvesters.dat \
-  --output harvesters.json \
-  --key-file node.key.pem
+npx --package @nemnesia/symbol-harvesters symbol-harvesters --help
 ```
 
-JSON を暗号化する場合も、宛先ノード証明書の秘密鍵 PEM ファイルを指定します。CLI が対応する公開鍵を導出して暗号化します。復号して得た JSON を別ノードの秘密鍵 PEM で再暗号化すれば鍵の移行ができます。
+ライブラリとして使う場合:
 
 ```sh
-symbol-harvesters encrypt \
-  --input harvesters.json \
-  --output harvesters.migrated.dat \
-  --key-file destination-node.key.pem
+npm install @nemnesia/symbol-harvesters
 ```
 
-暗号化・復号とも `--key-file` はノード証明書の秘密鍵 PEM を受け付けます。形式は暗号化されていない Ed25519 PKCS#8（`BEGIN PRIVATE KEY`）です。復号には `harvesters.dat` の暗号化に使われた公開鍵と対になる秘密鍵を指定してください。
+ESM 形式で提供し、`symbol-sdk` に依存します。
 
-CLI は公開鍵ファイル、16進数の鍵ファイル、証明書本体（`.crt`）を受け付けません。秘密鍵そのものをコマンド引数へ指定するオプションはありません。
+## コマンド
 
-JSON の入出力形式は次の配列です。以下は説明用の架空の鍵です。鍵はそれぞれ64文字の16進数で指定し、復号結果は大文字で出力します。
+| コマンド   | 用途                                                    | 出力ファイル                    |
+| ---------- | ------------------------------------------------------- | ------------------------------- |
+| `discover` | ノードへの委任を探索し、復元用キャッシュを作成・更新    | アドレスと XYM 残高の JSON      |
+| `restore`  | 完了済みキャッシュから、10,000 XYM 以上の対象の鍵を復元 | 平文の秘密鍵 JSON               |
+| `decrypt`  | `harvesters.dat` を復号                                 | 平文の秘密鍵 JSON               |
+| `encrypt`  | 平文の秘密鍵 JSON を暗号化                              | `harvesters.dat` 形式のバイナリ |
 
-```json
-[
-  {
-    "signingPrivateKey": "0202020202020202020202020202020202020202020202020202020202020202",
-    "vrfPrivateKey": "0303030303030303030303030303030303030303030303030303030303030303"
-  }
-]
+全コマンドで `--key-file` と `--output` が必要です。`--help` / `-h` はヘルプを表示して終了します。
+
+```sh
+symbol-harvesters discover --help
+symbol-harvesters restore --help
+symbol-harvesters decrypt --help
+symbol-harvesters encrypt --help
 ```
 
-出力は権限 `0600` で新規作成し、既存ファイルやシンボリックリンクを上書きしません。全件の変換が成功するまで出力ファイルを作成しません。成功時の終了コードは `0`、引数・入出力・暗号処理の失敗時は `1` です。標準出力に秘密鍵や JSON は出しません。
+### ノードの鍵
 
-復号した JSON は秘密鍵を含む平文です。必要な作業後に呼び出し側で管理・削除してください。ファイル権限の扱いは OS に依存し、`0600` による制限は POSIX 環境を対象とします。暗号化された秘密鍵 PEM は受け付けません。
+`--key-file` には、ノード証明書の**秘密鍵 PEM ファイル**を指定します。形式は暗号化されていない Ed25519 PKCS#8（`-----BEGIN PRIVATE KEY-----`）です。
 
-## リンク中のアカウントと委任開始メッセージの探索
+`discover` / `restore` には委任先ノードの秘密鍵、`decrypt` には元ファイルの暗号化先と対になる秘密鍵、`encrypt` には暗号化先ノードの秘密鍵を指定します。暗号化時は CLI が公開鍵を導出します。
 
-`discover` は指定ノードのアドレスに関連する取引から、委任元のアカウントを探索します。現在も同じノードキーへリンクしているアカウントだけを結果に含め、残高、最新のリンク設定ブロック高、リンク設定後の委任開始メッセージを取得します。
+公開鍵ファイル、証明書本体（`.crt`）、16進数だけのファイル、パスワード付き PEM は受け付けません。秘密鍵そのものをコマンド引数に渡すオプションはありません。
+
+## 委任アカウントの探索
 
 ```sh
 symbol-harvesters discover \
   --key-file node.key.pem \
   --rest-url https://full-rest.example:3001 \
-  --cache-file ./discovery-cache.json \
+  --cache-file discovery-cache.json \
   --output linked-accounts.json
 ```
 
-`discover` の `--output` は、アドレスと XYM 残高だけの JSON 配列です。
+`https://full-rest.example:3001` は説明用の URL です。実際には対象ネットワークの全履歴を保持するフル REST を指定してください。省略時は `http://localhost:3000` を使用します。ネットワークは REST 応答から Mainnet / Testnet を判定し、ノード秘密鍵を通信に含めません。
+
+ノード公開鍵から導出したアドレスを `address` 条件にして関連取引を検索し、Aggregate Complete / Bonded の内部も確認します。見つけた候補のリンク履歴を署名者で絞り込み、現在も同じノードへリンクしているアカウントを結果に含めます。
+
+`--output` の内容は次の JSON 配列です。10,000 XYM 未満のアカウントも表示します。
 
 ```json
 [
@@ -104,138 +82,194 @@ symbol-harvesters discover \
 ]
 ```
 
-`xym` は小数6桁の文字列です。浮動小数を使わず最小単位から変換し、XYM 未保有の場合は `"0.000000"` を返します。対象の通貨モザイクIDは `/network/properties`、小数桁数は `/mosaics/{id}` で確認します。確認できない場合は出力せずエラーにします。
+`xym` は小数6桁の文字列です。数量は整数で扱い、浮動小数による丸めを行いません。XYM 未保有の場合は `"0.000000"` です。通貨モザイクIDと小数桁数は REST で確認します。
 
-復元には `--cache-file` の探索キャッシュを使用します。出力 JSON に公開鍵や暗号化メッセージを含める必要はありません。ライブラリ API の `discoverLinkedAccounts` は引き続き詳細な探索結果を返します。
+復元に使用するリンク情報と暗号化メッセージは `--cache-file` に保存します。アドレス・残高の出力 JSON と、復元用キャッシュは別のファイルです。
 
-`--rest-url` は全履歴を保持するフル REST を指定します。省略時は `http://localhost:3000` を使用します。リモートノードにも秘密鍵は送信しません。ネットワークは `/node/info` の識別子から Mainnet / Testnet を区別します。
+### キャッシュと再開
 
-探索は次の順序で進みます。
+`--cache-file` を省略すると、次の場所にネットワークとノード公開鍵ごとのキャッシュを作成します。
 
-1. `/transactions/confirmed?address=<ノードアドレス>` で関連する確定済み取引を100件ずつ取得します。再開・差分取得のため古い順（`order=asc`）に読みます。取引種別は絞らず、`embedded` は指定しません。Aggregate Complete / Bonded はハッシュで詳細を取得し、内部の取引も確認します。
-2. 指定ノードへの NodeKeyLink のリンク設定、またはノードアドレス宛てで認証・復号できる委任開始 Transfer の署名者を候補にします。全ネットワークの NodeKeyLink を走査する処理は行いません。
-3. `/accounts/{address}` の現在の `supplementalPublicKeys.node.publicKey` を照合します。解除済み、他ノードへ移行済み、存在しないアカウントは結果から除外します。現在リンク中の候補についてだけ、`signerPublicKey` で NodeKeyLink 履歴を絞り込み、最新のリンク設定位置を確認します。リンク履歴が確認できない候補は結果に含めません。
-4. リンク中のアカウントの残高をモザイクIDごとの最小単位の10進整数文字列で返します。残高と現在のリンク状態は毎回再取得します。
-5. 候補の署名者・ノードの宛先アドレス・リンク設定高さで Transfer（`type=16724`）を絞り込み、委任開始マーカーを持ち、ノード秘密鍵で認証・復号できたメッセージを取得します。ノード公開鍵から導出したアドレスを直接宛先に指定した Transfer が対象です。同じブロックでは取引順序を比較し、Aggregate 内部では親取引の位置と内部 index を使ってリンク設定より後のメッセージだけを採用します。
+```text
+.symbol-harvesters-cache/<generationHashSeed>-<nodePublicKey>.json
+```
 
-探索対象はノードアドレスの関連取引として REST が返す範囲です。関連取引に現れない単独の NodeKeyLink だけを送信し、ノード宛ての復号可能な委任開始メッセージもないアカウントは探索できません。
+検索範囲の上限を開始時の最終確定高さに固定し、古い順に100件ずつ取得します。検証が完了したページごとに進捗を保存し、再実行時は途中の次ページ、または探索済み範囲の次の高さから再開します。残高と現在のリンク状態は毎回再取得します。接続先 REST を変更した場合は、未完了範囲をページ1から読み直します。
 
-進捗は標準エラーへ表示します。ページ取得開始時に検索する高さ範囲、保存完了時に取得件数・最後に取得した取引の高さ・候補数を表示し、Aggregate の詳細取得とアカウントのリンク・残高確認では処理中の件数を通知します。検索範囲の上限は処理済み高さを示しません。
+進捗は標準エラーへ表示します。ページの取得開始・保存件数・取得した取引の高さ・候補数・Aggregate の詳細取得・アカウント確認の進捗を表示します。検索範囲の上限は処理済み高さを示す値ではありません。
 
-ライブラリ API が返す `accounts` の主な項目は次のとおりです。
+キャッシュには公開鍵、取引位置、暗号化メッセージ、リンク情報、XYM 残高、確認日時、探索進捗を保存します。ノード秘密鍵や復号した秘密鍵は保存しません。キャッシュは利用者が管理し、信頼できるものを使用してください。
 
-| 項目                   | 内容                                                                     |
-| ---------------------- | ------------------------------------------------------------------------ |
-| `address`, `publicKey` | 現在もノードキーとリンクしている署名者アカウント                         |
-| `linkedHeight`         | 探索済み範囲における最新のリンク設定ブロック高。解除取引では更新しません |
-| `balances`             | `{ mosaicId, amount }` の配列。XYM を含む全保有モザイクを返します        |
-| `delegationMessages`   | リンク設定後の、復号可能な委任開始メッセージの配列                       |
+同じキャッシュへの同時探索は拒否します。強制終了で `.lock` が残った場合は、同じキャッシュを使う処理が停止していることを確認してから、そのロックファイルを削除してください。
 
-各メッセージは `id`、`height`、`blockIndex`、`innerIndex`、`message` を持ちます。`message` は委任開始マーカーを含む暗号文の16進文字列で、平文の秘密鍵は含みません。`innerIndex` は単独取引の場合 `-1` です。REST の `id` は接続先DB内の識別子で、ブロック内の位置はネットワーク上の取引順序を表します。
-
-### 探索キャッシュと再開
-
-`--cache-file` の省略時は `.symbol-harvesters-cache/` にネットワークの生成ハッシュとノード公開鍵別のキャッシュを作成します。ノードアドレスの関連取引、候補別の NodeKeyLink 履歴とメッセージ履歴を、検証が完了したページごとに保存します。再実行では途中の次ページから、完了済みの範囲については次の高さから探索します。再リンクを見つけた場合、その新しいリンクより前のメッセージは対象から外します。
-
-キャッシュ形式は version 2 です。旧形式（version 1）のキャッシュで `discover` を実行すると、ネットワークと鍵を検証してから、関連取引のページ1・高さ1から再探索します。旧形式のページ番号は引き継ぎません。残高判定情報のない旧キャッシュは、`discover` で更新するか、`restore --check-balances` で現在の残高を確認してください。
-
-上限は開始時の最終確定高さに固定します。最終確定前の取引は次回以降、確定してから取得します。ページ番号と並び順、ネットワーク・鍵・ブロックハッシュを検証し、不整合があれば停止します。REST の変更時はDB内のページ順序の違いを避けるため、未完了範囲だけをページ1から走査し直します。
-
-キャッシュは一時ファイルから置換し、同じキャッシュへの同時探索を拒否します。強制終了で `.lock` が残った場合は、同じキャッシュを使う処理が停止していることを確認してからその `.lock` を削除してください。既存の結果JSONは上書きしないため、再実行時は新しい `--output` を指定するか、不要になった結果ファイルを削除してください。
-
-キャッシュには公開鍵、取引位置、暗号化メッセージ、探索進捗、最後に確認した有効なリンク情報、通貨モザイクID、小数桁数、XYM残高（最小単位）を保存します。ノード秘密鍵や復号した秘密鍵は保存しません。キャッシュの保管先と内容は利用者が管理してください。
-
-### キャッシュから平文の鍵JSONを復元する
+## キャッシュから鍵を復元する
 
 ```sh
 symbol-harvesters restore \
   --key-file node.key.pem \
-  --cache-file ./discovery-cache.json \
+  --cache-file discovery-cache.json \
   --output harvesters.restored.json
+```
 
+通常は REST に接続せず、完了済みキャッシュの確認時点で次の条件を満たすアカウントの鍵を復元します。
+
+- 指定ノードへのリンクが有効である。
+- XYM 残高が **10,000 XYM 以上**である。10,000 XYM ちょうども対象です。
+- リンク設定後の委任開始メッセージをノード秘密鍵で復号でき、署名用・VRF用公開鍵がキャッシュのリンク情報と一致する。
+
+新しいメッセージから順に照合し、一致する鍵を復元します。同じ署名用・VRF用鍵の組は重複して出力しません。条件を満たすメッセージがないアカウントは復元不可として報告し、復元できた分を保存します。
+
+標準エラーへ確認日時、復元件数、残高条件による除外件数、リンク対象外件数、復元不可件数を表示します。探索途中のキャッシュや別ノードの秘密鍵は拒否します。
+
+### 現在のリンクと残高を確認して復元する
+
+```sh
+symbol-harvesters restore \
+  --key-file node.key.pem \
+  --cache-file discovery-cache.json \
+  --output harvesters.checked.json \
+  --check-balances \
+  --rest-url https://full-rest.example:3001
+```
+
+`--check-balances` は、キャッシュ上でリンク中だったアカウントの現在のリンク・XYM 残高・署名用鍵・VRF鍵を REST で確認します。現在の残高が10,000 XYM以上で、同じノードへリンクし、復元する鍵が現在の署名用・VRF用公開鍵と一致する場合に出力します。
+
+解除済み、他ノードへ移行済み、存在しないアカウントはリンク対象外として除外します。接続先のネットワーク識別子と生成ハッシュをキャッシュと照合し、REST 障害や不正な応答があれば復元を中止します。
+
+`--rest-url` の省略時は `http://localhost:3000` を使用します。`restore` の `--rest-url` は `--check-balances` と併用してください。
+
+再確認は今回の復元にだけ使用し、キャッシュを書き換えません。取引履歴の再探索や新しいアカウントの追加も行いません。キャッシュと委任開始メッセージを更新するには `discover` を再実行してください。残高情報のないキャッシュも、`--check-balances` で現在の残高を取得すれば復元できます。
+
+## harvesters.dat の復号・暗号化
+
+既存ファイルを復号する場合:
+
+```sh
+symbol-harvesters decrypt \
+  --key-file node.key.pem \
+  --input harvesters.dat \
+  --output harvesters.json
+```
+
+`decrypt` / `restore` の出力と `encrypt` の入力は、同じ形式の平文 JSON 配列です。以下の鍵は説明用の架空の値です。
+
+```json
+[
+  {
+    "signingPrivateKey": "0202020202020202020202020202020202020202020202020202020202020202",
+    "vrfPrivateKey": "0303030303030303030303030303030303030303030303030303030303030303"
+  }
+]
+```
+
+各鍵は64文字の16進文字列です。復号・復元した鍵は大文字で出力します。
+
+復元した JSON を `harvesters.dat` 形式へ暗号化する場合:
+
+```sh
 symbol-harvesters encrypt \
   --key-file node.key.pem \
   --input harvesters.restored.json \
   --output harvesters.restored.dat
 ```
 
-`restore` は通常 REST に接続せず、最後に探索が完了したキャッシュを使用します。キャッシュ確認時の XYM 残高が **10,000 XYM 以上**で、リンク中のアカウントだけを対象にします。10,000 XYM ちょうども含みます。新しい委任開始メッセージから順に復号し、署名用・VRF用公開鍵が最後の探索で取得したリンク情報と両方一致する鍵を復元します。解除済みアカウント、公開鍵が一致しないメッセージは採用しません。
+`--key-file` に移行先ノードの秘密鍵 PEM を指定すれば、移行先の公開鍵で再暗号化できます。`encrypt` / `decrypt` は入力された鍵やレコードを変換し、10,000 XYM の条件による絞り込みは行いません。空配列は空ファイルに対応します。
 
-出力は `decrypt` と同じ `{ signingPrivateKey, vrfPrivateKey }` のJSON配列です。そのまま `encrypt` へ渡せます。復元できないアカウントがある場合は復元できた分だけを出力し、標準エラーへ復元件数・復元不可件数とキャッシュの確認日時を通知します。探索途中のキャッシュや別ノードの秘密鍵は拒否します。10,000 XYM 未満は残高条件による除外件数として通知します。残高判定情報のない旧キャッシュは、先に `discover` を再実行するか、次の `--check-balances` を使用してください。
+## 入出力とエラー
 
-`--check-balances` を付けると、キャッシュ上でリンク中だったアカウントの現在のリンク・XYM 残高・署名用鍵・VRF鍵を REST で再確認してから復元します。
+出力は新規ファイルとして権限 `0600` で作成し、既存ファイルやシンボリックリンクを上書きしません。再実行時は別の `--output` を指定してください。出力先の親ディレクトリは事前に作成してください。権限による制限は POSIX 環境を対象とします。
 
-```sh
-symbol-harvesters restore \
-  --key-file node.key.pem \
-  --cache-file ./discovery-cache.json \
-  --output harvesters.checked.json \
-  --check-balances \
-  --rest-url https://full-rest.example:3001
+成功時の終了コードは `0`、失敗時は `1` です。標準出力には完了メッセージ、標準エラーには進捗と診断を表示します。秘密鍵や出力 JSON を標準出力に表示しません。
+
+| 診断・状況                                   | 対応                                                                       |
+| -------------------------------------------- | -------------------------------------------------------------------------- |
+| `--help` / `-h` でヘルプだけが表示される     | 実行時はヘルプオプションを外す                                             |
+| 出力先が既に存在する（`EEXIST`）             | 新しい出力ファイル名を指定する                                             |
+| 鍵 PEM の形式が不正                          | 暗号化されていない Ed25519 PKCS#8 秘密鍵を指定する                         |
+| 復号に失敗する                               | 元のノード鍵とファイルを確認する。鍵の不一致と破損・改ざんは区別できません |
+| キャッシュに残高判定情報がない               | `discover` を再実行するか、`restore --check-balances` で確認する           |
+| キャッシュと REST のネットワークが一致しない | 同じ Mainnet / Testnet と生成ハッシュの REST を使用する                    |
+
+**`decrypt` / `restore` の出力 JSON は平文の秘密鍵です。** ログやリポジトリへ含めず、必要な作業後に安全に管理・削除してください。
+
+## ライブラリ API
+
+```ts
+import { decryptHarvesters, encryptHarvesters } from '@nemnesia/symbol-harvesters';
+
+import { readFile, writeFile } from 'node:fs/promises';
+
+// 64文字の16進数の鍵を、管理された環境から取得します。
+const sourcePrivateKey = process.env.SOURCE_NODE_PRIVATE_KEY!;
+const destinationPublicKey = process.env.DESTINATION_NODE_PUBLIC_KEY!;
+
+const harvesters = await decryptHarvesters(await readFile('harvesters.dat'), sourcePrivateKey);
+try {
+  const migrated = await encryptHarvesters(harvesters, destinationPublicKey);
+  await writeFile('harvesters.migrated.dat', migrated, { flag: 'wx', mode: 0o600 });
+} finally {
+  for (const harvester of harvesters) {
+    harvester.signingPrivateKey.fill(0);
+    harvester.vrfPrivateKey.fill(0);
+  }
+}
 ```
 
-`--rest-url` の省略時は `http://localhost:3000` を使用します。`restore` の `--rest-url` は `--check-balances` と併用してください。接続先のネットワーク識別子と生成ハッシュをキャッシュと照合し、現在の残高が10,000 XYM以上のアカウントだけを復元します。解除済み・他ノードへ移行済み・存在しないアカウントはリンク対象外として除外し、復元する鍵は現在の署名用・VRF用公開鍵と照合します。REST 障害や不正な応答では復元を中止し、キャッシュの古い残高へ切り替えません。
+| API                                            | 入力                                                             | 戻り値                              |
+| ---------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------- |
+| `encryptHarvesters(harvesters, nodePublicKey)` | `{ signingPrivateKey, vrfPrivateKey }` の配列、暗号化先の公開鍵  | `Promise<Uint8Array>`               |
+| `decryptHarvesters(data, nodePrivateKey)`      | 暗号化済みバイト列、ノード秘密鍵                                 | `Promise<DecryptedHarvesterKeys[]>` |
+| `discoverLinkedAccounts(options)`              | `nodePrivateKey`、任意の `restUrl`・`cacheFile`・`onProgress`    | `Promise<LinkedAccountsResult>`     |
+| `restoreHarvestersFromCache(options)`          | `nodePrivateKey`、`cacheFile`、任意の `checkBalances`・`restUrl` | `Promise<RestoreHarvestersResult>`  |
+| `HARVESTER_RECORD_SIZE`                        | —                                                                | `124`                               |
 
-再確認では取引履歴を再探索せず、キャッシュのリンク中アカウントと暗号化メッセージを使います。新たな委任アカウントやメッセージの取得には `discover` を再実行してください。再確認結果は今回の復元にだけ使い、キャッシュには書き戻しません。標準エラーに表示する確認日時は、再確認を指定した場合は REST 確認日時、それ以外はキャッシュ確認日時です。
+暗号化・復号 API の鍵は32バイトの `Uint8Array`（`Buffer` を含む）、または64文字の16進文字列で指定します。探索・復元 API の `nodePrivateKey` は32バイトの `Uint8Array` です。PEM の読み込みは CLI が担当します。
 
-探索はフルRESTの履歴と現在のアカウント応答を根拠にします。履歴を削除したRESTが取引を返さない場合、その欠落を完全には検出できません。また、現在のリンク・残高はアカウントごとに取得するため、単一ブロック時点のスナップショットではありません。`--check-balances` を省略した `restore` はキャッシュ確認時のリンク状態と XYM 残高を使用します。キャッシュ自体を最新状態へ更新するには `discover` を再実行してください。
+暗号化・復号 API はファイル操作を行いません。探索 API は REST 通信とキャッシュの読み書き、復元 API はキャッシュの読み込みと、`checkBalances: true` の場合に REST 通信を行います。復元 API の `restUrl` は `checkBalances: true` と併用します。
 
-委任開始リクエストはノードに受理されたことや、現在ハーベスト可能であることを保証しません。残高・インポータンス・ノードの受入枠などによる実際の稼働状態や、ノードが保持する元の `harvesters.dat` との完全一致は検証しません。復元するのは条件を満たすリクエストから得られた鍵です。
+`discoverLinkedAccounts` はネットワーク、生成ハッシュ、ノード公開鍵・アドレス、`currencyMosaicId`、探索済み高さ、候補数、`accounts` を返します。各アカウントには次の情報を含みます。
 
-## API
+| 項目                   | 内容                                                               |
+| ---------------------- | ------------------------------------------------------------------ |
+| `address`, `publicKey` | 現在リンク中のアカウントのアドレス・公開鍵                         |
+| `linkedHeight`         | 探索済み範囲の最新のリンク設定高さ                                 |
+| `balances`             | `{ mosaicId, amount }` の配列。数量は最小単位の10進整数文字列      |
+| `delegationMessages`   | リンク設定後の復号可能な委任開始メッセージ。暗号文と取引位置を含む |
 
-| API                                            | 入力                                                              | 戻り値                              |
-| ---------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------- |
-| `encryptHarvesters(harvesters, nodePublicKey)` | `{ signingPrivateKey, vrfPrivateKey }` の配列、宛先ノードの公開鍵 | `Promise<Uint8Array>`               |
-| `decryptHarvesters(data, nodePrivateKey)`      | 暗号化済みバイト列、元ノードの秘密鍵                              | `Promise<DecryptedHarvesterKeys[]>` |
-| `HARVESTER_RECORD_SIZE`                        | —                                                                 | `124`                               |
+`restoreHarvestersFromCache` は `{ harvesters, skippedAccounts, checkedAt }` を返します。`harvesters` の鍵はそれぞれ独立した32バイトの `Uint8Array` です。`checkedAt` は、通常はキャッシュ確認日時、再確認時は REST 確認日時です。
 
-鍵の入力は32バイトの `Uint8Array`（`Buffer` を含む）または64文字の16進文字列です。復号結果の各鍵は32バイトの独立した `Uint8Array` です。空配列は空ファイルに対応します。
+| `skippedAccounts[].reason` | 理由                                                 |
+| -------------------------- | ---------------------------------------------------- |
+| `below-minimum-balance`    | 10,000 XYM 未満                                      |
+| `not-linked`               | REST 再確認時にリンク対象外                          |
+| `missing-harvesting-keys`  | 署名用・VRF用のリンク情報が不足                      |
+| `no-matching-message`      | 現在のリンク情報と一致する復元可能なメッセージがない |
 
-探索には `discoverLinkedAccounts({ nodePrivateKey, restUrl?, cacheFile?, onProgress? })`、キャッシュからの復元には `restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances?, restUrl? })` を使用します。これらの `nodePrivateKey` は32バイトの `Uint8Array` で指定します。PEM の読み込みは CLI が担当します。
+復号 API は不正な鍵の形式・不完全なレコードを `TypeError`、不正な公開鍵・認証失敗を `Error` として拒否します。1件でも復号に失敗すると結果を返しません。
 
-`discoverLinkedAccounts` は通貨モザイクIDの `currencyMosaicId` を含む `LinkedAccountsResult` を返します。`restoreHarvestersFromCache` は `{ harvesters, skippedAccounts, checkedAt }` を返し、`skippedAccounts` の理由は `missing-harvesting-keys`（署名用・VRF用のリンク情報不足）、`no-matching-message`（一致するメッセージなし）、`below-minimum-balance`（10,000 XYM 未満）、`not-linked`（再確認時にリンク対象外）です。`restUrl` は `checkBalances: true` と併用します。復元した `harvesters` の各秘密鍵は呼び出し側が使用後に消去してください。
+復号・復元した鍵のバイト配列は、呼び出し側で使用後に消去してください。JavaScript と SDK の内部コピーや文字列を含め、秘密情報をメモリから完全に消去する保証はありません。
 
-不正な鍵の形式、不完全なレコードは `TypeError`、復号時の不正な公開鍵や認証失敗は `Error` として拒否します。1件でも復号に失敗した場合は結果を返しません。レコードごとに認証する形式のため、レコード単位の削除・並べ替えは検出できません。
+## 対応範囲
 
-復号結果には秘密鍵が含まれます。ログへ出力せず、使用後はバイト配列を消去してください。JavaScript と SDK の内部コピーや文字列を含め、メモリ上の秘密情報を完全に消去する保証はありません。
+探索対象は、指定ノードのアドレスに関連する取引として REST が返す範囲です。関連取引に現れない単独の NodeKeyLink だけを送信し、ノード宛ての復号可能な委任開始メッセージもないアカウントは探索できません。ノード公開鍵から導出したアドレスを直接宛先に指定した委任開始 Transfer を対象とします。
 
-## 互換性の根拠
+探索履歴は最終確定高さまでを対象とします。リンク・残高の現在値はアカウントごとに取得するため、全アカウントが単一ブロック時点の状態であるとは保証しません。REST が削除済みの履歴を返さない場合、その欠落を完全には検出できません。
 
-対象は Symbol の保存形式です。NEM の形式ではありません。この API はアドレスや署名を生成せず、Mainnet / Testnet を示すフィールドも保存形式にありません。ネットワークに対応するノードの鍵を呼び出し側で選択してください。
+復元結果は条件に一致する委任開始メッセージから得た鍵です。ノードによる受理、現在のハーベスト可否、元の `harvesters.dat` との完全一致を保証しません。稼働中ノードへの投入はテスト対象に含みません。
 
-| オフセット | 長さ | 内容                                              |
-| ---------- | ---- | ------------------------------------------------- |
-| 0          | 32   | 一時公開鍵                                        |
-| 32         | 16   | AES-GCM 認証タグ                                  |
-| 48         | 12   | IV                                                |
-| 60         | 64   | 暗号文（署名用秘密鍵32バイト、VRF秘密鍵32バイト） |
-
-レコードはヘッダーなしで連結されます。各レコードで一時鍵と IV を新規生成し、SDK の `SymbolFacade.deriveSharedKey` による Symbol の共有鍵導出と Web Crypto の AES-256-GCM を使用します。
-
-これは Shoestring / Catapult の実装固有の保存形式を根拠にした独立実装です。プロトコル規範仕様や Catbuffer スキーマとして扱いません。
-
-- [Shoestring import_harvesters.py（確認したコミット固定）](https://github.com/symbol/product/blob/9a3f1bf92ff6009b364bda6107af0ccfca9b08ce/tools/shoestring/shoestring/commands/import_harvesters.py)
-- [Shoestring の公式テスト](https://github.com/symbol/product/blob/9a3f1bf92ff6009b364bda6107af0ccfca9b08ce/tools/shoestring/tests/commands/test_import_harvesters.py)
-- [通常版 Symbol SDK](https://www.npmjs.com/package/symbol-sdk)
-- [REST仕様の NodeKeyLink DTO](https://github.com/symbol/symbol/blob/14a0cc16ef277875fb9af71b3a0d03b80f27283e/openapi/spec/plugins/account_link/schemas/NodeKeyLinkTransactionBodyDTO.yml)
-- [Aggregate内部取引の位置を保存する公式Mongo実装](https://github.com/symbol/symbol/blob/14a0cc16ef277875fb9af71b3a0d03b80f27283e/client/catapult/extensions/mongo/plugins/aggregate/src/AggregateMapper.cpp)
-- [公式Catapultの委任アカウント検証](https://github.com/symbol/symbol/blob/14a0cc16ef277875fb9af71b3a0d03b80f27283e/client/catapult/extensions/harvesting/src/UnlockedAccountsUpdater.cpp)
-
-探索のRESTフィールドと取引型はREST仕様、委任メッセージの判定と復号はSDKの利便API、署名用・VRF用・ノード公開鍵の照合はCatapult実装を根拠にします。キャッシュ、ページ再開、CLIの入出力はこのパッケージ固有の設計判断です。
-
-テストでは公式 Shoestring の fixture から4件の Testnet アドレスを確認し、通常版 SDK の委任メッセージ形式との相互変換、鍵の移行、改ざんや鍵違いの拒否を検証します。稼働中ノードへの投入は検証対象に含みません。
+保存形式は Shoestring / Catapult の実装を根拠とするもので、プロトコル規範仕様や Catbuffer スキーマではありません。レコードごとの一時公開鍵・認証タグ・IV・暗号文を124バイトで連結し、Symbol SDK の共有鍵導出と AES-256-GCM を使用します。レコード単位の削除・並べ替えは検出できません。キャッシュ、CLI の入出力、10,000 XYM の復元条件はこのパッケージ固有の動作です。
 
 ## 開発
 
-リポジトリのルートで依存関係をインストールして実行します。
+リポジトリのルートで依存関係をインストールしてから実行します。
 
 ```sh
 pnpm --filter @nemnesia/symbol-harvesters typecheck
 pnpm --filter @nemnesia/symbol-harvesters lint
 pnpm --filter @nemnesia/symbol-harvesters test
 pnpm --filter @nemnesia/symbol-harvesters build
-pnpm --filter @nemnesia/symbol-harvesters pack --pack-destination /tmp
 ```
 
-MIT License。公式 fixture の出典とライセンス情報は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) を参照してください。
+## ライセンス
+
+[MIT License](./LICENSE)。公式 Shoestring のテストデータの出典・帰属は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) を参照してください。
