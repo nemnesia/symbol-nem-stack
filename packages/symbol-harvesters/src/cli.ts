@@ -24,6 +24,7 @@ interface CliOptions {
   keyFile: string;
   restUrl?: string;
   cacheFile?: string;
+  checkBalances?: boolean;
 }
 
 /** ノード証明書の秘密鍵PEMを読み込み、暗号化時は対応する公開鍵を導出します。 */
@@ -155,17 +156,23 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
     } else {
       if (command === 'restore') {
         stage = 'キャッシュからの復元（--cache-file）';
+        if (options.restUrl !== undefined && !options.checkBalances)
+          throw new DiagnosticError('--rest-url は --check-balances と併用してください。');
+        if (options.checkBalances) process.stderr.write('RESTで現在のリンク・XYM残高を再確認しています。\n');
         hint = '探索済みキャッシュとノード鍵を確認してください。';
         const restored = await restoreHarvestersFromCache({
           nodePrivateKey: nodeKey,
           cacheFile: options.cacheFile!,
+          checkBalances: options.checkBalances,
+          restUrl: options.restUrl,
         });
         decrypted = restored.harvesters;
         const excludedCount = restored.skippedAccounts.filter(
           (account) => account.reason === 'below-minimum-balance'
         ).length;
+        const notLinkedCount = restored.skippedAccounts.filter((account) => account.reason === 'not-linked').length;
         process.stderr.write(
-          `キャッシュ確認日時: ${restored.checkedAt}。復元${decrypted.length}件、残高条件による除外${excludedCount}件、復元不可${restored.skippedAccounts.length - excludedCount}件。\n`
+          `${options.checkBalances ? 'REST確認日時' : 'キャッシュ確認日時'}: ${restored.checkedAt}。復元${decrypted.length}件、残高条件による除外${excludedCount}件、リンク対象外${notLinkedCount}件、復元不可${restored.skippedAccounts.length - excludedCount - notLinkedCount}件。\n`
         );
       } else {
         stage = '入力ファイルの読み込み（--input）';
@@ -252,10 +259,13 @@ async function main(): Promise<void> {
       '--cache-file <path>',
       '探索キャッシュ（省略時は.symbol-harvesters-cache配下にネットワーク・鍵ごとに保存）。'
     );
-  command('restore', '完了済みキャッシュで10,000 XYM以上のアカウントから、平文の鍵JSONを復元します。').requiredOption(
-    '--cache-file <path>',
-    '探索が完了したキャッシュファイル。'
-  );
+  command('restore', '完了済みキャッシュで10,000 XYM以上のアカウントから、平文の鍵JSONを復元します。')
+    .requiredOption('--cache-file <path>', '探索が完了したキャッシュファイル。')
+    .option('--check-balances', 'RESTで現在のリンク・XYM残高・署名用鍵・VRF鍵を再確認します。')
+    .option(
+      '--rest-url <url>',
+      '残高再確認に使用するRESTのURL（--check-balancesと併用、省略時はhttp://localhost:3000）。'
+    );
 
   try {
     await program.parseAsync(process.argv);

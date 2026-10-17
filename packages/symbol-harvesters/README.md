@@ -137,7 +137,7 @@ symbol-harvesters discover \
 
 `--cache-file` の省略時は `.symbol-harvesters-cache/` にネットワークの生成ハッシュとノード公開鍵別のキャッシュを作成します。ノードアドレスの関連取引、候補別の NodeKeyLink 履歴とメッセージ履歴を、検証が完了したページごとに保存します。再実行では途中の次ページから、完了済みの範囲については次の高さから探索します。再リンクを見つけた場合、その新しいリンクより前のメッセージは対象から外します。
 
-キャッシュ形式は version 2 です。旧形式（version 1）のキャッシュで `discover` を実行すると、ネットワークと鍵を検証してから、関連取引のページ1・高さ1から再探索します。旧形式のページ番号は引き継ぎません。残高判定情報のない旧キャッシュで `restore` を実行すると、`discover` の再実行を案内します。
+キャッシュ形式は version 2 です。旧形式（version 1）のキャッシュで `discover` を実行すると、ネットワークと鍵を検証してから、関連取引のページ1・高さ1から再探索します。旧形式のページ番号は引き継ぎません。残高判定情報のない旧キャッシュは、`discover` で更新するか、`restore --check-balances` で現在の残高を確認してください。
 
 上限は開始時の最終確定高さに固定します。最終確定前の取引は次回以降、確定してから取得します。ページ番号と並び順、ネットワーク・鍵・ブロックハッシュを検証し、不整合があれば停止します。REST の変更時はDB内のページ順序の違いを避けるため、未完了範囲だけをページ1から走査し直します。
 
@@ -159,11 +159,26 @@ symbol-harvesters encrypt \
   --output harvesters.restored.dat
 ```
 
-`restore` は REST に接続せず、最後に探索が完了したキャッシュを使用します。キャッシュ確認時の XYM 残高が **10,000 XYM 以上**で、リンク中のアカウントだけを対象にします。10,000 XYM ちょうども含みます。新しい委任開始メッセージから順に復号し、署名用・VRF用公開鍵が最後の探索で取得したリンク情報と両方一致する鍵を復元します。解除済みアカウント、公開鍵が一致しないメッセージは採用しません。
+`restore` は通常 REST に接続せず、最後に探索が完了したキャッシュを使用します。キャッシュ確認時の XYM 残高が **10,000 XYM 以上**で、リンク中のアカウントだけを対象にします。10,000 XYM ちょうども含みます。新しい委任開始メッセージから順に復号し、署名用・VRF用公開鍵が最後の探索で取得したリンク情報と両方一致する鍵を復元します。解除済みアカウント、公開鍵が一致しないメッセージは採用しません。
 
-出力は `decrypt` と同じ `{ signingPrivateKey, vrfPrivateKey }` のJSON配列です。そのまま `encrypt` へ渡せます。復元できないアカウントがある場合は復元できた分だけを出力し、標準エラーへ復元件数・復元不可件数とキャッシュの確認日時を通知します。探索途中のキャッシュや別ノードの秘密鍵は拒否します。10,000 XYM 未満は残高条件による除外件数として通知します。残高判定情報のない旧キャッシュは拒否するため、先に `discover` を再実行してください。
+出力は `decrypt` と同じ `{ signingPrivateKey, vrfPrivateKey }` のJSON配列です。そのまま `encrypt` へ渡せます。復元できないアカウントがある場合は復元できた分だけを出力し、標準エラーへ復元件数・復元不可件数とキャッシュの確認日時を通知します。探索途中のキャッシュや別ノードの秘密鍵は拒否します。10,000 XYM 未満は残高条件による除外件数として通知します。残高判定情報のない旧キャッシュは、先に `discover` を再実行するか、次の `--check-balances` を使用してください。
 
-探索はフルRESTの履歴と現在のアカウント応答を根拠にします。履歴を削除したRESTが取引を返さない場合、その欠落を完全には検出できません。また、現在のリンク・残高はアカウントごとに取得するため、単一ブロック時点のスナップショットではありません。`restore` が使用するリンク状態と XYM 残高はキャッシュの確認日時のもので、最新状態へ更新するには先に `discover` を再実行してください。
+`--check-balances` を付けると、キャッシュ上でリンク中だったアカウントの現在のリンク・XYM 残高・署名用鍵・VRF鍵を REST で再確認してから復元します。
+
+```sh
+symbol-harvesters restore \
+  --key-file node.key.pem \
+  --cache-file ./discovery-cache.json \
+  --output harvesters.checked.json \
+  --check-balances \
+  --rest-url https://full-rest.example:3001
+```
+
+`--rest-url` の省略時は `http://localhost:3000` を使用します。`restore` の `--rest-url` は `--check-balances` と併用してください。接続先のネットワーク識別子と生成ハッシュをキャッシュと照合し、現在の残高が10,000 XYM以上のアカウントだけを復元します。解除済み・他ノードへ移行済み・存在しないアカウントはリンク対象外として除外し、復元する鍵は現在の署名用・VRF用公開鍵と照合します。REST 障害や不正な応答では復元を中止し、キャッシュの古い残高へ切り替えません。
+
+再確認では取引履歴を再探索せず、キャッシュのリンク中アカウントと暗号化メッセージを使います。新たな委任アカウントやメッセージの取得には `discover` を再実行してください。再確認結果は今回の復元にだけ使い、キャッシュには書き戻しません。標準エラーに表示する確認日時は、再確認を指定した場合は REST 確認日時、それ以外はキャッシュ確認日時です。
+
+探索はフルRESTの履歴と現在のアカウント応答を根拠にします。履歴を削除したRESTが取引を返さない場合、その欠落を完全には検出できません。また、現在のリンク・残高はアカウントごとに取得するため、単一ブロック時点のスナップショットではありません。`--check-balances` を省略した `restore` はキャッシュ確認時のリンク状態と XYM 残高を使用します。キャッシュ自体を最新状態へ更新するには `discover` を再実行してください。
 
 委任開始リクエストはノードに受理されたことや、現在ハーベスト可能であることを保証しません。残高・インポータンス・ノードの受入枠などによる実際の稼働状態や、ノードが保持する元の `harvesters.dat` との完全一致は検証しません。復元するのは条件を満たすリクエストから得られた鍵です。
 
@@ -177,9 +192,9 @@ symbol-harvesters encrypt \
 
 鍵の入力は32バイトの `Uint8Array`（`Buffer` を含む）または64文字の16進文字列です。復号結果の各鍵は32バイトの独立した `Uint8Array` です。空配列は空ファイルに対応します。
 
-探索には `discoverLinkedAccounts({ nodePrivateKey, restUrl?, cacheFile?, onProgress? })`、キャッシュからの復元には `restoreHarvestersFromCache({ nodePrivateKey, cacheFile })` を使用します。これらの `nodePrivateKey` は32バイトの `Uint8Array` で指定します。PEM の読み込みは CLI が担当します。
+探索には `discoverLinkedAccounts({ nodePrivateKey, restUrl?, cacheFile?, onProgress? })`、キャッシュからの復元には `restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances?, restUrl? })` を使用します。これらの `nodePrivateKey` は32バイトの `Uint8Array` で指定します。PEM の読み込みは CLI が担当します。
 
-`discoverLinkedAccounts` は通貨モザイクIDの `currencyMosaicId` を含む `LinkedAccountsResult` を返します。`restoreHarvestersFromCache` は `{ harvesters, skippedAccounts, checkedAt }` を返し、`skippedAccounts` の理由は `missing-harvesting-keys`（署名用・VRF用のリンク情報不足）、`no-matching-message`（一致するメッセージなし）、`below-minimum-balance`（10,000 XYM 未満）です。復元した `harvesters` の各秘密鍵は呼び出し側が使用後に消去してください。
+`discoverLinkedAccounts` は通貨モザイクIDの `currencyMosaicId` を含む `LinkedAccountsResult` を返します。`restoreHarvestersFromCache` は `{ harvesters, skippedAccounts, checkedAt }` を返し、`skippedAccounts` の理由は `missing-harvesting-keys`（署名用・VRF用のリンク情報不足）、`no-matching-message`（一致するメッセージなし）、`below-minimum-balance`（10,000 XYM 未満）、`not-linked`（再確認時にリンク対象外）です。`restUrl` は `checkBalances: true` と併用します。復元した `harvesters` の各秘密鍵は呼び出し側が使用後に消去してください。
 
 不正な鍵の形式、不完全なレコードは `TypeError`、復号時の不正な公開鍵や認証失敗は `Error` として拒否します。1件でも復号に失敗した場合は結果を返しません。レコードごとに認証する形式のため、レコード単位の削除・並べ替えは検出できません。
 

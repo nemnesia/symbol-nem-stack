@@ -744,6 +744,121 @@ describe('ノードキーに現在もリンクしているアカウントの探�
     }
   );
 
+  it.each([
+    { cachedAmount: '10000000000', amount: '9999999999', restored: false },
+    { cachedAmount: '0', amount: '10000000000', restored: true },
+    { cachedAmount: '9999999999', amount: '10000000001', restored: true },
+    { cachedAmount: '10000000000', amount: undefined, restored: false },
+  ])(
+    '再確認時はキャッシュ残高$cachedAmountではなく現在の$amountで復元を判定する',
+    async ({ cachedAmount, amount, restored }) => {
+      balances = [{ id: '6BED913FA20223F8', amount: cachedAmount }];
+      transfers = [transfer(10, await delegationMessage())];
+      await discover();
+      const before = await readFile(cacheFile, 'utf8');
+      balances = amount === undefined ? [] : [{ id: '6BED913FA20223F8', amount }];
+      calls = [];
+      const result = await restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances: true });
+      expect(result.harvesters).toHaveLength(restored ? 1 : 0);
+      expect(result.skippedAccounts).toEqual(restored ? [] : [{ publicKey: signer, reason: 'below-minimum-balance' }]);
+      expect(await readFile(cacheFile, 'utf8')).toBe(before);
+      expect(calls.some((url) => url.pathname.startsWith('/accounts/'))).toBe(true);
+      expect(calls.every((url) => url.origin === 'http://localhost:3000')).toBe(true);
+      expect(calls.some((url) => url.pathname.startsWith('/transactions/'))).toBe(false);
+      expect(calls.every((url) => !url.toString().includes(Buffer.from(nodePrivateKey).toString('hex')))).toBe(true);
+    }
+  );
+
+  it.each(['解除', '別ノード', '存在しない'])('再確認で%sになったアカウントは復元しない', async (state) => {
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    if (state === '解除') linkedKeys.delete(signer);
+    if (state === '別ノード') linkedKeys.set(signer, anotherNode);
+    if (state === '存在しない')
+      intercept = (url) => (url.pathname.startsWith('/accounts/') ? new Response('', { status: 404 }) : undefined);
+    const result = await restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances: true });
+    expect(result.harvesters).toEqual([]);
+    expect(result.skippedAccounts).toEqual([{ publicKey: signer, reason: 'not-linked' }]);
+  });
+
+  it.each(['network', 'generationHashSeed'])('再確認RESTの%sがキャッシュと違う場合は拒否する', async (field) => {
+    await discover();
+    calls = [];
+    intercept = (url) =>
+      url.pathname === '/node/info'
+        ? Response.json({
+            networkIdentifier: field === 'network' ? 104 : 152,
+            networkGenerationHashSeed: field === 'network' ? generationHashSeed : 'B'.repeat(64),
+          })
+        : undefined;
+    await expect(restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances: true })).rejects.toThrow(
+      'ネットワーク'
+    );
+    expect(calls.some((url) => url.pathname.startsWith('/accounts/'))).toBe(false);
+  });
+
+  it.each(['-1', '1.5', '18446744073709551616'])('再確認時の不正な残高%sでは古い残高へ切り替えない', async (amount) => {
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    balances = [{ id: '6BED913FA20223F8', amount }];
+    await expect(restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances: true })).rejects.toThrow(
+      '整数'
+    );
+  });
+
+  it('再確認RESTの障害では古い残高へ切り替えずキャッシュも変更しない', async () => {
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    const before = await readFile(cacheFile, 'utf8');
+    intercept = (url) => (url.pathname.startsWith('/accounts/') ? new Response('', { status: 503 }) : undefined);
+    await expect(restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances: true })).rejects.toThrow('503');
+    expect(await readFile(cacheFile, 'utf8')).toBe(before);
+  });
+
+  it('再確認では現在の署名用・VRF用公開鍵と合わない古いメッセージを復元しない', async () => {
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    intercept = (url) =>
+      url.pathname.startsWith('/accounts/')
+        ? Response.json({
+            account: {
+              publicKey: signer,
+              address: Buffer.from(address(signer).bytes).toString('hex'),
+              supplementalPublicKeys: {
+                node: { publicKey: nodePublicKey },
+                linked: { publicKey: otherSigner },
+                vrf: { publicKey: otherSigner },
+              },
+              mosaics: balances,
+            },
+          })
+        : undefined;
+    const result = await restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances: true });
+    expect(result.harvesters).toEqual([]);
+    expect(result.skippedAccounts).toEqual([{ publicKey: signer, reason: 'no-matching-message' }]);
+  });
+
+  it('残高情報のない旧キャッシュも再確認オプションなら復元できる', async () => {
+    transfers = [transfer(10, await delegationMessage())];
+    await discover();
+    const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
+    delete cached.snapshot.currencyMosaicId;
+    delete cached.snapshot.currencyDivisibility;
+    delete cached.snapshot.activeAccounts[0].xymAmount;
+    await writeFile(cacheFile, JSON.stringify(cached));
+    expect(
+      (await restoreHarvestersFromCache({ nodePrivateKey, cacheFile, checkBalances: true })).harvesters
+    ).toHaveLength(1);
+  });
+
+  it('再確認を指定せずrestUrlだけ渡した場合は通信せず拒否する', async () => {
+    calls = [];
+    await expect(
+      restoreHarvestersFromCache({ nodePrivateKey, cacheFile, restUrl: 'https://rest.example' })
+    ).rejects.toThrow('checkBalances');
+    expect(calls).toEqual([]);
+  });
+
   it('キャッシュだけで平文の署名用鍵とVRF鍵を復元し、暗号化APIへ渡せる', async () => {
     transfers = [transfer(10, await delegationMessage())];
     await discover();

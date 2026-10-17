@@ -18,6 +18,48 @@ class RestError extends DiagnosticError {
   }
 }
 
+/** 通信先を検証し、外部の例外原文や応答本文を診断に含めません。 */
+function restClient(url?: string) {
+  let base: URL;
+  try {
+    base = new URL(url ?? 'http://localhost:3000');
+  } catch {
+    throw new DiagnosticError('REST URLの形式が不正です。HTTP(S) URLを指定してください。');
+  }
+  if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash)
+    throw new DiagnosticError('REST URLには認証情報やクエリのないHTTP(S) URLを指定してください。');
+  base.pathname = base.pathname.replace(/\/$/, '') + '/';
+  const restUrl = base.toString();
+
+  async function request(path: string): Promise<Record<string, unknown>> {
+    let response: Response;
+    try {
+      response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(30_000), redirect: 'error' });
+    } catch {
+      throw new DiagnosticError('RESTへの接続に失敗しました。');
+    }
+    if (!response.ok) throw new RestError(response.status);
+    try {
+      return object(await response.json());
+    } catch {
+      throw new DiagnosticError('RESTのJSON応答が不正です。');
+    }
+  }
+  return { request, restUrl };
+}
+
+async function readCurrencyMosaicId(request: (path: string) => Promise<Record<string, unknown>>): Promise<string> {
+  const properties = await request('network/properties');
+  const currencyId = object(properties.chain).currencyMosaicId;
+  if (typeof currencyId !== 'string') throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
+  const currencyMosaicId = currencyId.replace(/^0x/i, '').replaceAll("'", '').toUpperCase();
+  if (!/^[0-9A-F]{16}$/.test(currencyMosaicId)) throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
+  const mosaic = object((await request(`mosaics/${currencyMosaicId}`)).mosaic);
+  if (hex(mosaic.id, 16) !== currencyMosaicId || mosaic.divisibility !== 6)
+    throw new DiagnosticError('RESTの通貨モザイク情報が不正です。XYMの小数桁数6を確認できません。');
+  return currencyMosaicId;
+}
+
 /** ノードキーリンクの探索条件です。秘密鍵は通信・キャッシュに含めません。 */
 export interface DiscoverLinkedAccountsOptions {
   nodePrivateKey: Uint8Array;
@@ -263,31 +305,7 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
   const keyPair = new KeyPair(new PrivateKey(new Uint8Array(options.nodePrivateKey)));
   const nodePublicKey = keyPair.publicKey;
   const encoder = new MessageEncoder(keyPair);
-  let base: URL;
-  try {
-    base = new URL(options.restUrl ?? 'http://localhost:3000');
-  } catch {
-    throw new DiagnosticError('REST URLの形式が不正です。HTTP(S) URLを指定してください。');
-  }
-  if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash)
-    throw new DiagnosticError('REST URLには認証情報やクエリのないHTTP(S) URLを指定してください。');
-  base.pathname = base.pathname.replace(/\/$/, '') + '/';
-  const restUrl = base.toString();
-
-  async function request(path: string): Promise<Record<string, unknown>> {
-    let response: Response;
-    try {
-      response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(30_000), redirect: 'error' });
-    } catch {
-      throw new DiagnosticError('RESTへの接続に失敗しました。');
-    }
-    if (!response.ok) throw new RestError(response.status);
-    try {
-      return object(await response.json());
-    } catch {
-      throw new DiagnosticError('RESTのJSON応答が不正です。');
-    }
-  }
+  const { request, restUrl } = restClient(options.restUrl);
   async function blockHash(blockHeight: string): Promise<string> {
     const block = await request(`blocks/${blockHeight}`);
     if (uint64(object(block.block).height) !== blockHeight)
@@ -586,14 +604,7 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
       };
     });
 
-    const properties = await request('network/properties');
-    const currencyId = object(properties.chain).currencyMosaicId;
-    if (typeof currencyId !== 'string') throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
-    const currencyMosaicId = currencyId.replace(/^0x/i, '').replaceAll("'", '').toUpperCase();
-    if (!/^[0-9A-F]{16}$/.test(currencyMosaicId)) throw new DiagnosticError('RESTの通貨モザイクIDが不正です。');
-    const mosaic = object((await request(`mosaics/${currencyMosaicId}`)).mosaic);
-    if (hex(mosaic.id, 16) !== currencyMosaicId || mosaic.divisibility !== 6)
-      throw new DiagnosticError('RESTの通貨モザイク情報が不正です。XYMの小数桁数6を確認できません。');
+    const currencyMosaicId = await readCurrencyMosaicId(request);
 
     const accounts: LinkedAccount[] = [];
     const activeAccounts: NonNullable<ScanCache['snapshot']>['activeAccounts'] = [];
@@ -741,18 +752,22 @@ export interface RestoreHarvestersResult {
   harvesters: { signingPrivateKey: Uint8Array; vrfPrivateKey: Uint8Array }[];
   skippedAccounts: {
     publicKey: string;
-    reason: 'missing-harvesting-keys' | 'no-matching-message' | 'below-minimum-balance';
+    reason: 'missing-harvesting-keys' | 'no-matching-message' | 'below-minimum-balance' | 'not-linked';
   }[];
   checkedAt: string;
 }
 
-/** 最後に探索を完了したキャッシュだけを使い、秘密鍵を復元します。REST通信は行いません。
+/** 完了済みキャッシュから秘密鍵を復元します。checkBalances指定時は現在のリンク・残高も確認します。
  * リンク解除済みの候補を除外し、署名用・VRF用公開鍵がキャッシュのリンク状態と一致するメッセージだけを採用します。
  */
 export async function restoreHarvestersFromCache(options: {
   nodePrivateKey: Uint8Array;
   cacheFile: string;
+  checkBalances?: boolean;
+  restUrl?: string;
 }): Promise<RestoreHarvestersResult> {
+  if (options.restUrl !== undefined && !options.checkBalances)
+    throw new DiagnosticError('restUrlはcheckBalancesと併用してください。');
   if (!(options.nodePrivateKey instanceof Uint8Array) || options.nodePrivateKey.length !== 32)
     throw new TypeError('nodePrivateKeyには32バイトの秘密鍵を指定してください。');
   const keyPair = new KeyPair(new PrivateKey(new Uint8Array(options.nodePrivateKey)));
@@ -783,16 +798,79 @@ export async function restoreHarvestersFromCache(options: {
   if (!cache.snapshot || cache.pending || cache.snapshot.scannedThrough !== cache.scannedThrough)
     throw new DiagnosticError('探索が完了したキャッシュを指定してください。');
   if (
-    !cache.snapshot.currencyMosaicId ||
-    cache.snapshot.currencyDivisibility !== 6 ||
-    cache.snapshot.activeAccounts.some((account) => account.xymAmount === undefined)
+    !options.checkBalances &&
+    (!cache.snapshot.currencyMosaicId ||
+      cache.snapshot.currencyDivisibility !== 6 ||
+      cache.snapshot.activeAccounts.some((account) => account.xymAmount === undefined))
   )
-    throw new DiagnosticError('キャッシュにXYM残高の判定情報がありません。先にdiscoverを再実行してください。');
+    throw new DiagnosticError(
+      'キャッシュにXYM残高の判定情報がありません。先にdiscoverを再実行するか、--check-balancesでRESTの残高を再確認してください。'
+    );
+  let snapshot = cache.snapshot;
+  const skippedAccounts: RestoreHarvestersResult['skippedAccounts'] = [];
+  if (options.checkBalances) {
+    const { request } = restClient(options.restUrl);
+    const info = await request('node/info');
+    if (
+      info.networkIdentifier !== cache.networkIdentifier ||
+      hex(info.networkGenerationHashSeed) !== cache.generationHashSeed
+    )
+      throw new DiagnosticError('RESTのネットワークが探索キャッシュと一致しません。');
+    const network = cache.networkIdentifier === Network.MAINNET.identifier ? Network.MAINNET : Network.TESTNET;
+    const currencyMosaicId = await readCurrencyMosaicId(request);
+    const activeAccounts: NonNullable<ScanCache['snapshot']>['activeAccounts'] = [];
+    for (const cachedAccount of snapshot.activeAccounts) {
+      const address = network.publicKeyToAddress(new PublicKey(cachedAccount.publicKey));
+      let data: Record<string, unknown>;
+      try {
+        data = await request(`accounts/${address.toString()}`);
+      } catch (error) {
+        if (!(error instanceof RestError && error.status === 404)) throw error;
+        skippedAccounts.push({ publicKey: cachedAccount.publicKey, reason: 'not-linked' });
+        continue;
+      }
+      const account = object(data.account);
+      if (
+        hex(account.publicKey) !== cachedAccount.publicKey ||
+        hex(account.address, 48) !== Buffer.from(address.bytes).toString('hex').toUpperCase()
+      )
+        throw new DiagnosticError('RESTのアカウントが探索キャッシュと一致しません。');
+      const supplemental = object(account.supplementalPublicKeys);
+      if (supplemental.node === undefined || hex(object(supplemental.node).publicKey) !== cache.nodePublicKey) {
+        skippedAccounts.push({ publicKey: cachedAccount.publicKey, reason: 'not-linked' });
+        continue;
+      }
+      if (!Array.isArray(account.mosaics)) throw new DiagnosticError('RESTの残高情報が不正です。');
+      let xymAmount = '0';
+      const seen = new Set<string>();
+      for (const value of account.mosaics) {
+        const balance = object(value);
+        const mosaicId = hex(balance.id, 16);
+        const amount = uint64(balance.amount);
+        if (seen.has(mosaicId)) throw new DiagnosticError('RESTの残高情報が重複しています。');
+        seen.add(mosaicId);
+        if (mosaicId === currencyMosaicId) xymAmount = amount;
+      }
+      activeAccounts.push({
+        publicKey: cachedAccount.publicKey,
+        xymAmount,
+        linkedPublicKey: supplemental.linked === undefined ? undefined : hex(object(supplemental.linked).publicKey),
+        vrfPublicKey: supplemental.vrf === undefined ? undefined : hex(object(supplemental.vrf).publicKey),
+      });
+    }
+    snapshot = {
+      ...snapshot,
+      currencyMosaicId,
+      currencyDivisibility: 6,
+      activeAccounts,
+      checkedAt: new Date().toISOString(),
+    };
+  }
   const encoder = new MessageEncoder(keyPair);
-  const result: RestoreHarvestersResult = { harvesters: [], skippedAccounts: [], checkedAt: cache.snapshot.checkedAt };
+  const result: RestoreHarvestersResult = { harvesters: [], skippedAccounts, checkedAt: snapshot.checkedAt };
   const restored = new Set<string>();
   try {
-    for (const account of cache.snapshot.activeAccounts) {
+    for (const account of snapshot.activeAccounts) {
       const candidate = cache.candidates.find((entry) => entry.publicKey === account.publicKey);
       if (
         !candidate ||

@@ -98,7 +98,7 @@ describe('暗号化・復号CLI', () => {
     { command: 'encrypt', forbidden: '--rest-url' },
     { command: 'decrypt', forbidden: '--cache-file' },
     { command: 'discover', forbidden: '--input' },
-    { command: 'restore', forbidden: '--rest-url' },
+    { command: 'restore', forbidden: '--input' },
   ])('他コマンド用のオプションを値を表示せず拒否する（$command）', ({ command, forbidden }) => {
     const args = [command, '--output', jsonFile, '--key-file', privateFile];
     if (command === 'encrypt' || command === 'decrypt') args.push('--input', dataFile);
@@ -108,6 +108,29 @@ describe('暗号化・復号CLI', () => {
     expect(result.stderr).toContain('--help');
     expect(result.stderr).not.toContain('表示しない秘密値');
     expect(result.stdout).toBe('');
+  });
+
+  it('restoreの再確認オプションをヘルプに表示する', () => {
+    const result = run('restore', '--help');
+    expect(result.stdout).toContain('--check-balances');
+    expect(result.stdout).toContain('--rest-url');
+  });
+
+  it('restoreで接続先だけ指定すると再確認オプションを案内する', () => {
+    const result = run(
+      'restore',
+      '--output',
+      jsonFile,
+      '--key-file',
+      privateFile,
+      '--cache-file',
+      join(directory, 'cache.json'),
+      '--rest-url',
+      'https://秘密のURL'
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--check-balances');
+    expect(result.stderr).not.toContain('秘密のURL');
   });
 
   it('公式データをJSONへ復号し、再暗号化して全件の秘密鍵を復元する', async () => {
@@ -534,7 +557,7 @@ describe('暗号化・復号CLI', () => {
       expect(restored.status).toBe(0);
       const eligible = amount !== undefined && BigInt(amount) >= 10_000_000_000n;
       expect(restored.stderr).toContain(
-        `復元${eligible ? 1 : 0}件、残高条件による除外${eligible ? 0 : 1}件、復元不可0件`
+        `復元${eligible ? 1 : 0}件、残高条件による除外${eligible ? 0 : 1}件、リンク対象外0件、復元不可0件`
       );
       const expected = eligible
         ? [
@@ -551,6 +574,30 @@ describe('暗号化・復号CLI', () => {
       expect((await stat(restoredFile)).mode & 0o777).toBe(0o600);
       expect(run('encrypt', '--input', restoredFile, '--output', dataFile, '--key-file', privateFile).status).toBe(0);
       expect(await decryptHarvesters(await readFile(dataFile), privateHex)).toEqual(eligible ? [plaintext] : []);
+      const cachedBeforeCheck = await readFile(cache, 'utf8');
+      const requestsBeforeCheck = (await readFile(requestLog, 'utf8')).length;
+      vi.stubEnv('NODE_OPTIONS', `--import=${pathToFileURL(preload).href}`);
+      const checkedFile = join(directory, 'checked-restore.json');
+      const checked = run(
+        'restore',
+        '--output',
+        checkedFile,
+        '--key-file',
+        privateFile,
+        '--cache-file',
+        cache,
+        '--check-balances',
+        '--rest-url',
+        'https://check-rest.example:3001'
+      );
+      expect(checked.status).toBe(0);
+      expect(checked.stderr).toContain('REST確認日時');
+      expect(JSON.parse(await readFile(checkedFile, 'utf8'))).toEqual(expected);
+      expect(await readFile(cache, 'utf8')).toBe(cachedBeforeCheck);
+      const checkRequests = (await readFile(requestLog, 'utf8')).slice(requestsBeforeCheck);
+      expect(checkRequests).toContain('https://check-rest.example:3001/accounts/');
+      expect(checkRequests).not.toContain('/transactions/');
+      expect(checkRequests).not.toContain(privateHex);
     }
   );
 
