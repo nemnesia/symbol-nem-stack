@@ -4,8 +4,10 @@ import { Command, CommanderError } from 'commander';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { open, readFile, unlink } from 'node:fs/promises';
 
+import { DiagnosticError, fileErrorDetail } from './errors.js';
 import {
   type DecryptedHarvesterKeys,
+  HARVESTER_RECORD_SIZE,
   type HarvesterKeys,
   decryptHarvesters,
   discoverLinkedAccounts,
@@ -38,6 +40,10 @@ async function readNodeKey(path: string, command: string): Promise<Uint8Array> {
     const bytes = Buffer.from(encoded, 'base64url');
     if (bytes.length !== 32) throw new Error();
     return bytes;
+  } catch {
+    throw new DiagnosticError(
+      '--key-file の形式が不正です。暗号化されていないEd25519 PKCS#8の秘密鍵PEMを指定してください。'
+    );
   } finally {
     contents.fill(0);
   }
@@ -45,20 +51,22 @@ async function readNodeKey(path: string, command: string): Promise<Uint8Array> {
 
 /** JSONの構造を検証してから暗号化APIへ渡します。 */
 function parseHarvesters(contents: Buffer): HarvesterKeys[] {
-  const parsed: unknown = JSON.parse(contents.toString('utf8'));
-  if (!Array.isArray(parsed)) throw new Error();
-  return parsed.map((entry: unknown) => {
-    if (entry === null || typeof entry !== 'object') throw new Error();
-    const { signingPrivateKey, vrfPrivateKey } = entry as Record<string, unknown>;
-    if (
-      typeof signingPrivateKey !== 'string' ||
-      typeof vrfPrivateKey !== 'string' ||
-      !/^[a-fA-F0-9]{64}$/.test(signingPrivateKey) ||
-      !/^[a-fA-F0-9]{64}$/.test(vrfPrivateKey)
-    ) {
-      throw new Error();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents.toString('utf8'));
+  } catch {
+    throw new DiagnosticError('--input のJSON構文が不正です。');
+  }
+  if (!Array.isArray(parsed)) throw new DiagnosticError('--input はハーベスターのJSON配列で指定してください。');
+  return parsed.map((entry: unknown, index: number) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry))
+      throw new DiagnosticError(`--input の${index + 1}件目は鍵のオブジェクトで指定してください。`);
+    const record = entry as Record<string, unknown>;
+    for (const field of ['signingPrivateKey', 'vrfPrivateKey'] as const) {
+      if (typeof record[field] !== 'string' || !/^[a-fA-F0-9]{64}$/.test(record[field]))
+        throw new DiagnosticError(`--input の${index + 1}件目の ${field} は64文字の16進文字列で指定してください。`);
     }
-    return { signingPrivateKey, vrfPrivateKey };
+    return { signingPrivateKey: record.signingPrivateKey as string, vrfPrivateKey: record.vrfPrivateKey as string };
   });
 }
 
@@ -82,9 +90,13 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
   let contents: Buffer | undefined;
   let result: Uint8Array | undefined;
   let decrypted: DecryptedHarvesterKeys[] = [];
+  let stage = 'ノード秘密鍵の読み込み（--key-file）';
+  let hint = '鍵ファイルとアクセス権を確認してください。';
   try {
     nodeKey = await readNodeKey(keyFile, command);
     if (command === 'discover') {
+      stage = '委任アカウントの探索';
+      hint = 'RESTの接続先・応答、探索キャッシュを確認してください。';
       const discovered = await discoverLinkedAccounts({
         nodePrivateKey: nodeKey,
         restUrl: options.restUrl,
@@ -97,10 +109,16 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
       });
       result = Buffer.from(JSON.stringify(discovered, null, 2) + '\n');
     } else if (command === 'encrypt') {
+      stage = '入力ファイルの読み込み（--input）';
+      hint = '入力ファイルとアクセス権を確認してください。';
       contents = await readFile(input!);
+      stage = '入力JSONの検証・暗号化';
+      hint = '入力の鍵形式とノード鍵を確認してください。';
       result = await encryptHarvesters(parseHarvesters(contents), nodeKey);
     } else {
       if (command === 'restore') {
+        stage = 'キャッシュからの復元（--cache-file）';
+        hint = '探索済みキャッシュとノード鍵を確認してください。';
         const restored = await restoreHarvestersFromCache({
           nodePrivateKey: nodeKey,
           cacheFile: options.cacheFile!,
@@ -110,7 +128,15 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
           `キャッシュ確認日時: ${restored.checkedAt}。復元${decrypted.length}件、復元不可${restored.skippedAccounts.length}件。\n`
         );
       } else {
+        stage = '入力ファイルの読み込み（--input）';
+        hint = '入力ファイルとアクセス権を確認してください。';
         contents = await readFile(input!);
+        stage = 'harvesters.datの復号';
+        if (contents.length % HARVESTER_RECORD_SIZE !== 0)
+          throw new DiagnosticError(
+            `--input のサイズが不正です。${HARVESTER_RECORD_SIZE}バイト単位の完全なレコードが必要です。`
+          );
+        hint = 'レコードが不正、またはノード秘密鍵が一致しません。鍵の不一致とデータの破損・改ざんは区別できません。';
         decrypted = await decryptHarvesters(contents, nodeKey);
       }
       result = Buffer.from(
@@ -124,11 +150,13 @@ async function execute(command: CommandName, options: CliOptions): Promise<void>
         ) + '\n'
       );
     }
+    stage = '出力ファイルの保存（--output）';
+    hint = '出力先とアクセス権を確認してください。';
     await writeOutput(output, result);
-  } catch {
-    throw new Error(
-      '処理に失敗しました。入力・鍵の形式、復号鍵、出力先、RESTの接続先・履歴・キャッシュとアクセス権を確認してください。'
-    );
+  } catch (error) {
+    const detail = error instanceof DiagnosticError ? error.message : (fileErrorDetail(error) ?? hint);
+    // 外部例外のcauseにも秘密情報が含まれ得るため、安全な診断だけを伝播します。
+    throw new DiagnosticError(`${stage}に失敗しました。${detail}`);
   } finally {
     nodeKey?.fill(0);
     contents?.fill(0);

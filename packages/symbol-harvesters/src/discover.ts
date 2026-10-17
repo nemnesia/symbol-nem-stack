@@ -5,12 +5,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { DiagnosticError, fileErrorDetail } from './errors.js';
+
 const NODE_KEY_LINK_TYPE = 16972;
 const TRANSFER_TYPE = 16724;
 const PAGE_SIZE = 100;
 const DELEGATION_MARKER = 'FE2A8061577301E2';
 
-class RestError extends Error {
+class RestError extends DiagnosticError {
   constructor(readonly status: number) {
     super(`RESTの取得に失敗しました（HTTP ${status}）。`);
   }
@@ -99,26 +101,26 @@ interface ScanCache extends Scan {
 /** 未検証のJSONをオブジェクトとして扱う前に構造を確認します。 */
 function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('応答またはキャッシュの形式が不正です。');
+    throw new DiagnosticError('応答またはキャッシュの形式が不正です。');
   return value as Record<string, unknown>;
 }
 
 function hex(value: unknown, size = 64): string {
   if (typeof value !== 'string' || !new RegExp(`^[0-9a-fA-F]{${size}}$`).test(value))
-    throw new Error('応答またはキャッシュの公開情報が不正です。');
+    throw new DiagnosticError('応答またはキャッシュの公開情報が不正です。');
   return value.toUpperCase();
 }
 
 /** 高さと残高は丸めを避けるため、10進文字列とBigIntで扱います。 */
 function uint64(value: unknown): string {
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value) || BigInt(value) > 0xffffffffffffffffn)
-    throw new Error('応答またはキャッシュの整数が不正です。');
+    throw new DiagnosticError('応答またはキャッシュの整数が不正です。');
   return value;
 }
 
 function integer(value: unknown, minimum = 0): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
-    throw new Error('応答またはキャッシュの位置が不正です。');
+    throw new DiagnosticError('応答またはキャッシュの位置が不正です。');
   return value;
 }
 
@@ -142,7 +144,7 @@ function parseScan(data: Record<string, unknown>): Scan {
   if (data.pending !== undefined) {
     const pending = object(data.pending);
     if (typeof pending.restUrl !== 'string' || BigInt(uint64(pending.toHeight)) <= BigInt(state.scannedThrough))
-      throw new Error('キャッシュの再開範囲が不正です。');
+      throw new DiagnosticError('キャッシュの再開範囲が不正です。');
     state.pending = {
       toHeight: uint64(pending.toHeight),
       hash: hex(pending.hash),
@@ -151,7 +153,7 @@ function parseScan(data: Record<string, unknown>): Scan {
     };
     if (pending.lastId !== undefined) state.pending.lastId = hex(pending.lastId, 24);
     if ((state.pending.nextPage === 1) !== (state.pending.lastId === undefined))
-      throw new Error('キャッシュの再開位置が不正です。');
+      throw new DiagnosticError('キャッシュの再開位置が不正です。');
   }
   return state;
 }
@@ -166,25 +168,26 @@ function parseCache(value: unknown, identity: ScanCache): ScanCache {
     hex(data.nodePublicKey) !== identity.nodePublicKey ||
     !Array.isArray(data.candidates)
   )
-    throw new Error('キャッシュの対象が一致しません。');
+    throw new DiagnosticError('キャッシュの対象が一致しません。');
   const cache: ScanCache = { ...identity, ...parseScan(data), candidates: [] };
-  if (cache.scannedThrough !== '0' && !cache.scannedHash) throw new Error('キャッシュのブロックハッシュがありません。');
+  if (cache.scannedThrough !== '0' && !cache.scannedHash)
+    throw new DiagnosticError('キャッシュのブロックハッシュがありません。');
   const keys = new Set<string>();
   for (const raw of data.candidates) {
     const candidate = object(raw);
     const publicKey = hex(candidate.publicKey);
-    if (keys.has(publicKey)) throw new Error('キャッシュの候補が重複しています。');
+    if (keys.has(publicKey)) throw new DiagnosticError('キャッシュの候補が重複しています。');
     keys.add(publicKey);
     const messages = object(candidate.messages);
-    if (!Array.isArray(messages.entries)) throw new Error('キャッシュのメッセージが不正です。');
+    if (!Array.isArray(messages.entries)) throw new DiagnosticError('キャッシュのメッセージが不正です。');
     const entry: Candidate = { ...position(candidate), publicKey, messages: { ...parseScan(messages), entries: [] } };
     if (entry.height === '0' || BigInt(entry.messages.scannedThrough) < BigInt(entry.height) - 1n)
-      throw new Error('キャッシュのリンク高さが不正です。');
+      throw new DiagnosticError('キャッシュのリンク高さが不正です。');
     for (const rawMessage of messages.entries) {
       const message = object(rawMessage);
       const stored = { ...position(message), id: hex(message.id, 24), message: hex(message.message, 264) };
       if (!stored.message.startsWith(DELEGATION_MARKER) || compare(stored, entry) <= 0)
-        throw new Error('キャッシュの委任開始メッセージが不正です。');
+        throw new DiagnosticError('キャッシュの委任開始メッセージが不正です。');
       entry.messages.entries.push(stored);
     }
     cache.candidates.push(entry);
@@ -196,7 +199,7 @@ function parseCache(value: unknown, identity: ScanCache): ScanCache {
       !Number.isFinite(Date.parse(snapshot.checkedAt)) ||
       !Array.isArray(snapshot.activeAccounts)
     )
-      throw new Error('キャッシュのリンク状態が不正です。');
+      throw new DiagnosticError('キャッシュのリンク状態が不正です。');
     cache.snapshot = {
       scannedThrough: uint64(snapshot.scannedThrough),
       checkedAt: snapshot.checkedAt,
@@ -243,9 +246,14 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
   const keyPair = new KeyPair(new PrivateKey(new Uint8Array(options.nodePrivateKey)));
   const nodePublicKey = keyPair.publicKey;
   const encoder = new MessageEncoder(keyPair);
-  const base = new URL(options.restUrl ?? 'http://localhost:3000');
+  let base: URL;
+  try {
+    base = new URL(options.restUrl ?? 'http://localhost:3000');
+  } catch {
+    throw new DiagnosticError('REST URLの形式が不正です。HTTP(S) URLを指定してください。');
+  }
   if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash)
-    throw new Error('REST URLには認証情報やクエリのないHTTP(S) URLを指定してください。');
+    throw new DiagnosticError('REST URLには認証情報やクエリのないHTTP(S) URLを指定してください。');
   base.pathname = base.pathname.replace(/\/$/, '') + '/';
   const restUrl = base.toString();
 
@@ -254,25 +262,26 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
     try {
       response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(30_000), redirect: 'error' });
     } catch {
-      throw new Error('RESTへの接続に失敗しました。');
+      throw new DiagnosticError('RESTへの接続に失敗しました。');
     }
     if (!response.ok) throw new RestError(response.status);
     try {
       return object(await response.json());
     } catch {
-      throw new Error('RESTのJSON応答が不正です。');
+      throw new DiagnosticError('RESTのJSON応答が不正です。');
     }
   }
   async function blockHash(blockHeight: string): Promise<string> {
     const block = await request(`blocks/${blockHeight}`);
-    if (uint64(object(block.block).height) !== blockHeight) throw new Error('RESTのブロック高さが一致しません。');
+    if (uint64(object(block.block).height) !== blockHeight)
+      throw new DiagnosticError('RESTのブロック高さが一致しません。');
     return hex(object(block.meta).hash);
   }
 
   const info = await request('node/info');
   const network =
     info.networkIdentifier === 144 ? Network.MAINNET : info.networkIdentifier === 152 ? Network.TESTNET : undefined;
-  if (!network) throw new Error('MainnetまたはTestnetのRESTを指定してください。');
+  if (!network) throw new DiagnosticError('MainnetまたはTestnetのRESTを指定してください。');
   const networkIdentifier = network.identifier;
   const generationHashSeed = hex(info.networkGenerationHashSeed);
   const nodeAddress = network.publicKeyToAddress(nodePublicKey);
@@ -292,8 +301,12 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
   let lock;
   try {
     lock = await open(lockFile, 'wx', 0o600);
-  } catch {
-    throw new Error('探索キャッシュをロックできません。実行中の探索がないか確認してください。');
+  } catch (error) {
+    const detail =
+      error instanceof Error && 'code' in error && error.code === 'EEXIST'
+        ? 'ロックファイルが既に存在します。実行中の探索がないか確認してください。'
+        : (fileErrorDetail(error) ?? '保存先とアクセス権を確認してください。');
+    throw new DiagnosticError(`探索キャッシュをロックできません。${detail}`);
   }
   try {
     let cache = identity;
@@ -307,7 +320,7 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
       try {
         cache = parseCache(JSON.parse(cached), identity);
       } catch {
-        throw new Error('キャッシュが不正、または対象ネットワーク・ノードキーと一致しません。');
+        throw new DiagnosticError('キャッシュが不正、または対象ネットワーク・ノードキーと一致しません。');
       }
     }
     const chain = await request('chain/info');
@@ -315,9 +328,9 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
     const finalizedHeight = uint64(finalized.height);
     const finalizedHash = hex(finalized.hash);
     if (finalizedHeight === '0' || BigInt(uint64(chain.height)) < BigInt(finalizedHeight))
-      throw new Error('RESTの最終確定高さが不正です。');
+      throw new DiagnosticError('RESTの最終確定高さが不正です。');
     if ((await blockHash(finalizedHeight)) !== finalizedHash)
-      throw new Error('最終確定ブロックをRESTで確認できません。');
+      throw new DiagnosticError('最終確定ブロックをRESTで確認できません。');
     if (cache.scannedThrough === '0') await blockHash('1');
     const aggregatePositions = new Map<string, Position>();
 
@@ -337,11 +350,11 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
           hex(parentMeta.hash) !== aggregateHash ||
           parentMeta.aggregateHash !== undefined
         )
-          throw new Error('RESTの親Aggregateが不正です。');
+          throw new DiagnosticError('RESTの親Aggregateが不正です。');
         parent = { height: uint64(parentMeta.height), blockIndex: integer(parentMeta.index), innerIndex: -1 };
         aggregatePositions.set(aggregateHash, parent);
       }
-      if (parent.height !== atHeight) throw new Error('RESTの親Aggregateの高さが一致しません。');
+      if (parent.height !== atHeight) throw new DiagnosticError('RESTの親Aggregateの高さが一致しません。');
       return { height: atHeight, blockIndex: parent.blockIndex, innerIndex: index };
     }
 
@@ -354,11 +367,11 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
       prepare: (entries: Record<string, unknown>[]) => Promise<() => void>
     ): Promise<void> {
       if (BigInt(finalizedHeight) < BigInt(state.pending?.toHeight ?? state.scannedThrough))
-        throw new Error('RESTがキャッシュ済みの高さに達していません。');
+        throw new DiagnosticError('RESTがキャッシュ済みの高さに達していません。');
       if (state.scannedHash && (await blockHash(state.scannedThrough)) !== state.scannedHash)
-        throw new Error('キャッシュ済みブロックのハッシュが一致しません。');
+        throw new DiagnosticError('キャッシュ済みブロックのハッシュが一致しません。');
       if (state.pending && (await blockHash(state.pending.toHeight)) !== state.pending.hash)
-        throw new Error('再開対象のブロックハッシュが一致しません。');
+        throw new DiagnosticError('再開対象のブロックハッシュが一致しません。');
       if (state.pending && state.pending.restUrl !== restUrl) {
         // ページ順序はRESTのDBに依存するため、接続先変更時は未完了範囲だけを先頭からやり直します。
         state.pending = { ...state.pending, restUrl, nextPage: 1, lastId: undefined };
@@ -389,7 +402,7 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
           !Array.isArray(page.data) ||
           page.data.length > PAGE_SIZE
         )
-          throw new Error('RESTのページ情報が不正です。');
+          throw new DiagnosticError('RESTのページ情報が不正です。');
         let lastId = pending.lastId;
         const entries: Record<string, unknown>[] = [];
         for (const raw of page.data) {
@@ -404,13 +417,13 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
             transaction.type !== type ||
             transaction.network !== networkIdentifier
           )
-            throw new Error('RESTの取引または並び順が不正です。');
+            throw new DiagnosticError('RESTの取引または並び順が不正です。');
           lastId = id;
           entries.push(entry);
         }
         const commit = await prepare(entries);
         if (page.data.length < PAGE_SIZE && (await blockHash(pending.toHeight)) !== pending.hash)
-          throw new Error('探索中に対象ブロックが変わりました。');
+          throw new DiagnosticError('探索中に対象ブロックが変わりました。');
         commit();
         const completedPage = pending.nextPage;
         if (page.data.length < PAGE_SIZE) {
@@ -437,7 +450,8 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
         const transaction = object(entry.transaction);
         const linkedPublicKey = hex(transaction.linkedPublicKey);
         const publicKey = hex(transaction.signerPublicKey);
-        if (![0, 1].includes(transaction.linkAction as number)) throw new Error('RESTのリンク操作が不正です。');
+        if (![0, 1].includes(transaction.linkAction as number))
+          throw new DiagnosticError('RESTのリンク操作が不正です。');
         if (linkedPublicKey === identity.nodePublicKey && transaction.linkAction === 1)
           found.push({ publicKey, at: await transactionPosition(entry) });
       }
@@ -474,16 +488,16 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
         hex(account.publicKey) !== publicKey ||
         hex(account.address, 48) !== Buffer.from(address.bytes).toString('hex').toUpperCase()
       )
-        throw new Error('RESTのアカウントが探索候補と一致しません。');
+        throw new DiagnosticError('RESTのアカウントが探索候補と一致しません。');
       const supplemental = object(account.supplementalPublicKeys);
       if (supplemental.node === undefined || hex(object(supplemental.node).publicKey) !== identity.nodePublicKey)
         continue;
-      if (!Array.isArray(account.mosaics)) throw new Error('RESTの残高情報が不正です。');
+      if (!Array.isArray(account.mosaics)) throw new DiagnosticError('RESTの残高情報が不正です。');
       const seen = new Set<string>();
       const balances = account.mosaics.map((value: unknown) => {
         const mosaic = object(value);
         const mosaicId = hex(mosaic.id, 16);
-        if (seen.has(mosaicId)) throw new Error('RESTの残高情報が重複しています。');
+        if (seen.has(mosaicId)) throw new DiagnosticError('RESTの残高情報が重複しています。');
         seen.add(mosaicId);
         return { mosaicId, amount: uint64(mosaic.amount) };
       });
@@ -500,10 +514,10 @@ export async function discoverLinkedAccounts(options: DiscoverLinkedAccountsOpti
               hex(transaction.signerPublicKey) !== publicKey ||
               hex(transaction.recipientAddress, 48) !== Buffer.from(nodeAddress.bytes).toString('hex').toUpperCase()
             )
-              throw new Error('RESTの委任先または署名者が一致しません。');
+              throw new DiagnosticError('RESTの委任先または署名者が一致しません。');
             if (transaction.message === undefined) continue;
             if (typeof transaction.message !== 'string' || !/^(?:[0-9a-fA-F]{2})*$/.test(transaction.message))
-              throw new Error('RESTのメッセージが不正です。');
+              throw new DiagnosticError('RESTのメッセージが不正です。');
             const message = transaction.message.toUpperCase();
             if (message.length !== 264 || !message.startsWith(DELEGATION_MARKER)) continue;
             const at = await transactionPosition(entry);
@@ -580,10 +594,18 @@ export async function restoreHarvestersFromCache(options: {
   if (!(options.nodePrivateKey instanceof Uint8Array) || options.nodePrivateKey.length !== 32)
     throw new TypeError('nodePrivateKeyには32バイトの秘密鍵を指定してください。');
   const keyPair = new KeyPair(new PrivateKey(new Uint8Array(options.nodePrivateKey)));
+  let cached: string;
+  try {
+    cached = await readFile(options.cacheFile, 'utf8');
+  } catch (error) {
+    throw new DiagnosticError(
+      `復元キャッシュを読み込めません。${fileErrorDetail(error) ?? '保存先とアクセス権を確認してください。'}`
+    );
+  }
   let cache: ScanCache;
   try {
-    const data = object(JSON.parse(await readFile(options.cacheFile, 'utf8')));
-    if (![144, 152].includes(data.networkIdentifier as number)) throw new Error();
+    const data = object(JSON.parse(cached));
+    if (![144, 152].includes(data.networkIdentifier as number)) throw new DiagnosticError();
     cache = parseCache(data, {
       version: 1,
       networkIdentifier: data.networkIdentifier as number,
@@ -593,10 +615,10 @@ export async function restoreHarvestersFromCache(options: {
       candidates: [],
     });
   } catch {
-    throw new Error('復元キャッシュが不正、またはノード秘密鍵と一致しません。');
+    throw new DiagnosticError('復元キャッシュが不正、またはノード秘密鍵と一致しません。');
   }
   if (!cache.snapshot || cache.pending || cache.snapshot.scannedThrough !== cache.scannedThrough)
-    throw new Error('探索が完了したキャッシュを指定してください。');
+    throw new DiagnosticError('探索が完了したキャッシュを指定してください。');
   const encoder = new MessageEncoder(keyPair);
   const result: RestoreHarvestersResult = { harvesters: [], skippedAccounts: [], checkedAt: cache.snapshot.checkedAt };
   const restored = new Set<string>();
@@ -604,7 +626,7 @@ export async function restoreHarvestersFromCache(options: {
     for (const account of cache.snapshot.activeAccounts) {
       const candidate = cache.candidates.find((entry) => entry.publicKey === account.publicKey);
       if (!candidate || candidate.messages.pending || candidate.messages.scannedThrough !== cache.scannedThrough)
-        throw new Error('委任開始メッセージの探索が完了していません。');
+        throw new DiagnosticError('委任開始メッセージの探索が完了していません。');
       if (!account.linkedPublicKey || !account.vrfPublicKey) {
         result.skippedAccounts.push({ publicKey: account.publicKey, reason: 'missing-harvesting-keys' });
         continue;

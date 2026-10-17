@@ -154,6 +154,8 @@ describe('暗号化・復号CLI', () => {
     await writeFile(jsonFile, '既存の内容');
     const result = run('decrypt', '--input', fixture, '--output', jsonFile, '--key-file', privateFile);
     expect(result.status).toBe(1);
+    expect(result.stderr).toContain('出力ファイルの保存（--output）');
+    expect(result.stderr).toContain('EEXIST');
     expect(await readFile(jsonFile, 'utf8')).toBe('既存の内容');
   });
 
@@ -177,6 +179,8 @@ describe('暗号化・復号CLI', () => {
     const result = run('decrypt', '--input', fixture, '--output', jsonFile, '--key-file', privateFile);
     expect(result.status).toBe(1);
     expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('harvesters.datの復号');
+    expect(result.stderr).toContain('ノード秘密鍵が一致しません');
     expect(result.stderr).not.toContain(wrongKey);
     await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -185,6 +189,7 @@ describe('暗号化・復号CLI', () => {
     await writeFile(privateFile, privateHex);
     const result = run('decrypt', '--input', fixture, '--output', jsonFile, '--key-file', privateFile);
     expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Ed25519 PKCS#8');
     expect(result.stderr).not.toContain(privateHex);
     await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -254,8 +259,89 @@ describe('暗号化・復号CLI', () => {
     await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('読めない入力ファイルで失敗しても出力を作成しない', async () => {
-    expect(run('decrypt', '--input', dataFile, '--output', jsonFile, '--key-file', privateFile).status).toBe(1);
+  it('読めない入力ファイルでは対象オプションと理由を表示する', async () => {
+    const result = run('decrypt', '--input', dataFile, '--output', jsonFile, '--key-file', privateFile);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('入力ファイルの読み込み（--input）');
+    expect(result.stderr).toContain('ENOENT');
+    await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('存在しない鍵ファイルでは入力ファイルの失敗と区別する', () => {
+    const result = run(
+      'decrypt',
+      '--input',
+      fixture,
+      '--output',
+      jsonFile,
+      '--key-file',
+      join(directory, 'missing.pem')
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('ノード秘密鍵の読み込み（--key-file）');
+    expect(result.stderr).toContain('ENOENT');
+  });
+
+  it.each([
+    { input: '{"secret":"秘密の入力"', reason: 'JSON構文' },
+    { input: '{}', reason: 'JSON配列' },
+    { input: '[null]', reason: '1件目は鍵のオブジェクト' },
+    { input: '[{"signingPrivateKey":"秘密の入力"}]', reason: '1件目の signingPrivateKey' },
+    { input: JSON.stringify([{ signingPrivateKey: privateHex }]), reason: '1件目の vrfPrivateKey' },
+  ])('JSONの失敗理由を値を表示せず伝える（$reason）', async ({ input, reason }) => {
+    await writeFile(jsonFile, input);
+    const result = run('encrypt', '--input', jsonFile, '--output', dataFile, '--key-file', privateFile);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(reason);
+    expect(result.stderr).not.toContain('秘密の入力');
+    expect(result.stderr).not.toContain(privateHex);
+    await expect(stat(dataFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('不完全なレコードを認証失敗と区別する', async () => {
+    await writeFile(dataFile, new Uint8Array(123));
+    const result = run('decrypt', '--input', dataFile, '--output', jsonFile, '--key-file', privateFile);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('124バイト単位');
+    await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each([
+    { mock: "return new Response('秘密の応答', { status: 503 });", reason: 'HTTP 503' },
+    { mock: "throw new Error('秘密の例外');", reason: 'RESTへの接続' },
+    { mock: "return new Response('秘密のJSON');", reason: 'RESTのJSON応答' },
+    { mock: 'return Response.json({ networkIdentifier: 0 });', reason: 'MainnetまたはTestnet' },
+  ])('RESTの失敗理由を安全に表示する（$reason）', async ({ mock, reason }) => {
+    const preload = join(directory, 'failed-rest.mjs');
+    await writeFile(preload, `globalThis.fetch = async () => { ${mock} };`);
+    vi.stubEnv('NODE_OPTIONS', `--import=${pathToFileURL(preload).href}`);
+    const result = run('discover', '--output', jsonFile, '--key-file', privateFile);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('委任アカウントの探索');
+    expect(result.stderr).toContain(reason);
+    expect(result.stderr).not.toContain('秘密');
+    expect(result.stderr).not.toContain(privateHex);
+    await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('不正なREST URLを値を表示せず拒否する', () => {
+    const result = run('discover', '--output', jsonFile, '--key-file', privateFile, '--rest-url', '秘密のURL');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('REST URLの形式');
+    expect(result.stderr).not.toContain('秘密のURL');
+  });
+
+  it.each([
+    { contents: undefined, reason: '復元キャッシュを読み込めません' },
+    { contents: '{"secret":"秘密のキャッシュ"', reason: '復元キャッシュが不正' },
+  ])('復元キャッシュの読み込みと内容の失敗を区別する（$reason）', async ({ contents, reason }) => {
+    const cache = join(directory, 'cache.json');
+    if (contents !== undefined) await writeFile(cache, contents);
+    const result = run('restore', '--output', jsonFile, '--key-file', privateFile, '--cache-file', cache);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(reason);
+    expect(result.stderr).not.toContain('秘密のキャッシュ');
     await expect(stat(jsonFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
