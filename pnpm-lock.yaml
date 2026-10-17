@@ -195,6 +195,12 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0
 
+  packages/symbol-harvesters:
+    dependencies:
+      symbol-sdk:
+        specifier: ^3.3.3
+        version: 3.3.3(bitcore-lib@10.10.7)
+
   packages/symbol-nem-interchange-format:
     dependencies:
       '@noble/ciphers':
@@ -867,6 +873,10 @@ packages:
 
   '@noble/hashes@2.2.0':
     resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.3.0':
+    resolution: {integrity: sha512-oN+QwyX7VSHotibwubG3kpzbwKrfnyR6OOO+3Nk/53ADL7FmgHHz4TgrbaYKvvOw09u6QTx0oiH1cNCIOuN0CQ==}
     engines: {node: '>= 20.19.0'}
 
   '@nuxtjs/opencollective@0.3.2':
@@ -2849,6 +2859,9 @@ packages:
   symbol-sdk@3.3.1:
     resolution: {integrity: sha512-kXl8MG/5nIe0V4BHYd4+SYcWhoovQBpFETXyNvo4Q2CPzSzqeDM0eil2W2CKURNG9hkzM+PvGs4Nzz2gIYZAwQ==}
 
+  symbol-sdk@3.3.3:
+    resolution: {integrity: sha512-bPZsEjIb4LS2PeJ5L5fxrHJ/6NlFxtA7MV7j3IYhDnkIIugni4FIHiHtSnBVdikO2bi934Rx5dq3tyAi2oSPnw==}
+
   symbol-tree@3.2.4:
     resolution: {integrity: sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw==}
 
@@ -3801,6 +3814,8 @@ snapshots:
   '@noble/ciphers@2.2.0': {}
 
   '@noble/hashes@2.2.0': {}
+
+  '@noble/hashes@2.3.0': {}
 
   '@nuxtjs/opencollective@0.3.2':
     dependencies:
@@ -5712,6 +5727,17 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.2.0
       '@types/node': 25.9.5
+      bitcore-mnemonic: 11.5.1(bitcore-lib@10.10.7)
+      ripemd160: 2.0.3
+    optionalDependencies:
+      symbol-crypto-wasm-node: 0.1.1
+    transitivePeerDependencies:
+      - bitcore-lib
+
+  symbol-sdk@3.3.3(bitcore-lib@10.10.7):
+    dependencies:
+      '@noble/hashes': 2.3.0
+      '@types/node': 26.2.0
       bitcore-mnemonic: 11.5.1(bitcore-lib@10.10.7)
       ripemd160: 2.0.3
     optionalDependencies:

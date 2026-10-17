@@ -1,0 +1,58 @@
+{
+  "name": "@nemnesia/symbol-harvesters",
+  "version": "0.1.0",
+  "description": "Encrypt and decrypt Symbol harvesters.dat files compatible with Shoestring",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "symbol-harvesters": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "test": "npm run build && vitest run",
+    "test:coverage": "npm run build && vitest run --coverage",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm test && npm run build"
+  },
+  "keywords": [
+    "symbol",
+    "shoestring",
+    "harvesters",
+    "encryption",
+    "harvesting"
+  ],
+  "author": "ccHarvestasya",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nemnesia/symbol-tools.git",
+    "directory": "packages/symbol-harvesters"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "symbol-sdk": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5"
+  }
+}
