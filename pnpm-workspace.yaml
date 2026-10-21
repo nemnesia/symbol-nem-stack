@@ -9,14 +9,10 @@ allowBuilds:
   cbor-extract: false
   esbuild: true
 
-ignoredBuiltDependencies:
-  - '@nestjs/core'
-  - '@openapitools/openapi-generator-cli'
-  - argon2
-
 minimumReleaseAgeExclude:
   - '@nemnesia/symbol-websocket@0.2.2 || 1.0.0'
   - '@nemnesia/nodewatch-openapi-provider@1.1.0'
 
-onlyBuiltDependencies:
-  - esbuild
+permissions:
+  dotenv:
+    skills: true
