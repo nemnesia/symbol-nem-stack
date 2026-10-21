@@ -4,6 +4,7 @@ node_modules/
 *.log
 .venv/
 .reviews/
+.symbol-harvesters-cache/
 
 dist
 coverage
