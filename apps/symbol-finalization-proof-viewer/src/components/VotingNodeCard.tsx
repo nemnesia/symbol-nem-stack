@@ -1,4 +1,8 @@
-import { Check, CheckCircle, ContentCopy, ExpandMore, InfoOutlined } from '@mui/icons-material';
+import Check from '@mui/icons-material/Check';
+import CheckCircle from '@mui/icons-material/CheckCircle';
+import ContentCopy from '@mui/icons-material/ContentCopy';
+import ExpandMore from '@mui/icons-material/ExpandMore';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import {
   Accordion,
   AccordionDetails,
