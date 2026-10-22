@@ -1,9 +1,10 @@
-import { Box } from '@mui/material';
+import { Alert, Box } from '@mui/material';
 import { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
 import { useEffect, useState } from 'react';
 
 import '../App.css';
+import type { FetchStatus } from '../types/votingNode';
 import { fetchNodeWatchSnapshot } from '../utils/nodewatch';
 import ChainInfoCard from './ChainInfoCard';
 import VotingNodeList from './VotingNodeList';
@@ -89,7 +90,8 @@ const fetchPasomiMainnetNode = async (): Promise<Node | null> => {
 };
 
 function FinalizationProofViewerForNetwork({ networkName }: { networkName: NetworkName }) {
-  const [, setHeight] = useState('0');
+  const [attempt, setAttempt] = useState(0);
+  const [discoveryStatus, setDiscoveryStatus] = useState<FetchStatus>('loading');
   const [votingNodes, setVotingNodes] = useState<Node[]>([]);
 
   // URLからフィルターパラメータを取得
@@ -115,6 +117,7 @@ function FinalizationProofViewerForNetwork({ networkName }: { networkName: Netwo
 
         // Pasomiノードの補完は一覧表示を待たせず、取得できた時点で追加する。
         setVotingNodes(votingNodes);
+        setDiscoveryStatus('ready');
 
         if (isMainNet) {
           const hasPasomi = votingNodes.some((node) => {
@@ -134,7 +137,10 @@ function FinalizationProofViewerForNetwork({ networkName }: { networkName: Netwo
         }
       } catch (error) {
         console.error('Failed to fetch voting nodes:', error);
-        if (isActive) setVotingNodes([]);
+        if (isActive) {
+          setVotingNodes([]);
+          setDiscoveryStatus('error');
+        }
       }
     };
 
@@ -143,27 +149,38 @@ function FinalizationProofViewerForNetwork({ networkName }: { networkName: Netwo
     return () => {
       isActive = false;
     };
-  }, [networkName, isInvalidFilter]);
+  }, [networkName, isInvalidFilter, attempt]);
 
   // urlFilterはホスト名に使用される文字のみを許可
   if (isInvalidFilter) {
     return (
-      <Box sx={{ margin: '0 auto', maxWidth: 1024, width: '100%' }}>
-        <Box sx={{ m: 1, color: 'red' }}>
-          Error: Invalid filter parameter. Only alphanumeric characters, dots, and hyphens are allowed.
-        </Box>
+      <Box sx={{ margin: '0 auto', maxWidth: 1200, width: '100%' }}>
+        <Alert severity="error" sx={{ m: 2 }}>
+          URLのfilterには英数字・ドット・ハイフンを指定してください。
+        </Alert>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ margin: '0 auto', maxWidth: 1024, width: '100%' }}>
-      <Box sx={{ m: 1 }}>
-        <ChainInfoCard networkName={networkName} onHeightChange={setHeight} />
+    <Box sx={{ margin: '0 auto', maxWidth: 1200, width: '100%' }}>
+      <Box sx={{ m: { xs: 2, sm: 3 } }}>
+        <ChainInfoCard key={attempt} networkName={networkName} />
       </Box>
 
-      <Box sx={{ m: 1 }}>
-        <VotingNodeList key={networkName} votingNodes={votingNodes} urlFilter={urlFilter} networkName={networkName} />
+      <Box sx={{ m: { xs: 2, sm: 3 } }}>
+        <VotingNodeList
+          key={`${networkName}-${attempt}`}
+          votingNodes={votingNodes}
+          urlFilter={urlFilter}
+          networkName={networkName}
+          discoveryStatus={discoveryStatus}
+          onRetry={() => {
+            setDiscoveryStatus('loading');
+            setVotingNodes([]);
+            setAttempt((value) => value + 1);
+          }}
+        />
       </Box>
     </Box>
   );

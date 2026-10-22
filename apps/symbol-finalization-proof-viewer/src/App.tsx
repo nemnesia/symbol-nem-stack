@@ -3,7 +3,24 @@ import Brightness7Icon from '@mui/icons-material/Brightness7';
 import CheckIcon from '@mui/icons-material/Check';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import FavoriteIcon from '@mui/icons-material/Favorite';
-import { AppBar, Box, Button, Dialog, DialogContent, DialogTitle, FormControlLabel, IconButton, Link, Switch, ThemeProvider, Toolbar, Tooltip, Typography, createTheme, useMediaQuery } from '@mui/material';
+import {
+  AppBar,
+  Box,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Link,
+  ThemeProvider,
+  ToggleButton,
+  ToggleButtonGroup,
+  Toolbar,
+  Tooltip,
+  Typography,
+  createTheme,
+  useMediaQuery,
+} from '@mui/material';
 import { deepPurple } from '@mui/material/colors';
 import { useMemo, useState } from 'react';
 
@@ -39,6 +56,9 @@ function App() {
     const network = isMainnet ? 'mainnet' : 'testnet';
     setNetworkName(network);
     localStorage.setItem('networkName', network);
+    const url = new URL(window.location.href);
+    url.searchParams.set('network', network);
+    window.history.replaceState(null, '', url);
   };
 
   // 初期値はデバイスのテーマ
@@ -59,7 +79,7 @@ function App() {
   );
 
   const handleThemeToggle = () => {
-    setMode((prev) => (prev === 'light' ? 'dark' : 'light'));
+    setMode(currentMode === 'light' ? 'dark' : 'light');
   };
 
   return (
@@ -73,8 +93,12 @@ function App() {
         }}
       >
         <AppBar position="static" color="primary" enableColorOnDark>
-          <Toolbar variant="dense">
-            <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          <Toolbar variant="dense" sx={{ gap: 1, flexWrap: 'wrap', py: 1 }}>
+            <Typography
+              variant="h6"
+              component="div"
+              sx={{ flexGrow: 1, fontSize: { xs: '1rem', sm: '1.25rem' }, flexBasis: { xs: '100%', sm: 'auto' } }}
+            >
               Finalization Proof Viewer
             </Typography>
             <Button
@@ -86,18 +110,19 @@ function App() {
             >
               支援する
             </Button>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={networkName === 'mainnet'}
-                  onChange={(e) => handleNetworkChange(e.target.checked)}
-                  color="secondary"
-                  size="small"
-                />
-              }
-              label={networkName === 'mainnet' ? 'Mainnet' : 'Testnet'}
-              sx={{ color: 'inherit', mr: 1, userSelect: 'none' }}
-            />
+            <ToggleButtonGroup
+              value={networkName}
+              exclusive
+              size="small"
+              aria-label="ネットワーク"
+              onChange={(_, value: 'mainnet' | 'testnet' | null) => {
+                if (value) handleNetworkChange(value === 'mainnet');
+              }}
+              sx={{ bgcolor: 'background.paper', '& .MuiToggleButton-root': { px: 1.5, textTransform: 'none' } }}
+            >
+              <ToggleButton value="mainnet">Mainnet</ToggleButton>
+              <ToggleButton value="testnet">Testnet</ToggleButton>
+            </ToggleButtonGroup>
             <IconButton color="inherit" onClick={handleThemeToggle} aria-label="toggle theme">
               {currentMode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
             </IconButton>
@@ -112,8 +137,20 @@ function App() {
           <Typography variant="body2" sx={{ mb: 2 }}>
             このツールが役に立ったら、Amazonウィッシュリストから支援していただけると嬉しいです。
           </Typography>
-          <Typography variant="body2" sx={{ mb: 1 }}>Symbol (XYM) でも支援を受け付けています。</Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 2, p: 1, bgcolor: 'action.hover', borderRadius: 1 }}>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Symbol (XYM) でも支援を受け付けています。
+          </Typography>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              mb: 2,
+              p: 1,
+              bgcolor: 'action.hover',
+              borderRadius: 1,
+            }}
+          >
             <Typography variant="caption" sx={{ fontFamily: 'monospace', flexGrow: 1, wordBreak: 'break-all' }}>
               NC3XK5WRNQSDZRDBRD6NWL3RHYV5QNLU4WTXODA
             </Typography>
