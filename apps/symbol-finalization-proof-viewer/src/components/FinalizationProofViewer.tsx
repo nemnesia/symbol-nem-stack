@@ -1,10 +1,10 @@
 import { Box } from '@mui/material';
-import { fetchSymbolNodeWatchSnapshot } from '@nemnesia/nodewatch-openapi-provider';
 import { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
-import { type NetworkName, nodewatchMainnetUrls, nodewatchTestnetUrls } from '@nemnesia/symbol-nem-node-picker';
+import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
 import { useEffect, useState } from 'react';
 
 import '../App.css';
+import { fetchNodeWatchSnapshot } from '../utils/nodewatch';
 import ChainInfoCard from './ChainInfoCard';
 import VotingNodeList from './VotingNodeList';
 
@@ -12,31 +12,6 @@ const PASOMI_NODE_HOSTS = ['seattle.pasomi.net', 'pasomi.net', 'shoestring.pasom
 const PASOMI_NODE_INFO_PATH = '/node/info';
 const PASOMI_NODE_INFO_PORT = 3001;
 const PASOMI_NODE_INFO_TIMEOUT_MS = 5000;
-const NODEWATCH_REQUEST_TIMEOUT_MS = 3000;
-
-const fetchSymbolNodeWatchNodes = async (networkName: NetworkName): Promise<Node[]> => {
-  const baseUrls = networkName === 'mainnet' ? nodewatchMainnetUrls : nodewatchTestnetUrls;
-  const controller = new AbortController();
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      controller.abort();
-      reject(new Error('Request timeout'));
-    }, NODEWATCH_REQUEST_TIMEOUT_MS);
-  });
-
-  try {
-    const snapshot = await Promise.race([
-      fetchSymbolNodeWatchSnapshot(baseUrls, { signal: controller.signal }),
-      timeoutPromise,
-    ]);
-    return snapshot.nodes;
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-    controller.abort();
-  }
-};
-
 const parseEndpointHostname = (endpoint: string): string | null => {
   try {
     return new URL(endpoint).hostname;
@@ -113,36 +88,27 @@ const fetchPasomiMainnetNode = async (): Promise<Node | null> => {
   }
 };
 
-function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'testnet' }) {
+function FinalizationProofViewerForNetwork({ networkName }: { networkName: NetworkName }) {
   const [, setHeight] = useState('0');
   const [votingNodes, setVotingNodes] = useState<Node[]>([]);
-  const [votingNodesNetwork, setVotingNodesNetwork] = useState<NetworkName | null>(null);
 
   // URLからフィルターパラメータを取得
   const urlParams = new URLSearchParams(window.location.search);
   const urlFilter = urlParams.get('filter');
 
-  // urlFilterはホスト名に使用される文字のみを許可
-  if (urlFilter && !/^[a-zA-Z0-9.-]*$/.test(urlFilter)) {
-    return (
-      <Box sx={{ margin: '0 auto', maxWidth: 1024, width: '100%' }}>
-        <Box sx={{ m: 1, color: 'red' }}>
-          Error: Invalid filter parameter. Only alphanumeric characters, dots, and hyphens are allowed.
-        </Box>
-      </Box>
-    );
-  }
+  const isInvalidFilter = Boolean(urlFilter && !/^[a-zA-Z0-9.-]*$/.test(urlFilter));
 
   /**
    * Voting Nodes情報取得
    */
   useEffect(() => {
+    if (isInvalidFilter) return;
     let isActive = true;
 
     const fetchVotingNodes = async () => {
       try {
         const isMainNet = networkName === 'mainnet';
-        const nodes = await fetchSymbolNodeWatchNodes(networkName);
+        const { nodes } = await fetchNodeWatchSnapshot(networkName);
         const votingNodes: Node[] = nodes.filter((node) => (node.roles ?? 0) & 4);
 
         if (!isActive) return;
@@ -172,14 +138,23 @@ function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'te
       }
     };
 
-    setVotingNodesNetwork(networkName);
-    setVotingNodes([]);
     fetchVotingNodes();
 
     return () => {
       isActive = false;
     };
-  }, [networkName]);
+  }, [networkName, isInvalidFilter]);
+
+  // urlFilterはホスト名に使用される文字のみを許可
+  if (isInvalidFilter) {
+    return (
+      <Box sx={{ margin: '0 auto', maxWidth: 1024, width: '100%' }}>
+        <Box sx={{ m: 1, color: 'red' }}>
+          Error: Invalid filter parameter. Only alphanumeric characters, dots, and hyphens are allowed.
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ margin: '0 auto', maxWidth: 1024, width: '100%' }}>
@@ -188,15 +163,14 @@ function FinalizationProofViewer({ networkName }: { networkName: 'mainnet' | 'te
       </Box>
 
       <Box sx={{ m: 1 }}>
-        <VotingNodeList
-          key={networkName}
-          votingNodes={votingNodesNetwork === networkName ? votingNodes : []}
-          urlFilter={urlFilter}
-          networkName={networkName}
-        />
+        <VotingNodeList key={networkName} votingNodes={votingNodes} urlFilter={urlFilter} networkName={networkName} />
       </Box>
     </Box>
   );
+}
+
+function FinalizationProofViewer({ networkName }: { networkName: NetworkName }) {
+  return <FinalizationProofViewerForNetwork key={networkName} networkName={networkName} />;
 }
 
 export default FinalizationProofViewer;

@@ -1,4 +1,4 @@
-import { type NetworkName, nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
+import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
 import {
   AccountInfoDTO,
   AccountRoutesApi,
@@ -8,18 +8,14 @@ import {
   FinalizationRoutesApi,
 } from '@nemnesia/symbol-openapi-typescript-fetch-client';
 
+import { pickSymbolNode } from './nodewatch';
+
 export const findAccountByPublicKey = async (
   publicKey: string,
   networkName: NetworkName = 'testnet'
 ): Promise<AccountInfoDTO> => {
   // 利用可能なSymbolノードを取得
-  const symbolNodes = await nemSymbolNodePicker({
-    chainName: 'symbol',
-    network: networkName,
-    count: 1,
-    isSsl: true,
-  });
-  const selectedNode = symbolNodes[0];
+  const selectedNode = await pickSymbolNode(networkName);
 
   const accountRoutesApi = new AccountRoutesApi(new Configuration({ basePath: selectedNode }));
   const accountInfo = await accountRoutesApi.getAccountInfo({ accountId: publicKey });
@@ -32,13 +28,7 @@ export const searchAccountsByPublicKeys = async (
   networkName: NetworkName = 'testnet'
 ): Promise<AccountInfoDTO[]> => {
   // 利用可能なSymbolノードを取得
-  const symbolNodes = await nemSymbolNodePicker({
-    chainName: 'symbol',
-    network: networkName,
-    count: 1,
-    isSsl: true,
-  });
-  const selectedNode = symbolNodes[0];
+  const selectedNode = await pickSymbolNode(networkName);
 
   const accountRoutesApi = new AccountRoutesApi(new Configuration({ basePath: selectedNode }));
 
@@ -53,13 +43,7 @@ export const searchAccountsByPublicKeys = async (
 
 export const findChainInfo = async (networkName: NetworkName = 'testnet') => {
   // 利用可能なSymbolノードを取得
-  const symbolNodes = await nemSymbolNodePicker({
-    chainName: 'symbol',
-    network: networkName,
-    count: 1,
-    isSsl: true,
-  });
-  const selectedNode = symbolNodes[0];
+  const selectedNode = await pickSymbolNode(networkName);
 
   const chainRoutesApi = new ChainRoutesApi(new Configuration({ basePath: selectedNode }));
   const chainInfo = await chainRoutesApi.getChainInfo();
@@ -72,13 +56,7 @@ export const findFinalizationProofAtEpoch = async (
   networkName: NetworkName = 'testnet'
 ): Promise<FinalizationProofDTO> => {
   // 利用可能なSymbolノードを取得
-  const symbolNodes = await nemSymbolNodePicker({
-    chainName: 'symbol',
-    network: networkName,
-    count: 1,
-    isSsl: true,
-  });
-  const selectedNode = symbolNodes[0];
+  const selectedNode = await pickSymbolNode(networkName);
 
   const finalizationRoutesApi = new FinalizationRoutesApi(new Configuration({ basePath: selectedNode }));
   const finalizationProof = await finalizationRoutesApi.getFinalizationProofAtEpoch({ epoch: currentEpoch });

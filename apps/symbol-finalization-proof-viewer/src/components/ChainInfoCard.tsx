@@ -1,8 +1,9 @@
 import { Card, CardContent, Grid, Typography } from '@mui/material';
-import { type NetworkName, nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
+import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
 import { ChainRoutesApi, Configuration } from '@nemnesia/symbol-openapi-typescript-fetch-client';
 import { useEffect, useState } from 'react';
 
+import { pickSymbolNode } from '../utils/nodewatch';
 import { formatStringNumber } from '../utils/numberFormat';
 
 type ChainInfoCardProps = {
@@ -22,15 +23,10 @@ const ChainInfoCard: React.FC<ChainInfoCardProps> = ({ networkName, onHeightChan
 
     const fetchData = async () => {
       // 利用可能なSymbolノードを取得
-      const symbolNodes = await nemSymbolNodePicker({
-        chainName: 'symbol',
-        network: networkName,
-        count: 1,
-        isSsl: true,
-      });
+      const selectedNode = await pickSymbolNode(networkName);
 
       // REST APIを使用してチェーン情報を取得
-      const chainRoutesApi = new ChainRoutesApi(new Configuration({ basePath: symbolNodes[0] }));
+      const chainRoutesApi = new ChainRoutesApi(new Configuration({ basePath: selectedNode }));
       const chainInfo = await chainRoutesApi.getChainInfo();
 
       if (!isActive) return;
@@ -51,7 +47,7 @@ const ChainInfoCard: React.FC<ChainInfoCardProps> = ({ networkName, onHeightChan
     return () => {
       isActive = false;
     };
-  }, [networkName]);
+  }, [networkName, onHeightChange]);
 
   return (
     <Card variant="outlined">

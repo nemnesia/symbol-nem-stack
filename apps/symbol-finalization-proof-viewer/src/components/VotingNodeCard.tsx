@@ -98,7 +98,7 @@ function VotingNodeCard({ votingNodeInfo, finalizationEpoch, stage0Height, stage
             transformOrigin={{ vertical: 'top', horizontal: 'left' }}
           >
             <Box sx={{ p: 1.5, maxWidth: 420 }}>
-              <Typography variant="caption" display="block" sx={{ fontWeight: 'bold' }}>
+              <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold' }}>
                 PublicKey
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -109,7 +109,7 @@ function VotingNodeCard({ votingNodeInfo, finalizationEpoch, stage0Height, stage
                   {copied === 'publicKey' ? <Check fontSize="small" color="success" /> : <ContentCopy fontSize="small" />}
                 </IconButton>
               </Box>
-              <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', mt: 0.5 }}>
+              <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold', mt: 0.5 }}>
                 Address
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
