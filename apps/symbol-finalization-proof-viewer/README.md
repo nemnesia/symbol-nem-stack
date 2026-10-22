@@ -82,6 +82,8 @@ pnpm --filter symbol-finalization-proof-viewer test
 pnpm --filter symbol-finalization-proof-viewer build
 ```
 
+`build`は必要なワークスペース依存を先にビルドしてから、アプリをビルドします。依存パッケージの`dist`がない初回も同じコマンドで実行できます。型検査を初回に実行する場合も、先に`build`で依存の型定義を生成してください。
+
 型検査はアプリ本体とVite設定を対象にします。テストでは検索・署名表示・取得失敗・通貨モザイクの照合などを検証します。
 
 ビルド成果物は`dist/index.html`に出力されます。ビルド結果の確認には次のコマンドを使います。
