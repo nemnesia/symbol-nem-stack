@@ -118,10 +118,33 @@ function App() {
               onChange={(_, value: 'mainnet' | 'testnet' | null) => {
                 if (value) handleNetworkChange(value === 'mainnet');
               }}
-              sx={{ bgcolor: 'background.paper', '& .MuiToggleButton-root': { px: 1.5, textTransform: 'none' } }}
+              sx={{
+                bgcolor: 'background.paper',
+                '& .MuiToggleButton-root': {
+                  px: 1.5,
+                  textTransform: 'none',
+                  color: 'text.primary',
+                  '&.Mui-selected': {
+                    bgcolor: 'secondary.main',
+                    color: 'secondary.contrastText',
+                    fontWeight: 'bold',
+                    '&:hover': { bgcolor: 'secondary.light' },
+                  },
+                },
+              }}
             >
-              <ToggleButton value="mainnet">Mainnet</ToggleButton>
-              <ToggleButton value="testnet">Testnet</ToggleButton>
+              <ToggleButton value="mainnet">
+                <CheckIcon
+                  sx={{ mr: 0.5, fontSize: 16, visibility: networkName === 'mainnet' ? 'visible' : 'hidden' }}
+                />
+                Mainnet
+              </ToggleButton>
+              <ToggleButton value="testnet">
+                <CheckIcon
+                  sx={{ mr: 0.5, fontSize: 16, visibility: networkName === 'testnet' ? 'visible' : 'hidden' }}
+                />
+                Testnet
+              </ToggleButton>
             </ToggleButtonGroup>
             <IconButton color="inherit" onClick={handleThemeToggle} aria-label="toggle theme">
               {currentMode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}

@@ -1,4 +1,4 @@
-import { Alert, Box, Button, LinearProgress, MenuItem, TextField, Typography } from '@mui/material';
+import { Alert, AlertTitle, Box, Button, LinearProgress, MenuItem, TextField, Typography } from '@mui/material';
 import type { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
 import { useEffect, useState } from 'react';
@@ -178,6 +178,15 @@ function VotingNodeList({ votingNodes, urlFilter, networkName, discoveryStatus, 
           再取得
         </Button>
       </Box>
+      <Alert severity="info" sx={{ mb: 2 }}>
+        <AlertTitle>この一覧の見方</AlertTitle>
+        <Typography variant="body2">
+          NodeWatchなどから取得できたノードを表示しています。投票キーをリンクしている全アカウントを網羅しておらず、停止中や取得元に掲載されていないノードが表示されない場合があります。
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 0.5 }}>
+          対象Proofは確定済みのものです。表示中の残高や署名の有無だけでは、現在のファイナライズ可否やノードの稼働状況は判断できません。
+        </Typography>
+      </Alert>
       <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, flexDirection: { xs: 'column', sm: 'row' } }}>
         <TextField
           label="ノードを検索"
