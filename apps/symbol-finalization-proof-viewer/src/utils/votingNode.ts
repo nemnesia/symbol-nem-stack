@@ -7,6 +7,7 @@ import type {
   VotingNodeInfoData,
   VotingPublicKeyInfo,
 } from '../types/votingNode';
+import { isHex, isRecord, isUint32, isUint64String } from './restValidation';
 import type { ExpiryState } from './votingKeyExpiry';
 
 export const keyStatus = (epoch: number | undefined, key: VotingPublicKeyInfo) => {
@@ -30,7 +31,7 @@ export const stageSignatures = (node: VotingNodeInfoData, proof: ProofState, sta
 export const nodeAmount = (node: VotingNodeInfoData, currency: CurrencyState): string | null => {
   if (node.accountStatus !== 'ready' || currency.status !== 'ready' || !currency.mosaicId) return null;
   const amount = node.mosaics?.find((mosaic) => mosaic.id.toUpperCase() === currency.mosaicId)?.amount ?? '0';
-  return /^\d+$/.test(amount) ? amount : null;
+  return isUint64String(amount) ? amount : null;
 };
 
 export const filterVotingNodes = (
@@ -61,17 +62,24 @@ export const filterVotingNodes = (
 };
 
 // Validate the fields consumed by the UI, without claiming cryptographic proof verification.
-export const isDisplayableProof = (proof: FinalizationProofDTO, epoch: number): boolean =>
+export const isDisplayableProof = (proof: unknown, epoch: number): proof is FinalizationProofDTO =>
+  isRecord(proof) &&
+  isUint32(proof.finalizationEpoch) &&
   proof.finalizationEpoch === epoch &&
   Array.isArray(proof.messageGroups) &&
   proof.messageGroups.every(
-    (group) =>
+    (group: unknown) =>
+      isRecord(group) &&
       (group.stage === 0 || group.stage === 1 || group.stage === 2) &&
-      /^\d+$/.test(group.height) &&
+      isUint64String(group.height) &&
+      BigInt(group.height) > 0n &&
       Array.isArray(group.signatures) &&
       group.signatures.every(
-        (signature) =>
-          /^[0-9a-f]{64}$/i.test(signature.root?.parentPublicKey) &&
-          /^[0-9a-f]{128}$/i.test(signature.bottom?.signature)
+        (signature: unknown) =>
+          isRecord(signature) &&
+          isRecord(signature.root) &&
+          isRecord(signature.bottom) &&
+          isHex(signature.root.parentPublicKey, 32) &&
+          isHex(signature.bottom.signature, 64)
       )
   );

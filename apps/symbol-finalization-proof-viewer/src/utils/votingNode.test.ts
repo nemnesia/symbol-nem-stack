@@ -92,6 +92,12 @@ describe('voting node presentation', () => {
 
   it('rejects mismatched epochs and malformed display fields in a proof', () => {
     expect(isDisplayableProof(proofData, 12)).toBe(true);
+    expect(isDisplayableProof(null, 12)).toBe(false);
+    expect(isDisplayableProof({ ...proofData, messageGroups: [null] }, 12)).toBe(false);
+    expect(isDisplayableProof({ ...proofData, messageGroups: [{ ...group(0), height: 100 }] }, 12)).toBe(false);
+    expect(
+      isDisplayableProof({ ...proofData, messageGroups: [{ ...group(0), height: '18446744073709551616' }] }, 12)
+    ).toBe(false);
     expect(isDisplayableProof(proofData, 13)).toBe(false);
     expect(isDisplayableProof({ ...proofData, messageGroups: [{ ...group(0), height: 'unknown' }] }, 12)).toBe(false);
     expect(

@@ -5,6 +5,7 @@ import type {
   ChainInfoDTO,
   FinalizationProofDTO,
 } from '@nemnesia/symbol-openapi-typescript-fetch-client';
+import { AccountInfoDTOFromJSON, ChainInfoDTOFromJSON } from '@nemnesia/symbol-openapi-typescript-fetch-client';
 import { act } from 'react';
 import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,7 +21,8 @@ vi.mock('../utils/restClient', () => ({
   findFinalizationProofAtEpoch: vi.fn(),
 }));
 
-const publicKey = 'A'.repeat(64);
+// Public key/address: _symbol/tests/vectors/symbol/crypto/1.test-address.json, entry 1.
+const publicKey = '2E834140FD66CF87B254A693A2C7862C819217B676D3943267156625E816EC6F';
 const votingKey = 'B'.repeat(64);
 const discoveryNode: Node = {
   mainPublicKey: publicKey,
@@ -52,7 +54,7 @@ const account: AccountInfoDTO = {
   id: 'test',
   account: {
     version: 1,
-    address: '98' + '00'.repeat(23),
+    address: '9826D27E1D0A26CA4E316F901E23E55C8711DB20DFD26776',
     addressHeight: '1',
     publicKey,
     publicKeyHeight: '1',
@@ -177,6 +179,37 @@ describe('voting node screen states', () => {
     expect(container.querySelector('time')).toBeNull();
     expect(container.textContent).toContain('3,500,000.000000 XYM');
     expect(chipLabels().slice(0, 2)).toEqual(['署名なし', '署名なし']);
+  });
+
+  it.each([
+    { ...account.account, publicKey: 'A'.repeat(64) },
+    { ...account.account, address: '6826D27E1D0A26CA4E316F901E23E55C8711DB20DF250DEF' },
+    { ...account.account, mosaics: [{ id: '1234567890ABCDEF', amount: 3500000000000 }] },
+    { ...account.account, mosaics: [{ id: '1234567890ABCDEF', amount: '18446744073709551616' }] },
+  ])('keeps invalid account data out of the display and allows retry %#', async (invalidAccount) => {
+    vi.mocked(rest.findAccountByPublicKey).mockResolvedValue(
+      AccountInfoDTOFromJSON({ id: 'invalid', account: invalidAccount })
+    );
+    const retry = vi.fn();
+    await render([discoveryNode], retry);
+    expect(container.querySelector('article')?.textContent).toContain('アカウント情報の取得失敗');
+    expect(container.textContent).not.toContain('3,500,000.000000 XYM');
+    expect(chipLabels().slice(0, 2)).toEqual(['取得失敗', '取得失敗']);
+    const button = Array.from(container.querySelectorAll('button')).find(
+      (element) => element.textContent === '再取得'
+    )!;
+    await act(async () => button.click());
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a malformed chain response without crashing the account list', async () => {
+    vi.mocked(rest.findChainInfo).mockResolvedValue(
+      ChainInfoDTOFromJSON({ height: '100', scoreHigh: '0', scoreLow: '0' })
+    );
+    await render();
+    expect(container.textContent).toContain('対象Proofを取得できませんでした');
+    expect(container.querySelector('article')).not.toBeNull();
+    expect(rest.findFinalizationProofAtEpoch).not.toHaveBeenCalled();
   });
 
   it('provides a retry action and an explicit empty state', async () => {

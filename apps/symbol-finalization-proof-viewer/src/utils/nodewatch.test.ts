@@ -28,6 +28,41 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('official NodeWatch connections', () => {
+  it('shares one snapshot request during cold and expired cache fan-out', async () => {
+    fetchSnapshot.mockResolvedValue(snapshot());
+    const { pickSymbolNode } = await import('./nodewatch');
+    const selectAll = () => Promise.all(Array.from({ length: 30 }, () => pickSymbolNode('testnet')));
+    expect(await selectAll()).toEqual(Array(30).fill('https://node.example.com:3001'));
+    expect(fetchSnapshot).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60000);
+    await selectAll();
+    expect(fetchSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps concurrent network requests separate', async () => {
+    fetchSnapshot
+      .mockResolvedValueOnce(snapshot([node({ endpoint: 'https://main.example.com' })]))
+      .mockResolvedValueOnce(snapshot([node({ endpoint: 'https://test.example.com' })]));
+    const { pickSymbolNode } = await import('./nodewatch');
+    expect(
+      await Promise.all([pickSymbolNode('mainnet'), pickSymbolNode('testnet'), pickSymbolNode('mainnet')])
+    ).toEqual(['https://main.example.com', 'https://test.example.com', 'https://main.example.com']);
+    expect(fetchSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['failure', 'timeout'])('allows retry after a shared request ends in %s', async (reason) => {
+    if (reason === 'timeout') fetchSnapshot.mockImplementationOnce(() => new Promise(() => {}));
+    else fetchSnapshot.mockRejectedValueOnce(new Error('Unavailable'));
+    const { pickSymbolNode } = await import('./nodewatch');
+    const results = Promise.allSettled(Array.from({ length: 30 }, () => pickSymbolNode('testnet')));
+    if (reason === 'timeout') await vi.advanceTimersByTimeAsync(3000);
+    expect((await results).every((result) => result.status === 'rejected')).toBe(true);
+    expect(fetchSnapshot).toHaveBeenCalledTimes(1);
+    fetchSnapshot.mockResolvedValueOnce(snapshot());
+    expect(await pickSymbolNode('testnet')).toBe('https://node.example.com:3001');
+    expect(fetchSnapshot).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['mainnet', 'https://nodewatch.symbol.tools'],
     ['testnet', 'https://nodewatch.symbol.tools/testnet'],
@@ -58,6 +93,23 @@ describe('official NodeWatch connections', () => {
     fetchSnapshot.mockResolvedValue(snapshot([node({ height: 99 })]));
     const { pickSymbolNode } = await import('./nodewatch');
     await expect(pickSymbolNode('mainnet')).rejects.toThrow('No nodes match the requested criteria');
+  });
+
+  it.each(['http://node.example.com:3000', 'javascript:alert(1)', 'ftp://node.example.com', 'not-a-url'])(
+    'rejects non-HTTPS endpoint %s even when the SSL flag is true',
+    async (endpoint) => {
+      fetchSnapshot.mockResolvedValue(snapshot([node({ endpoint })]));
+      const { pickSymbolNode } = await import('./nodewatch');
+      await expect(pickSymbolNode('testnet')).rejects.toThrow('No nodes match the requested criteria');
+    }
+  );
+
+  it('selects HTTPS when a conflicting HTTP record is present', async () => {
+    fetchSnapshot.mockResolvedValue(
+      snapshot([node({ endpoint: 'http://bad.example.com' }), node({ endpoint: 'https://good.example.com' })])
+    );
+    const { pickSymbolNode } = await import('./nodewatch');
+    expect(await pickSymbolNode('mainnet')).toBe('https://good.example.com');
   });
 
   it('does not fall back to another NodeWatch on failure', async () => {

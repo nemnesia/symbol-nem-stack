@@ -13,6 +13,7 @@ import {
   findFinalizationProofAtEpoch,
   findVotingKeyExpiryReference,
 } from '../utils/restClient';
+import { validateAccountInfo, validateChainInfo } from '../utils/restValidation';
 import type { ExpiryState } from '../utils/votingKeyExpiry';
 import { filterVotingNodes, isDisplayableProof, nodeAmount } from '../utils/votingNode';
 import VotingNodeCard, { NODE_COLUMNS } from './VotingNodeCard';
@@ -64,8 +65,8 @@ function VotingNodeList({ votingNodes, urlFilter, networkName, discoveryStatus, 
     void (async () => {
       try {
         const chain = await findChainInfo(networkName);
+        validateChainInfo(chain);
         const epoch = chain.latestFinalizedBlock.finalizationEpoch;
-        if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('Invalid epoch');
         if (!active) return;
         setProof({ status: 'loading', epoch });
         const result = await findFinalizationProofAtEpoch(epoch, networkName);
@@ -94,23 +95,10 @@ function VotingNodeList({ votingNodes, urlFilter, networkName, discoveryStatus, 
       void (async () => {
         let updated: VotingNodeInfoData;
         try {
-          const { account } = await findAccountByPublicKey(node.publicKey, networkName);
+          const accountInfo = await findAccountByPublicKey(node.publicKey, networkName);
+          validateAccountInfo(accountInfo, node.publicKey, networkName);
+          const { account } = accountInfo;
           const votingKeys = account.supplementalPublicKeys?.voting?.publicKeys ?? [];
-          if (
-            !/^[0-9a-f]{48}$/i.test(account.address) ||
-            !Array.isArray(account.mosaics) ||
-            account.mosaics.some((mosaic) => !/^[0-9a-f]{16}$/i.test(mosaic.id) || !/^\d+$/.test(mosaic.amount)) ||
-            votingKeys.some(
-              (key) =>
-                !/^[0-9a-f]{64}$/i.test(key.publicKey) ||
-                !Number.isSafeInteger(key.startEpoch) ||
-                key.startEpoch < 0 ||
-                !Number.isSafeInteger(key.endEpoch) ||
-                key.startEpoch > key.endEpoch
-            )
-          ) {
-            throw new Error('Invalid account data');
-          }
           updated = {
             ...node,
             accountStatus: 'ready',

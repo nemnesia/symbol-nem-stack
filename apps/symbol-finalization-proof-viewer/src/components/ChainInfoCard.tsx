@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 
 import { formatStringNumber } from '../utils/numberFormat';
 import { findChainInfo } from '../utils/restClient';
+import { validateChainInfo } from '../utils/restValidation';
 
 function ChainInfoCard({ networkName }: { networkName: NetworkName }) {
   const [chain, setChain] = useState<ChainInfoDTO | null>(null);
@@ -13,14 +14,15 @@ function ChainInfoCard({ networkName }: { networkName: NetworkName }) {
 
   useEffect(() => {
     let active = true;
-    void findChainInfo(networkName).then(
-      (result) => {
-        if (active) setChain(result);
-      },
-      () => {
+    void findChainInfo(networkName)
+      .then((result) => {
+        if (!active) return;
+        validateChainInfo(result);
+        setChain(result);
+      })
+      .catch(() => {
         if (active) setFailed(true);
-      }
-    );
+      });
     return () => {
       active = false;
     };
