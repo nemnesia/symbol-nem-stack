@@ -1,237 +1,287 @@
-import { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
+import { Alert, AlertTitle, Box, Button, LinearProgress, MenuItem, TextField, Typography } from '@mui/material';
+import type { Node } from '@nemnesia/nodewatch-openapi-typescript-fetch-client';
 import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
 import { useEffect, useState } from 'react';
 
-import { VotingNodeInfoData } from '../types/votingNode';
+import type { CurrencyState, FetchStatus, NodeFilter, ProofState, VotingNodeInfoData } from '../types/votingNode';
 import { hexToBase32 } from '../utils/hexToBase32';
-import { formatStringNumber, formatXymString } from '../utils/numberFormat';
-import { findAccountByPublicKey, findChainInfo, findFinalizationProofAtEpoch } from '../utils/restClient';
-import VotingNodeCard from './VotingNodeCard';
+import { formatStringNumber } from '../utils/numberFormat';
+import {
+  findAccountByPublicKey,
+  findChainInfo,
+  findCurrencyMosaicId,
+  findFinalizationProofAtEpoch,
+  findVotingKeyExpiryReference,
+} from '../utils/restClient';
+import { validateAccountInfo, validateChainInfo } from '../utils/restValidation';
+import type { ExpiryState } from '../utils/votingKeyExpiry';
+import { filterVotingNodes, isDisplayableProof, nodeAmount } from '../utils/votingNode';
+import VotingNodeCard, { NODE_COLUMNS } from './VotingNodeCard';
 
 interface VotingNodeListProps {
   votingNodes: Node[];
   urlFilter: string | null;
   networkName: NetworkName;
-  onHeightChange?: (height: string) => void;
-  onFinalizationEpochChange?: (epoch: string) => void;
-  onStage0HeightChange?: (height: string) => void;
-  onStage1HeightChange?: (height: string) => void;
+  discoveryStatus: FetchStatus;
+  onRetry: () => void;
 }
 
-function VotingNodeList({
-  votingNodes,
-  urlFilter,
-  networkName,
-  onHeightChange,
-  onFinalizationEpochChange,
-  onStage0HeightChange,
-  onStage1HeightChange,
-}: VotingNodeListProps) {
-  const [votingNodeInfos, setVotingNodeInfos] = useState<VotingNodeInfoData[]>([]);
-  const [finalizationEpoch, setFinalizationEpoch] = useState('0');
-  const [stage0Height, setStage0Height] = useState('0');
-  const [stage1Height, setStage1Height] = useState('0');
+const nodeHost = (endpoint: string) => {
+  try {
+    return new URL(endpoint).hostname;
+  } catch {
+    return endpoint;
+  }
+};
+
+function VotingNodeList({ votingNodes, urlFilter, networkName, discoveryStatus, onRetry }: VotingNodeListProps) {
+  const [accounts, setAccounts] = useState<Record<string, VotingNodeInfoData>>({});
+  const [proof, setProof] = useState<ProofState>({ status: 'loading' });
+  const [currency, setCurrency] = useState<CurrencyState>({ status: 'loading' });
+  const [expiry, setExpiry] = useState<ExpiryState>({ status: 'loading' });
+  const [search, setSearch] = useState(urlFilter ?? '');
+  const [filter, setFilter] = useState<NodeFilter>('all');
+  const hasNodes = votingNodes.length > 0;
 
   useEffect(() => {
-    let isActive = true;
-
-    const fetchData = async () => {
-      // フィルタ(エンドポイント or メイン公開鍵)に一致するノードのみ抽出
-      let filteredVotingNodes = votingNodes;
-      if (urlFilter) {
-        filteredVotingNodes = votingNodes.filter((val) => {
-          return val.endpoint.includes(urlFilter) || val.mainPublicKey.includes(urlFilter);
-        });
+    if (!hasNodes) return;
+    let active = true;
+    void findVotingKeyExpiryReference(networkName).then(
+      (reference) => {
+        if (active) setExpiry({ status: 'ready', reference });
+      },
+      () => {
+        if (active) setExpiry({ status: 'error' });
       }
-
-      // 初期化
-      setVotingNodeInfos([]);
-
-      // 初回（Voting Nodes取得中）やフィルタ不一致時は、チェーン・アカウント情報を取得しない。
-      if (filteredVotingNodes.length === 0) return;
-
-      // ブロック高情報取得
-      const chainInfo = await findChainInfo(networkName);
-      if (!isActive) return;
-      const epoch = chainInfo.latestFinalizedBlock.finalizationEpoch;
-
-      // Stateにセット & 親に通知
-      const height = formatStringNumber(chainInfo.height);
-      const epochStr = formatStringNumber(chainInfo.latestFinalizedBlock.finalizationEpoch.toString());
-
-      onHeightChange?.(height);
-      setFinalizationEpoch(epochStr);
-      onFinalizationEpochChange?.(epochStr);
-
-      // プルーフ取得中にアカウント情報も取得しておき、カード表示までの待ち時間を短縮する。
-      const accountInfoPromises = new Map(
-        filteredVotingNodes.map((votingNode) => [
-          votingNode.mainPublicKey,
-          findAccountByPublicKey(votingNode.mainPublicKey, networkName).catch((error) => {
-            console.warn(`Failed to fetch account info for ${votingNode.mainPublicKey}:`, error);
-            return null;
-          }),
-        ])
-      );
-
-      // ファイナライゼーションプルーフは1回だけ取得
-      const finalizationProof = await findFinalizationProofAtEpoch(epoch, networkName);
-      if (!isActive) return;
-
-      const s0Height = formatStringNumber(finalizationProof.messageGroups[1].height);
-      const s1Height = formatStringNumber(finalizationProof.messageGroups[0].height);
-      setStage0Height(s0Height);
-      setStage1Height(s1Height);
-      onStage0HeightChange?.(s0Height);
-      onStage1HeightChange?.(s1Height);
-
-      // ソート関数
-      const sortNodeInfos = (infos: VotingNodeInfoData[]) => {
-        return infos.sort((a, b) => {
-          // 投票キーを持たないノードは常に最下段にする
-          const aHasVotingKeys = (a.votingPublicKeys?.length ?? 0) > 0;
-          const bHasVotingKeys = (b.votingPublicKeys?.length ?? 0) > 0;
-          if (aHasVotingKeys && !bHasVotingKeys) {
-            return -1;
-          } else if (!aHasVotingKeys && bHasVotingKeys) {
-            return 1;
-          }
-
-          // 投票中のノードを先頭にする
-          if (a.isVoting && !b.isVoting) {
-            return -1;
-          } else if (!a.isVoting && b.isVoting) {
-            return 1;
-          }
-
-          // 同順位はホスト名で昇順
-          return a.host.localeCompare(b.host);
-        });
-      };
-
-      // 各ノードの情報を並列取得し、取得次第画面に反映
-      filteredVotingNodes.forEach(async (votingNode) => {
-        const votingNodeInfoData: VotingNodeInfoData = {
-          host: new URL(votingNode.endpoint).hostname,
-          publicKey: votingNode.mainPublicKey,
-          address: '-',
-          amount: '0 XYM',
-          isVoting: false,
-          votingPublicKeys: [],
-        };
-
-        // アカウント情報検索
-        const accountInfo = await accountInfoPromises.get(votingNode.mainPublicKey)!;
-        if (!isActive) return;
-        if (!accountInfo) {
-          setVotingNodeInfos((prev) => sortNodeInfos([...prev, votingNodeInfoData]));
-          return;
-        }
-
-        // アドレスBase32変換
-        votingNodeInfoData.address = hexToBase32(accountInfo.account.address);
-
-        // アカウント残高取得
-        if (accountInfo.account.mosaics!.length !== 0) {
-          const amount = formatXymString(accountInfo.account.mosaics![0].amount) + ' XYM';
-          votingNodeInfoData.amount = amount;
-        }
-
-        // ファイナライゼーションプルーフの署名取得
-        const votingPublicKeys = accountInfo.account.supplementalPublicKeys?.voting?.publicKeys;
-        if (!votingPublicKeys || votingPublicKeys.length === 0) {
-          setVotingNodeInfos((prev) => sortNodeInfos([...prev, votingNodeInfoData]));
-          return;
-        }
-
-        votingNodeInfoData.votingPublicKeys = votingPublicKeys.map((votingPublicKey) => {
-          let progress = 0;
-          if (epoch < votingPublicKey.startEpoch) {
-            // 未開始
-          } else if (epoch >= votingPublicKey.endEpoch) {
-            // 終了
-            progress = 100;
-          } else {
-            // 進行中
-            progress =
-              ((epoch - votingPublicKey.startEpoch) / (votingPublicKey.endEpoch - votingPublicKey.startEpoch)) * 100;
-          }
-
-          // 投票してるか確認
-          const signatureMap = new Map<string, string>();
-          signatureMap.set('stage0', '-');
-          signatureMap.set('stage1', '-');
-          for (const messageGroup of finalizationProof.messageGroups) {
-            const signature = messageGroup.signatures.find((val) => {
-              return val.root.parentPublicKey === votingPublicKey.publicKey;
-            });
-            if (signature) {
-              signatureMap.set(`stage${messageGroup.stage}`, signature.bottom.signature);
-            }
-          }
-
-          return {
-            votingPublicKey: votingPublicKey.publicKey,
-            startEpoch: votingPublicKey.startEpoch,
-            endEpoch: votingPublicKey.endEpoch,
-            progress: progress,
-            stage0Signature: signatureMap.get('stage0'),
-            stage1Signature: signatureMap.get('stage1'),
-          };
-        });
-
-        votingNodeInfoData.isVoting = votingNodeInfoData.votingPublicKeys.some(
-          (key) => key.stage0Signature !== '-' || key.stage1Signature !== '-'
-        );
-
-        // ソート
-        votingNodeInfoData.votingPublicKeys.sort((a, b) => {
-          const isAInRange = epoch >= a.startEpoch! && epoch <= a.endEpoch!;
-          const isBInRange = epoch >= b.startEpoch! && epoch <= b.endEpoch!;
-
-          if (isAInRange && !isBInRange) {
-            return -1; // aを先に
-          } else if (!isAInRange && isBInRange) {
-            return 1; // bを先に
-          } else {
-            return b.startEpoch! - a.startEpoch!; // startEpochの降順
-          }
-        });
-
-        // 取得完了次第、stateに追加して描画
-        setVotingNodeInfos((prev) => sortNodeInfos([...prev, votingNodeInfoData]));
-      });
-    };
-
-    void fetchData().catch((error) => {
-      if (isActive) console.error('Failed to fetch voting node data:', error);
-    });
-
+    );
+    void findCurrencyMosaicId(networkName).then(
+      (mosaicId) => {
+        if (active) setCurrency({ status: 'ready', mosaicId });
+      },
+      () => {
+        if (active) setCurrency({ status: 'error' });
+      }
+    );
+    void (async () => {
+      try {
+        const chain = await findChainInfo(networkName);
+        validateChainInfo(chain);
+        const epoch = chain.latestFinalizedBlock.finalizationEpoch;
+        if (!active) return;
+        setProof({ status: 'loading', epoch });
+        const result = await findFinalizationProofAtEpoch(epoch, networkName);
+        if (!isDisplayableProof(result, epoch)) throw new Error('Unexpected proof');
+        if (active) setProof({ status: 'ready', epoch, proof: result });
+      } catch {
+        if (active) setProof((current) => ({ status: 'error', epoch: current.epoch }));
+      }
+    })();
     return () => {
-      isActive = false;
+      active = false;
     };
-  }, [
-    votingNodes,
-    urlFilter,
-    networkName,
-    onHeightChange,
-    onFinalizationEpochChange,
-    onStage0HeightChange,
-    onStage1HeightChange,
-  ]);
+  }, [networkName, hasNodes]);
+
+  useEffect(() => {
+    let active = true;
+    const initial = votingNodes
+      .map<VotingNodeInfoData>((node) => ({
+        host: nodeHost(node.endpoint),
+        publicKey: node.mainPublicKey,
+        accountStatus: 'loading',
+        votingPublicKeys: [],
+      }))
+      .sort((a, b) => a.host.localeCompare(b.host));
+    initial.forEach((node) => {
+      void (async () => {
+        let updated: VotingNodeInfoData;
+        try {
+          const accountInfo = await findAccountByPublicKey(node.publicKey, networkName);
+          validateAccountInfo(accountInfo, node.publicKey, networkName);
+          const { account } = accountInfo;
+          const votingKeys = account.supplementalPublicKeys?.voting?.publicKeys ?? [];
+          updated = {
+            ...node,
+            accountStatus: 'ready',
+            address: hexToBase32(account.address),
+            mosaics: account.mosaics,
+            votingPublicKeys: votingKeys.map((key) => ({
+              votingPublicKey: key.publicKey,
+              startEpoch: key.startEpoch,
+              endEpoch: key.endEpoch,
+            })),
+          };
+        } catch {
+          updated = { ...node, accountStatus: 'error' };
+        }
+        if (active) setAccounts((current) => ({ ...current, [node.publicKey]: updated }));
+      })();
+    });
+    return () => {
+      active = false;
+    };
+  }, [votingNodes, networkName]);
+
+  const nodes = votingNodes
+    .map<VotingNodeInfoData>(
+      (node) =>
+        accounts[node.mainPublicKey] ?? {
+          host: nodeHost(node.endpoint),
+          publicKey: node.mainPublicKey,
+          accountStatus: 'loading',
+          votingPublicKeys: [],
+        }
+    )
+    .sort((a, b) => {
+      const amountA = nodeAmount(a, currency);
+      const amountB = nodeAmount(b, currency);
+      if (amountA !== null && amountB !== null) {
+        const balanceA = BigInt(amountA);
+        const balanceB = BigInt(amountB);
+        if (balanceA !== balanceB) return balanceA > balanceB ? -1 : 1;
+      } else if (amountA !== null) {
+        return -1;
+      } else if (amountB !== null) {
+        return 1;
+      }
+      return a.host.localeCompare(b.host);
+    });
+  const visible = filterVotingNodes(nodes, search, filter, proof, currency, expiry);
+  const completed = nodes.filter((node) => node.accountStatus !== 'loading').length;
+  const errors = nodes.filter((node) => node.accountStatus === 'error').length;
+  const loading =
+    discoveryStatus === 'loading' ||
+    (hasNodes &&
+      (completed < nodes.length ||
+        proof.status === 'loading' ||
+        currency.status === 'loading' ||
+        expiry.status === 'loading'));
 
   return (
-    <>
-      {votingNodeInfos.map((votingNodeInfo, index) => (
-        <VotingNodeCard
-          key={index}
-          votingNodeInfo={votingNodeInfo}
-          finalizationEpoch={finalizationEpoch}
-          stage0Height={stage0Height}
-          stage1Height={stage1Height}
+    <Box component="section" aria-label="投票ノード一覧" aria-busy={loading}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+        <Typography variant="h6" component="h2" sx={{ flex: 1 }}>
+          投票ノード
+        </Typography>
+        <Button size="small" variant="outlined" onClick={onRetry} disabled={discoveryStatus === 'loading'}>
+          再取得
+        </Button>
+      </Box>
+      <Alert severity="info" sx={{ mb: 2 }}>
+        <AlertTitle>この一覧の見方</AlertTitle>
+        <Typography variant="body2">
+          NodeWatchなどから取得できたノードを表示しています。投票キーをリンクしている全アカウントを網羅しておらず、停止中や取得元に掲載されていないノードが表示されない場合があります。
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 0.5 }}>
+          対象Proofは確定済みのものです。表示中の残高や署名の有無だけでは、現在のファイナライズ可否やノードの稼働状況は判断できません。
+        </Typography>
+      </Alert>
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, flexDirection: { xs: 'column', sm: 'row' } }}>
+        <TextField
+          label="ノードを検索"
+          placeholder="ホスト名・公開鍵・アドレス"
+          size="small"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          sx={{ flex: 1 }}
+          type="search"
         />
-      ))}
-    </>
+        <TextField
+          select
+          label="表示する状態"
+          size="small"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value as NodeFilter)}
+          sx={{ minWidth: 220 }}
+        >
+          <MenuItem value="all">すべて</MenuItem>
+          <MenuItem value="signed">署名あり（VoteまたはCommit）</MenuItem>
+          <MenuItem value="unsigned">署名なし（VoteまたはCommit）</MenuItem>
+          <MenuItem value="error">取得失敗あり</MenuItem>
+        </TextField>
+      </Box>
+      <Typography variant="body2" color="text.secondary" role="status" sx={{ mb: 1 }}>
+        {discoveryStatus === 'loading' ? 'ノード一覧を取得中…' : `${visible.length} / ${nodes.length} ノード表示`}
+        {hasNodes && ` · アカウント取得 ${completed} / ${nodes.length}件`}
+        {errors > 0 && `（失敗 ${errors}件）`}
+        {proof.epoch !== undefined && ` · 対象Proof Epoch ${formatStringNumber(String(proof.epoch))}`}
+      </Typography>
+      {loading && <LinearProgress aria-label="ノード情報を取得中" sx={{ mb: 2 }} />}
+      {discoveryStatus === 'error' && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          ノード一覧を取得できませんでした。「再取得」でやり直せます。
+        </Alert>
+      )}
+      {hasNodes && proof.status === 'error' && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          対象Proofを取得できませんでした。署名の有無は未確認です。
+        </Alert>
+      )}
+      {hasNodes && currency.status === 'error' && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          通貨情報を取得できなかったため、XYM残高を表示できません。「再取得」でやり直せます。
+        </Alert>
+      )}
+      {discoveryStatus === 'ready' && nodes.length === 0 && (
+        <Alert severity="info">表示できる投票ノードがありません。</Alert>
+      )}
+      {nodes.length > 0 && visible.length === 0 && (
+        <Alert
+          severity="info"
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => {
+                setSearch('');
+                setFilter('all');
+              }}
+            >
+              条件をクリア
+            </Button>
+          }
+        >
+          {loading ? '条件に一致するノードを確認中です。' : '条件に一致するノードがありません。'}
+        </Alert>
+      )}
+      {visible.length > 0 && (
+        <>
+          <Box
+            sx={{
+              display: { xs: 'none', md: 'grid' },
+              gridTemplateColumns: NODE_COLUMNS,
+              gap: 2,
+              px: 2,
+              py: 1,
+              color: 'text.secondary',
+            }}
+          >
+            {['ホスト', '残高（多い順）', 'Vote', 'Commit'].map((label) => (
+              <Typography variant="caption" key={label}>
+                {label}
+              </Typography>
+            ))}
+          </Box>
+          {visible.map((node) => (
+            <VotingNodeCard
+              key={node.publicKey}
+              votingNodeInfo={node}
+              proof={proof}
+              currency={currency}
+              expiry={expiry}
+            />
+          ))}
+        </>
+      )}
+      {hasNodes && (
+        <Typography variant="caption" sx={{ display: 'block', mt: 2, color: 'text.secondary' }}>
+          期限の日付・残り日数は取得時点の推定です。目標ブロック生成間隔を使用しており、生成速度やファイナライズの進行により前後します。日付は端末のタイムゾーン（
+          {Intl.DateTimeFormat().resolvedOptions().timeZone}）で表示します。
+        </Typography>
+      )}
+      <Typography variant="caption" sx={{ display: 'block', mt: 2, color: 'text.secondary' }}>
+        署名あり／なしは、対象Proofと登録済み投票キーの照合結果です。ノードの稼働状況や署名の暗号学的検証結果を表すものではありません。
+      </Typography>
+    </Box>
   );
 }
 

@@ -1,107 +1,101 @@
-import { Card, CardContent, Grid, Typography } from '@mui/material';
-import { type NetworkName, nemSymbolNodePicker } from '@nemnesia/symbol-nem-node-picker';
-import { ChainRoutesApi, Configuration } from '@nemnesia/symbol-openapi-typescript-fetch-client';
+import { Alert, Box, Button, Card, CardContent, Skeleton, Typography } from '@mui/material';
+import type { NetworkName } from '@nemnesia/symbol-nem-node-picker';
+import type { ChainInfoDTO } from '@nemnesia/symbol-openapi-typescript-fetch-client';
 import { useEffect, useState } from 'react';
 
 import { formatStringNumber } from '../utils/numberFormat';
+import { findChainInfo } from '../utils/restClient';
+import { validateChainInfo } from '../utils/restValidation';
 
-type ChainInfoCardProps = {
-  networkName: NetworkName;
-  onHeightChange?: (height: string) => void; // ブロック高が更新されたときに親へ通知
-};
-
-const ChainInfoCard: React.FC<ChainInfoCardProps> = ({ networkName, onHeightChange }) => {
-  // チェーン情報の状態管理
-  const [height, setHeight] = useState('0'); // 最新ブロック高
-  const [finalizedHeight, setFinalizedHeight] = useState('0'); // ファイナライズされたブロック高
-  const [finalizationPoint, setFinalizationPoint] = useState('0'); // ファイナライゼーションポイント
-  const [finalizationEpoch, setFinalizationEpoch] = useState('0'); // ファイナライゼーションエポック
+function ChainInfoCard({ networkName }: { networkName: NetworkName }) {
+  const [chain, setChain] = useState<ChainInfoDTO | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    let isActive = true;
-
-    const fetchData = async () => {
-      // 利用可能なSymbolノードを取得
-      const symbolNodes = await nemSymbolNodePicker({
-        chainName: 'symbol',
-        network: networkName,
-        count: 1,
-        isSsl: true,
+    let active = true;
+    void findChainInfo(networkName)
+      .then((result) => {
+        if (!active) return;
+        validateChainInfo(result);
+        setChain(result);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
       });
-
-      // REST APIを使用してチェーン情報を取得
-      const chainRoutesApi = new ChainRoutesApi(new Configuration({ basePath: symbolNodes[0] }));
-      const chainInfo = await chainRoutesApi.getChainInfo();
-
-      if (!isActive) return;
-
-      // 取得したチェーン情報を状態に設定
-      const initialHeight = formatStringNumber(chainInfo.height.toString());
-      setHeight(initialHeight);
-      // 親コンポーネントへ初期ブロック高を通知
-      onHeightChange?.(initialHeight);
-      setFinalizedHeight(formatStringNumber(chainInfo.latestFinalizedBlock.height.toString()));
-      setFinalizationEpoch(formatStringNumber(chainInfo.latestFinalizedBlock.finalizationEpoch.toString()));
-      setFinalizationPoint(formatStringNumber(chainInfo.latestFinalizedBlock.finalizationPoint.toString()));
-    };
-    void fetchData().catch((error) => {
-      if (isActive) console.error('Failed to fetch chain info:', error);
-    });
-
     return () => {
-      isActive = false;
+      active = false;
     };
-  }, [networkName]);
+  }, [networkName, attempt]);
+
+  const values = [
+    ['最新ブロック高', chain?.height],
+    ['確定済みブロック高', chain?.latestFinalizedBlock.height],
+    ['確定済みEpoch', chain?.latestFinalizedBlock.finalizationEpoch],
+    ['Finalization Point', chain?.latestFinalizedBlock.finalizationPoint],
+  ] as const;
 
   return (
-    <Card variant="outlined">
+    <Card component="section" aria-label="チェーン情報" variant="outlined" sx={{ borderRadius: 2 }}>
       <CardContent>
-        <Typography variant="h6">Chain Info</Typography>
-
-        <Grid container spacing={0.5}>
-          {/* ブロック高 */}
-          <Grid size={{ xs: 6, sm: 3, md: 3 }} sx={{ textAlign: 'right' }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Block Height
-            </Typography>
-            <Typography variant="body1" sx={{ color: 'text.primary' }}>
-              {height}
-            </Typography>
-          </Grid>
-
-          {/* ファイナライズブロック高 */}
-          <Grid size={{ xs: 6, sm: 3, md: 3 }} sx={{ textAlign: 'right' }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Finalized Height
-            </Typography>
-            <Typography variant="body1" sx={{ color: 'text.primary' }}>
-              {finalizedHeight}
-            </Typography>
-          </Grid>
-
-          {/* ファイナライズエポック */}
-          <Grid size={{ xs: 6, sm: 3, md: 3 }} sx={{ textAlign: 'right' }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Finalized Epoch
-            </Typography>
-            <Typography variant="body1" sx={{ color: 'text.primary' }}>
-              {finalizationEpoch}
-            </Typography>
-          </Grid>
-
-          {/* ファイナライズポイント */}
-          <Grid size={{ xs: 6, sm: 3, md: 3 }} sx={{ textAlign: 'right' }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Finalization Point
-            </Typography>
-            <Typography variant="body1" sx={{ color: 'text.primary' }}>
-              {finalizationPoint}
-            </Typography>
-          </Grid>
-        </Grid>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <Typography variant="h6" component="h2">
+            チェーン情報
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', ml: 'auto' }}>
+            {networkName === 'mainnet' ? 'Mainnet' : 'Testnet'} · 取得時点
+          </Typography>
+        </Box>
+        {failed ? (
+          <Alert
+            severity="error"
+            action={
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  setFailed(false);
+                  setChain(null);
+                  setAttempt((value) => value + 1);
+                }}
+              >
+                再取得
+              </Button>
+            }
+          >
+            チェーン情報を取得できませんでした。
+          </Alert>
+        ) : (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+              gap: 2,
+            }}
+          >
+            {values.map(([label, value]) => (
+              <Box key={label} sx={{ minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {label}
+                </Typography>
+                {value === undefined ? (
+                  <Skeleton aria-label={`${label}を取得中`} width="80%" height={32} />
+                ) : (
+                  <Typography
+                    variant="h6"
+                    component="p"
+                    sx={{ fontVariantNumeric: 'tabular-nums', overflowWrap: 'anywhere' }}
+                  >
+                    {formatStringNumber(String(value))}
+                  </Typography>
+                )}
+              </Box>
+            ))}
+          </Box>
+        )}
       </CardContent>
     </Card>
   );
-};
+}
 
 export default ChainInfoCard;

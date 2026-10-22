@@ -1,26 +1,105 @@
-# Symbol Finalization Proof
+# Symbol Finalization Proof Viewer
 
-## What is this?
+SymbolのファイナライゼーションProofと、各ノードのアカウントに登録された投票キーを照合するビューアーです。MainnetとTestnetを切り替え、ノードごとの残高、Vote・Commitの署名の有無、投票キーの有効期間を確認できます。
 
-Displays the expiration date and voting status of each node's Voting Key.
+## 画面の使い方
 
-![Symbol Finalization Proof](https://sakia.harvestasya.com:3001/metadata/metal/Fe2UcYgkkeYbTxnTVBcox8mLjdbV12WTzbEfKQyCiZg8ir)
+- **ネットワーク**：画面上部のMainnet／Testnetで切り替えます。起動時はURLの`network`、ブラウザーに保存された選択、Testnetの順で決定します。切り替え時はURLと保存された選択も更新します。
+- **チェーン情報**：取得時点の最新ブロック高、確定済みブロック高、確定済みEpoch、Finalization Pointを表示します。
+- **検索**：ホスト名・メイン公開鍵・アドレスを、大文字と小文字を区別せず部分一致で検索します。検索は取得済みデータに対して行い、入力による再取得は行いません。アドレスはアカウント情報の取得後に検索できます。
+- **状態フィルター**：「すべて」「署名あり」「署名なし」「取得失敗あり」で絞り込めます。「署名あり」はVoteまたはCommitに署名があるノード、「署名なし」はいずれかに署名がないノードです。一方のみに署名があるノードは両方の条件に一致します。取得中・取得失敗の署名は「署名なし」に含めません。
+- **ノード一覧**：XYM残高の多い順に表示します。同額ではホスト名順とし、残高を取得中・取得失敗のノードは末尾に置きます。PCではホスト・残高・Vote・Commitを列で揃え、狭い画面ではカード内で折り返します。ノードの詳細ボタンからホスト名、メイン公開鍵、アドレスを確認・コピーできます。
+- **投票キー**：対象ProofのEpochで有効なキーを常時表示し、過去・次回のキーは折りたたみます。開始Epochと終了Epochを含む期間を`Current`、開始前を`Next`、終了後を`Expired`として表示します。対象Epochを取得できない場合は期間未確認として表示します。
+- **期限の目安**：Epochの範囲の右隣に、推定日と取得時点の残り日数を表示します。狭い画面では折り返します。
+- **署名の詳細**：署名がある場合は「Vote / Commit の証明詳細」から、両方の署名データをまとめて開閉できます。各ステージに対応するHeightも表示します。
+- **再取得**：一覧上部の「再取得」でノード一覧・アカウント・Proof・残高・期限推定に必要な情報・チェーン情報を読み直します。自動で定期更新する画面ではありません。チェーン情報だけの取得失敗時には、その欄からも再取得できます。
 
-## Usage
+### 読み込みと取得失敗
 
-Since it is stored on Symbol Testnet, you can refer to it from the following URLs.
+取得中の数値にはプレースホルダーや「取得中」を表示します。取得失敗を残高ゼロや署名なしとして表示しません。ノード一覧の取得失敗、対象Proofの取得失敗、通貨情報の取得失敗、各アカウントの取得失敗を区別します。
 
-- https://2.dusanjp.com:3001/metadata/metal/Fe6oYrDhsxNVFbREXsxHgfGoUQXJX1cvZHoL6tpY5otQsj
-- https://sakia.harvestasya.com:3001/metadata/metal/Fe6oYrDhsxNVFbREXsxHgfGoUQXJX1cvZHoL6tpY5otQsj
+チェーン情報・アカウント情報・Proofは、表示に使用する構造と型を検証します。数量はuint64の範囲内の文字列に限定し、アカウントの公開鍵とアドレスが照会した公開鍵・選択ネットワークに対応することも確認します。不正な応答は取得失敗として扱い、再取得できます。この検証はRESTデータ全体の真正性や署名の正しさを保証するものではありません。
 
-You can filter by hostname using the `filter` parameter.
+取得済みのノードがない場合は空の一覧であることを表示し、検索条件に一致するノードがない場合は条件のクリアボタンを表示します。
 
-For example, to filter by `harvestasya.com`:
-https://sakia.harvestasya.com:3001/metadata/metal/Fe6oYrDhsxNVFbREXsxHgfGoUQXJX1cvZHoL6tpY5otQsj?filter=harvestasya.com
+### 表示の意味
 
-## Build
+一覧の上部に、表示範囲と判定に関する注意書きを常時表示します。ノード一覧はNodeWatchの取得結果とMainnetのPasomi補完処理に基づいており、投票キーをリンクしている全アカウントを網羅していません。停止中や取得元に掲載されていないノードが表示されない場合があります。一覧に見つからないことから、投票キーが未登録であるとは判断できません。
+
+対象Proofは確定済みのものであり、未確定ラウンドの途中経過は表示しません。表示中の現在残高や署名の有無だけでは、現在のファイナライズ可否を判断できません。対象Epochの正確な投票ウェイトと確定閾値による判定は行っていません。
+
+VoteはRESTのステージ0（Prevote）、Commitはステージ1（Precommit）に対応します。署名は、対象Proof内の各ステージと、アカウントに登録済みのすべての投票キーを照合します。
+
+「署名あり」は、対象Proofに対応する署名データが見つかったという意味です。署名の暗号学的検証は行いません。「署名なし」も、ノードの停止や投票不能を意味するものではありません。ノード一覧・アカウント・チェーン情報・Proofは別々のリクエストで取得します。
+
+XYM残高は、選択中のネットワークから取得した通貨モザイクIDで照合し、モザイクのdivisibilityが6であることを確認して表示します。通貨情報を確認できない場合は残高を表示しません。従来の残高比較基準である3,000,000 XYM以上／未満も表示します。この比較だけで投票資格を判定するものではありません。
+
+### 投票キーの期限推定
+
+選択中のネットワークから`votingSetGrouping`、`blockGenerationTargetTime`、`epochAdjustment`と基準ブロックの高さ・時刻を取得します。終了Epochを含む最後のブロック高までの残りブロック数に、目標ブロック生成間隔を掛けて日付を推定します。ブロックの時刻は`epochAdjustment`を加えて日時に変換します。Mainnet／Testnetの値は固定せず、それぞれの取得結果を使用します。
+
+日付は端末のタイムゾーンで表示し、残り日数は取得時点からの時間を日単位で切り上げます。1日未満の場合は「1日未満」と表示します。ブロック生成速度やファイナライズの進行により前後する目安であり、期限切れを日付だけで判定しません。
+
+対象ProofのEpochが終了Epochを超えたキーは期限切れとして表示し、過去の失効日時は推定しません。終了Epochに対応するブロック高にすでに到達し、対象ProofのEpochではまだ期限切れでない場合は「対象ブロック高に到達（Epoch移行待ち）」と表示します。必要な情報の欠落・取得失敗、不正値、基準ブロックが古く推定日時が過去になる場合は、日付を表示しません。全体の「再取得」で推定も更新できます。
+
+計算の根拠は、[技術リファレンス](../../docs/knowledge/symbol-technicalref-jp.pdf)のEpochの定義、Catapultの[Epoch終了ブロック高の計算](../../_symbol/client/catapult/src/catapult/model/VotingSet.cpp)、RESTのネットワーク設定・ブロック時刻です。利用中の生成済みRESTモデルには`votingSetGrouping`が含まれないため、期限推定ではRESTの生レスポンスから読み取り、検証しています。
+
+## URLによる初期設定
+
+```text
+?network=mainnet&filter=example.com
+?network=testnet&filter=example.com
+```
+
+`filter`は検索欄の初期値です。URLでは英数字・ドット・ハイフンを指定できます。画面内で検索文字列を変更してもURLの`filter`は書き換えません。
+
+### 既存の配信先
+
+次のURLはSymbol Testnet上の公開版の配信先です。ローカルの変更やビルド結果は自動反映されません。
+
+- [配信先1](https://2.dusanjp.com:3001/metadata/metal/Fe6oYrDhsxNVFbREXsxHgfGoUQXJX1cvZHoL6tpY5otQsj)
+- [配信先2](https://sakia.harvestasya.com:3001/metadata/metal/Fe6oYrDhsxNVFbREXsxHgfGoUQXJX1cvZHoL6tpY5otQsj)
+
+## 開発
+
+モノレポのルートで、リポジトリの`package.json`に指定されたpnpmと、依存パッケージが対応するNode.jsを使用してください。
 
 ```bash
-yarn
-yarn build
+pnpm install
+pnpm --filter symbol-finalization-proof-viewer dev
 ```
+
+開発サーバーのURLは起動ログに表示されます。NodeWatchやSymbol REST APIへの接続にはネットワークアクセスが必要です。
+
+### 検証
+
+以下のコマンドをリポジトリのルートで実行します。
+
+```bash
+pnpm --filter symbol-finalization-proof-viewer typecheck
+pnpm --filter symbol-finalization-proof-viewer lint
+pnpm --filter symbol-finalization-proof-viewer test
+pnpm --filter symbol-finalization-proof-viewer build
+```
+
+型検査はアプリ本体とVite設定を対象にします。テストでは検索・署名表示・取得失敗・通貨モザイクの照合などを検証します。
+
+ビルド成果物は`dist/index.html`に出力されます。ビルド結果の確認には次のコマンドを使います。
+
+```bash
+pnpm --filter symbol-finalization-proof-viewer preview
+```
+
+## データ取得先
+
+NodeWatchはMainnetで`https://nodewatch.symbol.tools`、Testnetで`https://nodewatch.symbol.tools/testnet`を使用します。ノード選択用のスナップショットはネットワークごとに60秒キャッシュします。NodeWatchリクエストのタイムアウトは3秒です。
+
+ノード選択が並列に呼び出された場合は、同じネットワークの取得中リクエストを共有します。取得失敗やタイムアウト後は、次の呼び出しで再試行できます。
+
+REST接続先は、SSL対応フラグに加え、URL自体の通信方式がHTTPSであることを確認して選択します。
+
+Mainnetでは既存のPasomi補完処理も利用し、取得できたノードを一覧に追加します。
+
+## ライセンス
+
+[LICENSE](./LICENSE)を参照してください。
